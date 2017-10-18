@@ -11,5 +11,8 @@ VertexShader(pos(POSITION): f4, uv(TEXCOORD0): f2):
     out _(TEXCOORD0) = uv
 
 FragmentShader(uv(TEXCOORD0): f2):
+    # descriptor
     uniform texture(set = 0, binding = 0): sampler2
-    out _(SV_Target) = texture.sample(uv)
+    # push constant
+    constant multiply(0): f4
+    out _(SV_Target) = texture.sample(uv) * multiply

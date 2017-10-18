@@ -7,6 +7,8 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::cell::RefCell;
 use std;
 
+use regex::Regex;
+
 /// 2なら1, 4なら2, 8なら3...
 static mut TAB_ALIGNED_BITS: usize = 1;
 
@@ -38,12 +40,25 @@ pub enum Token<'s>
 {
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>),
     Operator(Source<'s>), Equal(Location), Arrow(Location), BeginEnclosure(Location, EnclosureKind), EndEnclosure(Location, EnclosureKind),
-    ListDelimiter(Location), StatementDelimiter(Location), ItemDescriptorDelimiter(Location), ObjectDescender(Location), EOF
+    ListDelimiter(Location), StatementDelimiter(Location), ItemDescriptorDelimiter(Location), ObjectDescender(Location), EOF,
+
+    Keyword(Location, Keyword), Semantics(Location, Semantics), BasicType(Location, BType)
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnclosureKind { Parenthese, Bracket, Brace }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Keyword { In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Semantics { Position(usize), SVPosition, Texcoord(usize), Color(usize) }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BType
+{
+    Bool, Uint, Int, Float, Double, FVec(usize), IVec(usize), UVec(usize), DVec(usize),
+    FMat(usize, usize), DMat(usize, usize), IMat(usize, usize), UMat(usize, usize),
+    Sampler(usize), Texture(usize)
+}
 
 pub struct TokenizerCache<'s: 't, 't> { counter: usize, cache: &'t RefCell<Vec<Token<'s>>>, source: &'t RefCell<Source<'s>> }
 impl<'s: 't, 't> TokenizerCache<'s, 't>
@@ -201,7 +216,84 @@ impl<'s> Source<'s>
         {
             let (c, b) = self.slice.chars().take_while(|&c| c.is_alphanumeric() || c == '_').fold((0, 0), |(cc, bb), c| (cc + 1, bb + c.len_utf8()));
             assert!(c > 0);
-            Some(Token::Identifier(self.split(b, c)))
+            let s = self.split(b, c);
+
+            lazy_static! {
+                static ref RE_POSITION: Regex = Regex::new(r"^P(?i)osition(\d+)?").unwrap();
+                static ref RE_TEXCOORD: Regex = Regex::new(r"^T(?i)excoord(\d+)?").unwrap();
+                static ref RE_COLOR: Regex = Regex::new(r"^C(?i)olor(\d+)?").unwrap();
+                static ref RE_SV_POSITION: Regex = Regex::new(r"^SV_P(?i)osition").unwrap();
+                static ref RE_FV: Regex = Regex::new(r"^f(\d)").unwrap();
+                static ref RE_DV: Regex = Regex::new(r"^d(\d)").unwrap();
+                static ref RE_IV: Regex = Regex::new(r"^i(\d)").unwrap();
+                static ref RE_UV: Regex = Regex::new(r"^u(\d)").unwrap();
+                static ref RE_MF: Regex = Regex::new(r"^mf(\d)(\d)?").unwrap();
+                static ref RE_MD: Regex = Regex::new(r"^md(\d)(\d)?").unwrap();
+                static ref RE_MI: Regex = Regex::new(r"^mi(\d)(\d)?").unwrap();
+                static ref RE_MU: Regex = Regex::new(r"^mu(\d)(\d)?").unwrap();
+                static ref RE_SAMPLER: Regex = Regex::new(r"^sampler(\d)").unwrap();
+                static ref RE_TEXTURE: Regex = Regex::new(r"^texture(\d)").unwrap();
+            }
+
+            match s.slice
+            {
+                "in" => Some(Token::Keyword(s.pos, Keyword::In)),
+                "out" => Some(Token::Keyword(s.pos, Keyword::Out)),
+                "uniform" => Some(Token::Keyword(s.pos, Keyword::Uniform)),
+                "constant" => Some(Token::Keyword(s.pos, Keyword::Constant)),
+                "set" => Some(Token::Keyword(s.pos, Keyword::Set)),
+                "binding" => Some(Token::Keyword(s.pos, Keyword::Binding)),
+                "VertexShader" => Some(Token::Keyword(s.pos, Keyword::VertexShader)),
+                "FragmentShader" => Some(Token::Keyword(s.pos, Keyword::FragmentShader)),
+                "bool" => Some(Token::BasicType(s.pos, BType::Bool)),
+                "int" => Some(Token::BasicType(s.pos, BType::Int)),
+                "uint" => Some(Token::BasicType(s.pos, BType::Uint)),
+                "float" => Some(Token::BasicType(s.pos, BType::Float)),
+                "double" => Some(Token::BasicType(s.pos, BType::Double)),
+                _ => if let Some(c) = RE_FV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::FVec(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_DV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::DVec(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_IV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::IVec(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_UV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::UVec(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_MF.captures(s.slice)
+                {
+                    let n = c[1].parse().unwrap(); let n2 = c.get(2).map(|s| s.as_str().parse().unwrap()).unwrap_or(n);
+                    Some(Token::BasicType(s.pos, BType::FMat(n, n2)))
+                }
+                else if let Some(c) = RE_MD.captures(s.slice)
+                {
+                    let n = c[1].parse().unwrap(); let n2 = c.get(2).map(|s| s.as_str().parse().unwrap()).unwrap_or(n);
+                    Some(Token::BasicType(s.pos, BType::DMat(n, n2)))
+                }
+                else if let Some(c) = RE_MI.captures(s.slice)
+                {
+                    let n = c[1].parse().unwrap(); let n2 = c.get(2).map(|s| s.as_str().parse().unwrap()).unwrap_or(n);
+                    Some(Token::BasicType(s.pos, BType::IMat(n, n2)))
+                }
+                else if let Some(c) = RE_MU.captures(s.slice)
+                {
+                    let n = c[1].parse().unwrap(); let n2 = c.get(2).map(|s| s.as_str().parse().unwrap()).unwrap_or(n);
+                    Some(Token::BasicType(s.pos, BType::UMat(n, n2)))
+                }
+                else if let Some(c) = RE_SAMPLER.captures(s.slice) { Some(Token::BasicType(s.pos, BType::Sampler(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_TEXTURE.captures(s.slice) { Some(Token::BasicType(s.pos, BType::Texture(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_POSITION.captures(s.slice)
+                {
+                    let n = c.get(1).map(|s| s.as_str().parse().unwrap()).unwrap_or(0);
+                    Some(Token::Semantics(s.pos, Semantics::Position(n)))
+                }
+                else if let Some(c) = RE_TEXCOORD.captures(s.slice)
+                {
+                    let n = c.get(1).map(|s| s.as_str().parse().unwrap()).unwrap_or(0);
+                    Some(Token::Semantics(s.pos, Semantics::Texcoord(n)))
+                }
+                else if let Some(c) = RE_COLOR.captures(s.slice)
+                {
+                    let n = c.get(1).map(|s| s.as_str().parse().unwrap()).unwrap_or(0);
+                    Some(Token::Semantics(s.pos, Semantics::Color(n)))
+                }
+                else if RE_SV_POSITION.is_match(s.slice) { Some(Token::Semantics(s.pos, Semantics::SVPosition)) }
+                else { Some(Token::Identifier(s)) }
+            }
         }
         else { None }
     }
@@ -228,8 +320,8 @@ impl<'s> Source<'s>
         }
         else
         {
-            let ss = self.split(ipart_b + 1, ipart_c + 1);
-            Some(Token::NumericF(ss, self.numeric_ty()))
+            let ss = self.split(ipart_b, ipart_c);
+            Some(Token::Numeric(ss, self.numeric_ty()))
         }
     }
     fn numeric_ty(&mut self) -> Option<NumericTy>

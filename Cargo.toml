@@ -1,6 +1,7 @@
 [package]
+authors = ["S.Percentage"]
 name = "pureshader"
 version = "0.1.0"
-authors = ["S.Percentage"]
-
 [dependencies]
+lazy_static = "*"
+regex = "*"
