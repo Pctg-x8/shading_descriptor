@@ -39,8 +39,8 @@ impl<'s> Source<'s>
 pub enum Token<'s>
 {
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>),
-    Operator(Source<'s>), Equal(Location), Arrow(Location), BeginEnclosure(Location, EnclosureKind), EndEnclosure(Location, EnclosureKind),
-    ListDelimiter(Location), StatementDelimiter(Location), ItemDescriptorDelimiter(Location), ObjectDescender(Location), EOF,
+    Operator(Source<'s>), Equal(Location), Arrow(Location), TyArrow(Location), BeginEnclosure(Location, EnclosureKind), EndEnclosure(Location, EnclosureKind),
+    ListDelimiter(Location), StatementDelimiter(Location), ItemDescriptorDelimiter(Location), ObjectDescender(Location), EOF, Placeholder(Location),
 
     Keyword(Location, Keyword), Semantics(Location, Semantics), BasicType(Location, BType)
 }
@@ -51,7 +51,7 @@ pub enum EnclosureKind { Parenthese, Bracket, Brace }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword
 {
-    In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
+    Let, In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
     DepthTest, DepthWrite, StencilTest, Blend,
     // blend ops //
     Add, Sub,
@@ -246,6 +246,8 @@ impl<'s> Source<'s>
 
             match s.slice
             {
+                "_" => Some(Token::Placeholder(s.pos)),
+                "let" => Some(Token::Keyword(s.pos, Keyword::Let)),
                 "in" => Some(Token::Keyword(s.pos, Keyword::In)),
                 "out" => Some(Token::Keyword(s.pos, Keyword::Out)),
                 "uniform" => Some(Token::Keyword(s.pos, Keyword::Uniform)),
@@ -337,6 +339,7 @@ impl<'s> Source<'s>
     /// ```
     pub fn numeric(&mut self) -> Option<Token<'s>>
     {
+        if !self.slice.starts_with(|c: char| c.is_digit(10)) { return None; }
         let (ipart_c, ipart_b) = self.slice.chars().take_while(|&c| c.is_digit(10) || c == '_').fold((0, 0), |(cc, bb), c| (cc + 1, bb + c.len_utf8()));
         if ipart_c <= 0 { return None; }
         let s_rest = &self.slice[ipart_b..];
@@ -391,6 +394,7 @@ impl<'s> Source<'s>
             let ss = self.split(b, c);
             if ss.slice == "=" || ss.slice == "＝" { Some(Token::Equal(ss.pos)) }
             else if ss.slice == "=>" || ss.slice == "＝＞" || ss.slice == "=＞" || ss.slice == "＝>" { Some(Token::Arrow(ss.pos)) }
+            else if ss.slice == "->" || ss.slice == "ー＞" || ss.slice == "-＞" || ss.slice == "ー>" { Some(Token::TyArrow(ss.pos)) }
             else { Some(Token::Operator(ss)) }
         }
         else { None }
