@@ -49,9 +49,17 @@ pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnclosureKind { Parenthese, Bracket, Brace }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Keyword { In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader }
+pub enum Keyword
+{
+    In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader,
+    DepthTest, DepthWrite, StencilTest, Blend,
+    // blend ops //
+    Add, Sub,
+    // blend factors //
+    SrcColor, SrcAlpha, DestColor, DestAlpha, ConstantFactor
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Semantics { Position(usize), SVPosition, Texcoord(usize), Color(usize) }
+pub enum Semantics { Position(usize), SVPosition, Texcoord(usize), Color(usize), SVTarget }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BType
 {
@@ -223,6 +231,7 @@ impl<'s> Source<'s>
                 static ref RE_TEXCOORD: Regex = Regex::new(r"^T(?i)excoord(\d+)?").unwrap();
                 static ref RE_COLOR: Regex = Regex::new(r"^C(?i)olor(\d+)?").unwrap();
                 static ref RE_SV_POSITION: Regex = Regex::new(r"^SV_P(?i)osition").unwrap();
+                static ref RE_SV_TARGET: Regex = Regex::new(r"^SV_T(?i)arget").unwrap();
                 static ref RE_FV: Regex = Regex::new(r"^f(\d)").unwrap();
                 static ref RE_DV: Regex = Regex::new(r"^d(\d)").unwrap();
                 static ref RE_IV: Regex = Regex::new(r"^i(\d)").unwrap();
@@ -245,6 +254,17 @@ impl<'s> Source<'s>
                 "binding" => Some(Token::Keyword(s.pos, Keyword::Binding)),
                 "VertexShader" => Some(Token::Keyword(s.pos, Keyword::VertexShader)),
                 "FragmentShader" => Some(Token::Keyword(s.pos, Keyword::FragmentShader)),
+                "DepthTest" => Some(Token::Keyword(s.pos, Keyword::DepthTest)),
+                "DepthWrite" => Some(Token::Keyword(s.pos, Keyword::DepthWrite)),
+                "StencilTest" => Some(Token::Keyword(s.pos, Keyword::StencilTest)),
+                "Blend" => Some(Token::Keyword(s.pos, Keyword::Blend)),
+                "Add" => Some(Token::Keyword(s.pos, Keyword::Add)),
+                "Sub" => Some(Token::Keyword(s.pos, Keyword::Sub)),
+                "SrcColor" => Some(Token::Keyword(s.pos, Keyword::SrcColor)),
+                "SrcAlpha" => Some(Token::Keyword(s.pos, Keyword::SrcAlpha)),
+                "DestColor" => Some(Token::Keyword(s.pos, Keyword::DestColor)),
+                "DestAlpha" => Some(Token::Keyword(s.pos, Keyword::DestAlpha)),
+                "ConstantFactor" => Some(Token::Keyword(s.pos, Keyword::ConstantFactor)),
                 "bool" => Some(Token::BasicType(s.pos, BType::Bool)),
                 "int" => Some(Token::BasicType(s.pos, BType::Int)),
                 "uint" => Some(Token::BasicType(s.pos, BType::Uint)),
@@ -292,6 +312,7 @@ impl<'s> Source<'s>
                     Some(Token::Semantics(s.pos, Semantics::Color(n)))
                 }
                 else if RE_SV_POSITION.is_match(s.slice) { Some(Token::Semantics(s.pos, Semantics::SVPosition)) }
+                else if RE_SV_TARGET.is_match(s.slice) { Some(Token::Semantics(s.pos, Semantics::SVTarget)) }
                 else { Some(Token::Identifier(s)) }
             }
         }
