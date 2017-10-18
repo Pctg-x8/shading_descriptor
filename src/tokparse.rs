@@ -37,10 +37,12 @@ impl<'s> Source<'s>
 pub enum Token<'s>
 {
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>),
-    Operator(Source<'s>), Equal(Location), Arrow(Location)
+    Operator(Source<'s>), Equal(Location), Arrow(Location), BeginEnclosure(Location, EnclosureKind), EndEnclosure(Location, EnclosureKind)
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnclosureKind { Parenthese, Bracket, Brace }
 
 pub struct TokenizerCache<'s: 't, 't> { counter: usize, cache: &'t RefCell<Vec<Token<'s>>>, source: &'t RefCell<Source<'s>> }
 impl<'s: 't, 't> TokenizerCache<'s, 't>
@@ -92,7 +94,8 @@ impl<'s> Source<'s>
     {
         self.drop_ignores();
         
-        self.numeric().or_else(|| self.operator()).or_else(|| self.identifier())
+        self.begin_enclosure().or_else(|| self.end_enclosure())
+            .or_else(|| self.numeric()).or_else(|| self.operator()).or_else(|| self.identifier())
     }
 
     /// Drops ignored characters and comments
@@ -265,5 +268,47 @@ impl<'s> Source<'s>
             else { Some(Token::Operator(ss)) }
         }
         else { None }
+    }
+
+    /// Strips a beginning of enclosure ([({\[])
+    /// # Examples
+    ///
+    /// ```
+    /// # use pureshader::*;
+    /// let mut s = Source::new("{}");
+    ///
+    /// assert_eq!(s.begin_enclosure(), Some(Token::BeginEnclosure(Location::default(), EnclosureKind::Brace)));
+    /// assert_eq!(s, Source { pos: Location { line: 1, column: 2 }, slice: "}" });
+    /// ```
+    pub fn begin_enclosure(&mut self) -> Option<Token<'s>>
+    {
+        match self.slice.chars().next()
+        {
+            Some(c@'(') | Some(c@'（') => { let s = Token::BeginEnclosure(self.pos.clone(), EnclosureKind::Parenthese); self.split(c.len_utf8(), 1); Some(s) },
+            Some(c@'{') | Some(c@'｛') => { let s = Token::BeginEnclosure(self.pos.clone(), EnclosureKind::Brace);      self.split(c.len_utf8(), 1); Some(s) },
+            Some(c@'[') | Some(c@'［') => { let s = Token::BeginEnclosure(self.pos.clone(), EnclosureKind::Bracket);    self.split(c.len_utf8(), 1); Some(s) }
+            _ => None
+        }
+    }
+    /// Strips a ending of enclosure ([)}\]])
+    /// # Examples
+    ///
+    /// ```
+    /// # use pureshader::*;
+    /// let mut s = Source::new("{}");
+    ///
+    /// s.begin_enclosure().unwrap();
+    /// assert_eq!(s.end_enclosure(), Some(Token::EndEnclosure(Location { line: 1, column: 2 }, EnclosureKind::Brace)));
+    /// assert_eq!(s, Source { pos: Location { line: 1, column: 3 }, slice: "" });
+    /// ```
+    pub fn end_enclosure(&mut self) -> Option<Token<'s>>
+    {
+        match self.slice.chars().next()
+        {
+            Some(c@')') | Some(c@'）') => { let s = Token::EndEnclosure(self.pos.clone(), EnclosureKind::Parenthese); self.split(c.len_utf8(), 1); Some(s) },
+            Some(c@'}') | Some(c@'｝') => { let s = Token::EndEnclosure(self.pos.clone(), EnclosureKind::Brace);      self.split(c.len_utf8(), 1); Some(s) },
+            Some(c@']') | Some(c@'］') => { let s = Token::EndEnclosure(self.pos.clone(), EnclosureKind::Bracket);    self.split(c.len_utf8(), 1); Some(s) }
+            _ => None
+        }
     }
 }
