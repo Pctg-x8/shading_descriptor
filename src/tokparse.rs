@@ -1,6 +1,12 @@
 //! Tokenizer
 
 use std::ops::{Add, AddAssign};
+use std::io::prelude::*;
+use std::io::stderr;
+use std::fmt::{Display, Formatter, Result as FmtResult};
+
+/// 2なら1, 4なら2, 8なら3...
+static mut TAB_ALIGNED_BITS: usize = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Location { pub line: usize, pub column: usize }
@@ -10,6 +16,14 @@ impl AddAssign<usize> for Location { fn add_assign(&mut self, other: usize) { se
 impl Location
 {
     fn advance_line(&mut self) { self.line += 1; self.column = 1; }
+    fn advance_tab(&mut self)
+    {
+        self.column = unsafe { (((self.column - 1) >> TAB_ALIGNED_BITS) + 1 << TAB_ALIGNED_BITS) + 1 };
+    }
+}
+impl Display for Location
+{
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult { write!(fmt, "line {}, column {}", self.line, self.column) }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Source<'s> { pub pos: Location, pub slice: &'s str }
@@ -34,6 +48,41 @@ impl<'s> Source<'s>
         Source { pos: pf, slice: sf }
     }
 
+    /// Drops ignored characters and comments
+    /// # Example
+    ///
+    /// ```
+    /// # use pureshader::*;
+    /// let mut s = Source::new("{# drop #}#test 2\n\t8");
+    ///
+    /// s.drop_ignores();
+    /// assert_eq!(s, Source { pos: Location { line: 2, column: 3 }, slice: "8" });
+    /// ```
+    pub fn drop_ignores(&mut self)
+    {
+        if self.slice.starts_with("\n")
+        {
+            self.slice = &self.slice['\n'.len_utf8()..]; self.pos.advance_line(); self.drop_ignores();
+        }
+        else if self.slice.starts_with("\t")
+        {
+            self.slice = &self.slice['\t'.len_utf8()..]; self.pos.advance_tab(); self.drop_ignores();
+        }
+        else if self.slice.starts_with(char::is_whitespace)
+        {
+            self.slice = &self.slice[self.slice.chars().next().unwrap().len_utf8()..];
+            self.pos += 1; self.drop_ignores();
+        }
+        else if self.slice.starts_with("#") { self.drop_line_comment(); self.drop_ignores(); }
+        else if Self::bc_start(self.slice)
+        {
+            if let Err(pb) = self.drop_blocked_comment()
+            {
+                writeln!(stderr(), "Warning: A blocked comment beginning at {} is not closed", pb).unwrap();
+            }
+            self.drop_ignores();
+        }
+    }
     /// Drops a line comment
     /// # Example
     ///
@@ -52,6 +101,8 @@ impl<'s> Source<'s>
             self.slice = &self.slice[(b + '\n'.len_utf8())..]; self.pos.advance_line();
         }
     }
+    fn bc_start(s: &str) -> bool { s.starts_with("{#") || s.starts_with("{＃") || s.starts_with("｛#") || s.starts_with("｛＃") }
+    fn bc_end  (s: &str) -> bool { s.starts_with("#}") || s.starts_with("＃}") || s.starts_with("#｝") || s.starts_with("＃｝") }
     /// Drops a blocked comment
     /// # Examples
     ///
@@ -64,16 +115,13 @@ impl<'s> Source<'s>
     /// ```
     pub fn drop_blocked_comment(&mut self) -> Result<(), Location>
     {
-        fn start(s: &str) -> bool { s.starts_with("{#") || s.starts_with("{＃") || s.starts_with("｛#") || s.starts_with("｛＃") }
-        fn   end(s: &str) -> bool { s.starts_with("#}") || s.starts_with("＃}") || s.starts_with("#｝") || s.starts_with("＃｝") }
-
-        if start(self.slice)
+        if Self::bc_start(self.slice)
         {
             let begin = self.pos.clone();
             self.split(self.slice.chars().nth(0).unwrap().len_utf8() + self.slice.chars().nth(1).unwrap().len_utf8(), 2);
-            while !end(self.slice)
+            while !Self::bc_end(self.slice)
             {
-                if start(self.slice) { self.drop_blocked_comment()?; }
+                if Self::bc_start(self.slice) { self.drop_blocked_comment()?; }
                 if self.slice.is_empty() { return Err(begin); }
                 self.split(self.slice.chars().nth(0).unwrap().len_utf8(), 1);
             }
