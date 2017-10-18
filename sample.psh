@@ -1,0 +1,15 @@
+# PureShader Sample Script
+
+!DepthTest !DepthWrite !StencilTest
+Blend (Add SrcAlpha ~SrcAlpha) (Add ~DestAlpha 1)
+# Blend (Add SrcAlpha ~SrcAlpha) #(Add SrcAlpha ~SrcAlpha)
+# Blend PremultipliedAlpha
+
+VertexShader(pos(POSITION): f4, uv(TEXCOORD0): f2):
+    uniform mvp(set = 0, binding = 0): mf4
+    out _(SV_Position) = mvp * pos
+    out _(TEXCOORD0) = uv
+
+FragmentShader(uv(TEXCOORD0): f2):
+    uniform texture(set = 0, binding = 0): sampler2
+    out _(SV_Target) = texture.sample(uv)
