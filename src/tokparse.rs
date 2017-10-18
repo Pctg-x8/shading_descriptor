@@ -34,10 +34,14 @@ impl<'s> Source<'s>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token<'s>
 {
-    Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>)
+    Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>),
+    Operator(Source<'s>), Equal(Location), Arrow(Location)
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
+
+const OPCLASS: &'static [char] = &['<', '＜', '>', '＞', '=', '＝', '!', '！', '$', '＄', '%', '％', '&', '＆', '~', '～', '^', '＾', '-', 'ー',
+    '@', '＠', '+', '＋', '*', '＊', '/', '／', '・', '?', '？', '|', '｜', '∥', '―'];
 
 impl<'s> Source<'s>
 {
@@ -195,5 +199,28 @@ impl<'s> Source<'s>
             },
             _ => None
         }
+    }
+
+    /// Strips an operator ([<>=!$%&~^-@+*/?|]+)
+    /// # Examples
+    ///
+    /// ```
+    /// # use pureshader::*;
+    /// let mut s = Source::new("++=");
+    /// 
+    /// assert_eq!(s.operator(), Some(Token::Operator(Source { pos: Location::default(), slice: "++=" })));
+    /// assert_eq!(s, Source { pos: Location { line: 1, column: 4 }, slice: "" });
+    /// ```
+    pub fn operator(&mut self) -> Option<Token<'s>>
+    {
+        let (c, b) = self.slice.chars().take_while(|&c| OPCLASS.iter().any(|&x| x == c)).fold((0, 0), |(cc, bb), c| (cc + 1, bb + c.len_utf8()));
+        if c > 0
+        {
+            let ss = self.split(b, c);
+            if ss.slice == "=" || ss.slice == "＝" { Some(Token::Equal(ss.pos)) }
+            else if ss.slice == "=>" || ss.slice == "＝＞" || ss.slice == "=＞" || ss.slice == "＝>" { Some(Token::Arrow(ss.pos)) }
+            else { Some(Token::Operator(ss)) }
+        }
+        else { None }
     }
 }
