@@ -51,7 +51,7 @@ pub enum EnclosureKind { Parenthese, Bracket, Brace }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword
 {
-    In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader,
+    In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
     DepthTest, DepthWrite, StencilTest, Blend,
     // blend ops //
     Add, Sub,
@@ -254,21 +254,28 @@ impl<'s> Source<'s>
                 "binding" => Some(Token::Keyword(s.pos, Keyword::Binding)),
                 "VertexShader" => Some(Token::Keyword(s.pos, Keyword::VertexShader)),
                 "FragmentShader" => Some(Token::Keyword(s.pos, Keyword::FragmentShader)),
-                "DepthTest" => Some(Token::Keyword(s.pos, Keyword::DepthTest)),
-                "DepthWrite" => Some(Token::Keyword(s.pos, Keyword::DepthWrite)),
+                "GeometryShader" => Some(Token::Keyword(s.pos, Keyword::GeometryShader)),
+                "HullShader" => Some(Token::Keyword(s.pos, Keyword::HullShader)),
+                "DomainShader" => Some(Token::Keyword(s.pos, Keyword::DomainShader)),
+                // RenderStates //
+                "DepthTest" =>   Some(Token::Keyword(s.pos, Keyword::DepthTest)),
+                "DepthWrite" =>  Some(Token::Keyword(s.pos, Keyword::DepthWrite)),
                 "StencilTest" => Some(Token::Keyword(s.pos, Keyword::StencilTest)),
-                "Blend" => Some(Token::Keyword(s.pos, Keyword::Blend)),
+                "Blend" =>       Some(Token::Keyword(s.pos, Keyword::Blend)),
+                // BlendOps //
                 "Add" => Some(Token::Keyword(s.pos, Keyword::Add)),
                 "Sub" => Some(Token::Keyword(s.pos, Keyword::Sub)),
-                "SrcColor" => Some(Token::Keyword(s.pos, Keyword::SrcColor)),
-                "SrcAlpha" => Some(Token::Keyword(s.pos, Keyword::SrcAlpha)),
+                // BlendFactors //
+                "SrcColor"  => Some(Token::Keyword(s.pos, Keyword::SrcColor)),
+                "SrcAlpha"  => Some(Token::Keyword(s.pos, Keyword::SrcAlpha)),
                 "DestColor" => Some(Token::Keyword(s.pos, Keyword::DestColor)),
                 "DestAlpha" => Some(Token::Keyword(s.pos, Keyword::DestAlpha)),
                 "ConstantFactor" => Some(Token::Keyword(s.pos, Keyword::ConstantFactor)),
-                "bool" => Some(Token::BasicType(s.pos, BType::Bool)),
-                "int" => Some(Token::BasicType(s.pos, BType::Int)),
-                "uint" => Some(Token::BasicType(s.pos, BType::Uint)),
-                "float" => Some(Token::BasicType(s.pos, BType::Float)),
+                // BasicTypes //
+                "bool" =>   Some(Token::BasicType(s.pos, BType::Bool)),
+                "int" =>    Some(Token::BasicType(s.pos, BType::Int)),
+                "uint" =>   Some(Token::BasicType(s.pos, BType::Uint)),
+                "float" =>  Some(Token::BasicType(s.pos, BType::Float)),
                 "double" => Some(Token::BasicType(s.pos, BType::Double)),
                 _ => if let Some(c) = RE_FV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::FVec(c[1].parse().unwrap()))) }
                 else if let Some(c) = RE_DV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::DVec(c[1].parse().unwrap()))) }
