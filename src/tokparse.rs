@@ -4,6 +4,8 @@ use std::ops::{Add, AddAssign};
 use std::io::prelude::*;
 use std::io::stderr;
 use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::cell::RefCell;
+use std;
 
 /// 2なら1, 4なら2, 8なら3...
 static mut TAB_ALIGNED_BITS: usize = 1;
@@ -40,6 +42,40 @@ pub enum Token<'s>
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
 
+pub struct TokenizerCache<'s: 't, 't> { counter: usize, cache: &'t RefCell<Vec<Token<'s>>>, source: &'t RefCell<Source<'s>> }
+impl<'s: 't, 't> TokenizerCache<'s, 't>
+{
+    pub fn new(cache: &'t RefCell<Vec<Token<'s>>>, source: &'t RefCell<Source<'s>>) -> Self
+    {
+        TokenizerCache { counter: 0, cache, source }
+    }
+    pub fn save(&self) -> Self
+    {
+        TokenizerCache { counter: self.counter, cache: self.cache, source: self.source }
+    }
+    pub fn current(&self) -> Option<&'t Token<'s>>
+    {
+        if self.counter < self.cache.borrow().len()
+        {
+            Some(unsafe { &std::mem::transmute::<_, &'t Vec<_>>(&*self.cache.borrow())[self.counter] })
+        }
+        else if let Some(t) = self.source.borrow_mut().next()
+        {
+            self.cache.borrow_mut().push(t);
+            Some(unsafe { std::mem::transmute::<_, &'t Vec<_>>(&*self.cache.borrow()).last().unwrap() })
+        }
+        else { None }
+    }
+    pub fn consume(&mut self) { self.counter += 1; }
+    pub fn revert(&mut self) { self.counter = self.counter.saturating_sub(1); }
+    
+    pub fn next(&mut self) -> Option<&'t Token<'s>>
+    {
+        let t = self.current(); if t.is_some() { self.consume(); } t
+    }
+    pub fn prev(&mut self) -> Option<&'t Token<'s>> { self.revert(); self.current() }
+}
+
 const OPCLASS: &'static [char] = &['<', '＜', '>', '＞', '=', '＝', '!', '！', '$', '＄', '%', '％', '&', '＆', '~', '～', '^', '＾', '-', 'ー',
     '@', '＠', '+', '＋', '*', '＊', '/', '／', '・', '?', '？', '|', '｜', '∥', '―'];
 
@@ -50,6 +86,13 @@ impl<'s> Source<'s>
         let sf = &self.slice[..at]; self.slice = &self.slice[at..];
         let pf = self.pos.clone(); self.pos += charat;
         Source { pos: pf, slice: sf }
+    }
+
+    pub fn next(&mut self) -> Option<Token<'s>>
+    {
+        self.drop_ignores();
+        
+        self.numeric().or_else(|| self.operator()).or_else(|| self.identifier())
     }
 
     /// Drops ignored characters and comments
