@@ -7,6 +7,10 @@ pub struct Location { pub line: usize, pub column: usize }
 impl Default for Location { fn default() -> Self { Location { line: 1, column: 1 } } }
 impl Add<usize> for Location { type Output = Self; fn add(mut self, other: usize) -> Self { self.column += other; self } }
 impl AddAssign<usize> for Location { fn add_assign(&mut self, other: usize) { self.column += other; } }
+impl Location
+{
+    fn advance_line(&mut self) { self.line += 1; self.column = 1; }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Source<'s> { pub pos: Location, pub slice: &'s str }
 impl<'s> Source<'s>
@@ -30,6 +34,53 @@ impl<'s> Source<'s>
         Source { pos: pf, slice: sf }
     }
 
+    /// Drops a line comment
+    /// # Example
+    ///
+    /// ```
+    /// # use pureshader::*;
+    /// let mut s = Source::new("# test\n20");
+    ///
+    /// s.drop_line_comment();
+    /// assert_eq!(s, Source { pos: Location { line: 2, column: 1 }, slice: "20" });
+    /// ```
+    pub fn drop_line_comment(&mut self)
+    {
+        if self.slice.starts_with("#") || self.slice.starts_with("＃")
+        {
+            let b = self.slice.chars().take_while(|&c| c != '\n').fold(0, |bb, c| bb + c.len_utf8());
+            self.slice = &self.slice[(b + '\n'.len_utf8())..]; self.pos.advance_line();
+        }
+    }
+    /// Drops a blocked comment
+    /// # Examples
+    ///
+    /// ```
+    /// # use pureshader::*;
+    /// let mut s = Source::new("{# test {# nest #} test #}1");
+    ///
+    /// s.drop_blocked_comment().unwrap();
+    /// assert_eq!(s, Source { pos: Location { line: 1, column: 27 }, slice: "1" });
+    /// ```
+    pub fn drop_blocked_comment(&mut self) -> Result<(), Location>
+    {
+        fn start(s: &str) -> bool { s.starts_with("{#") || s.starts_with("{＃") || s.starts_with("｛#") || s.starts_with("｛＃") }
+        fn   end(s: &str) -> bool { s.starts_with("#}") || s.starts_with("＃}") || s.starts_with("#｝") || s.starts_with("＃｝") }
+
+        if start(self.slice)
+        {
+            let begin = self.pos.clone();
+            self.split(self.slice.chars().nth(0).unwrap().len_utf8() + self.slice.chars().nth(1).unwrap().len_utf8(), 2);
+            while !end(self.slice)
+            {
+                if start(self.slice) { self.drop_blocked_comment()?; }
+                if self.slice.is_empty() { return Err(begin); }
+                self.split(self.slice.chars().nth(0).unwrap().len_utf8(), 1);
+            }
+            self.split(self.slice.chars().nth(0).unwrap().len_utf8() + self.slice.chars().nth(1).unwrap().len_utf8(), 2);
+        }
+        Ok(())
+    }
     /// Strips an identifier ([a-zA-Z_][:alphanumeric:_]*)
     /// # Example
     ///
@@ -50,7 +101,7 @@ impl<'s> Source<'s>
         }
         else { None }
     }
-    /// Strips an numeric ([0-9_]+(\.[0-9_]*)?(fuld){0,2})
+    /// Strips a numeric ([0-9_]+(\.[0-9_]*)?(fuld){0,2})
     /// # Example
     ///
     /// ```
