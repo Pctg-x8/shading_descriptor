@@ -37,7 +37,8 @@ impl<'s> Source<'s>
 pub enum Token<'s>
 {
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>),
-    Operator(Source<'s>), Equal(Location), Arrow(Location), BeginEnclosure(Location, EnclosureKind), EndEnclosure(Location, EnclosureKind)
+    Operator(Source<'s>), Equal(Location), Arrow(Location), BeginEnclosure(Location, EnclosureKind), EndEnclosure(Location, EnclosureKind),
+    ListDelimiter(Location), StatementDelimiter(Location), ItemDescriptorDelimiter(Location), ObjectDescender(Location), EOF
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
@@ -94,8 +95,13 @@ impl<'s> Source<'s>
     {
         self.drop_ignores();
         
-        self.begin_enclosure().or_else(|| self.end_enclosure())
-            .or_else(|| self.numeric()).or_else(|| self.operator()).or_else(|| self.identifier())
+        if self.slice.is_empty() { Some(Token::EOF) }
+        else
+        {
+            self.list_delimiter().or_else(|| self.stmt_delimiter()).or_else(|| self.item_desc_delimiter()).or_else(|| self.object_descender())
+                .or_else(|| self.begin_enclosure()).or_else(|| self.end_enclosure())
+                .or_else(|| self.numeric()).or_else(|| self.operator()).or_else(|| self.identifier())
+        }
     }
 
     /// Drops ignored characters and comments
@@ -308,6 +314,43 @@ impl<'s> Source<'s>
             Some(c@')') | Some(c@'）') => { let s = Token::EndEnclosure(self.pos.clone(), EnclosureKind::Parenthese); self.split(c.len_utf8(), 1); Some(s) },
             Some(c@'}') | Some(c@'｝') => { let s = Token::EndEnclosure(self.pos.clone(), EnclosureKind::Brace);      self.split(c.len_utf8(), 1); Some(s) },
             Some(c@']') | Some(c@'］') => { let s = Token::EndEnclosure(self.pos.clone(), EnclosureKind::Bracket);    self.split(c.len_utf8(), 1); Some(s) }
+            _ => None
+        }
+    }
+
+    /// Strips a list delimiter (, or 、)
+    pub fn list_delimiter(&mut self) -> Option<Token<'s>>
+    {
+        match self.slice.chars().next()
+        {
+            Some(c@',') | Some(c@'、') | Some(c@'，') => Some(Token::ListDelimiter(self.split(c.len_utf8(), 1).pos)),
+            _ => None
+        }
+    }
+    /// Strips a statement delimiter (; or 。)
+    pub fn stmt_delimiter(&mut self) -> Option<Token<'s>>
+    {
+        match self.slice.chars().next()
+        {
+            Some(c@';') | Some(c@'；') | Some(c@'。') => Some(Token::StatementDelimiter(self.split(c.len_utf8(), 1).pos)),
+            _ => None
+        }
+    }
+    /// Strips a delimiter which is followed by item
+    pub fn item_desc_delimiter(&mut self) -> Option<Token<'s>>
+    {
+        match self.slice.chars().next()
+        {
+            Some(c@':') | Some(c@'：') => Some(Token::ItemDescriptorDelimiter(self.split(c.len_utf8(), 1).pos)),
+            _ => None
+        }
+    }
+    /// Strips a period
+    pub fn object_descender(&mut self) -> Option<Token<'s>>
+    {
+        match self.slice.chars().next()
+        {
+            Some(c@'.') | Some(c@'．') => Some(Token::ObjectDescender(self.split(c.len_utf8(), 1).pos)),
             _ => None
         }
     }
