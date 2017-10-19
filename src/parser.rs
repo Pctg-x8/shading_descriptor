@@ -7,14 +7,14 @@ use std::error::Error;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ExpectingKind
 {
-	ItemDelimiter, Semantics, Type
+	ItemDelimiter, Semantics, Type, ShaderStage
 }
 #[derive(Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
 {
 	ExpectingIdentNextIn(&'t Location), ExpectingIdentOrIn(&'t Location), Expecting(ExpectingKind, &'t Location),
 	ExpectingListDelimiterOrParentheseClosing(&'t Location),
-	ExpectingEnclosed(ExpectingKind, EnclosureKind, &'t Location), ExpectingClose(EnclosureKind, &'t Location)
+	ExpectingEnclosed(ExpectingKind, EnclosureKind, &'t Location), ExpectingOpen(EnclosureKind, &'t Location), ExpectingClose(EnclosureKind, &'t Location)
 }
 impl<'t> Debug for ParseError<'t>
 {
@@ -32,7 +32,7 @@ impl<'t> ParseError<'t>
 		match *self
 		{
 			ExpectingIdentNextIn(p) | ExpectingIdentOrIn(p) | Expecting(_, p)  | ExpectingEnclosed(_, _, p) | ExpectingClose(_, p)
-			| ExpectingListDelimiterOrParentheseClosing(p) => p
+			| ExpectingListDelimiterOrParentheseClosing(p) | ExpectingOpen(_, p) => p
 		}
 	}
 }
@@ -46,11 +46,52 @@ impl<'t> Error for ParseError<'t>
 			ParseError::ExpectingIdentOrIn(_) => "Expecting an `Identifier` or an `in`",
 			ParseError::Expecting(ExpectingKind::ItemDelimiter, _) => "Expecting a `:`",
 			ParseError::Expecting(ExpectingKind::Type, _) => "Expecting a type",
+			ParseError::Expecting(ExpectingKind::ShaderStage, _) => "Expecting any of shader stage(VertexShader, FragmentShader, GeometryShader, HullShader or DomainShader)",
 			ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, _) => "Expecting a semantic enclosured by ()",
 			ParseError::ExpectingClose(EnclosureKind::Parenthese, _) => "Expecting a `)`",
+			ParseError::ExpectingOpen(EnclosureKind::Parenthese, _) => "Expecting a `(`",
 			ParseError::ExpectingListDelimiterOrParentheseClosing(_) => "Expecting a ',' or a ')'",
 			_ => unreachable!()
 		}
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShaderStage { Vertex, Fragment, Geometry, Hull, Domain }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShaderStageDefinition<'s> { pub location: Location, pub stage: ShaderStage, pub inputs: Vec<SemanticInput<'s>> }
+/// Parse an shader stage definition
+/// # Example
+/// 
+/// ```
+/// # use pureshader::*;
+/// # use std::cell::RefCell;
+/// let (s, v) = (RefCell::new(Source::new("FragmentShader(uv(TEXCOORD0): f2,)")), RefCell::new(Vec::new()));
+/// let mut tokcache = TokenizerCache::new(&v, &s);
+/// assert_eq!(shader_stage_definition(&mut tokcache), Ok(ShaderStageDefinition
+/// {
+///   location: Location::default(), stage: ShaderStage::Fragment, inputs: vec![
+///     SemanticInput { location: Location { line: 1, column: 16 }, name: Some("uv"), semantics: Semantics::Texcoord(0), _type: BType::FVec(2) }
+///   ]
+/// }));
+/// ```
+pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<ShaderStageDefinition<'s>, Vec<ParseError<'t>>>
+{
+	let (location, stage) = match tok.next()
+	{
+		&Token::Keyword(ref pos, Keyword::VertexShader) => (pos.clone(), ShaderStage::Vertex),
+		&Token::Keyword(ref pos, Keyword::FragmentShader) => (pos.clone(), ShaderStage::Fragment),
+		&Token::Keyword(ref pos, Keyword::GeometryShader) => (pos.clone(), ShaderStage::Geometry),
+		&Token::Keyword(ref pos, Keyword::HullShader) => (pos.clone(), ShaderStage::Hull),
+		&Token::Keyword(ref pos, Keyword::DomainShader) => (pos.clone(), ShaderStage::Domain),
+		e => return Err(vec![ParseError::Expecting(ExpectingKind::ShaderStage, e.position())])
+	};
+	match tok.next() { &Token::BeginEnclosure(_, EnclosureKind::Parenthese) => (), e => return Err(vec![ParseError::ExpectingOpen(EnclosureKind::Parenthese, e.position())]) }
+	let inputs = match semantic_inputs(tok) { Ok(v) => v, Err(ev) => return Err(ev) };
+	match tok.next()
+	{
+		&Token::EndEnclosure(_, EnclosureKind::Parenthese) => Ok(ShaderStageDefinition { location, stage, inputs }),
+		e => Err(vec![ParseError::ExpectingClose(EnclosureKind::Parenthese, e.position())])
 	}
 }
 
@@ -118,10 +159,11 @@ pub fn semantic_inputs<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<V
 
 	loop
 	{
-		let s = match semantic_input(tok)
+		let p1 = tok.current().position();
+		match semantic_input(tok)
 		{
-			Ok(s) => semantics.push(s), Err(e) => { errors.push(e); tok.drop_until(Token::is_basic_type).consume(); }
-		};
+			Ok(s) => semantics.push(s), Err(e) => { if e.position() == p1 { tok.revert(); break; } else { errors.push(e); tok.drop_until(Token::is_basic_type).consume(); } }
+		}
 		let delimitered = match tok.current() { &Token::ListDelimiter(_) => { tok.consume(); true }, _ => false };
 		match tok.current() { &Token::ListDelimiter(_) if !delimitered => { tok.consume(); }, _ => if !delimitered { break; } }
 	}
