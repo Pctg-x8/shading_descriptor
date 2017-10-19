@@ -11,9 +11,10 @@ fn main()
     let src = RefCell::new(Source::new(&fcontent));
     let tvec = RefCell::new(Vec::new());
     let mut cache = TokenizerCache::new(&tvec, &src);
-    while let Some(t) = cache.next()
+    loop
     {
+        let t = cache.next();
         println!("{:?}", t);
-        if t == &Token::EOF { break; }
+        match t { &Token::EOF(_) | &Token::UnknownChar(_) => break, _ => () }
     }
 }

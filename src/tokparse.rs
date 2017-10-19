@@ -40,9 +40,24 @@ pub enum Token<'s>
 {
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>),
     Operator(Source<'s>), Equal(Location), Arrow(Location), TyArrow(Location), BeginEnclosure(Location, EnclosureKind), EndEnclosure(Location, EnclosureKind),
-    ListDelimiter(Location), StatementDelimiter(Location), ItemDescriptorDelimiter(Location), ObjectDescender(Location), EOF, Placeholder(Location),
+    ListDelimiter(Location), StatementDelimiter(Location), ItemDescriptorDelimiter(Location), ObjectDescender(Location), EOF(Location), UnknownChar(Location), Placeholder(Location),
 
     Keyword(Location, Keyword), Semantics(Location, Semantics), BasicType(Location, BType)
+}
+impl<'s> Token<'s>
+{
+    pub fn position(&self) -> &Location
+    {
+        use Token::*;
+
+        match *self
+        {
+            Identifier(Source { ref pos, .. }) | Numeric(Source { ref pos, .. }, _) | NumericF(Source { ref pos, .. }, _) | Operator(Source { ref pos, .. })
+            | Equal(ref pos) | Arrow(ref pos) | TyArrow(ref pos) | BeginEnclosure(ref pos, _) | EndEnclosure(ref pos, _)
+            | ListDelimiter(ref pos) | StatementDelimiter(ref pos) | ItemDescriptorDelimiter(ref pos) | ObjectDescender(ref pos) | EOF(ref pos) | UnknownChar(ref pos)
+            | Placeholder(ref pos) | Keyword(ref pos, _) | Semantics(ref pos, _) | BasicType(ref pos, _) => pos
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
@@ -60,12 +75,12 @@ pub enum Keyword
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Semantics { Position(usize), SVPosition, Texcoord(usize), Color(usize), SVTarget }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BType
 {
-    Bool, Uint, Int, Float, Double, FVec(usize), IVec(usize), UVec(usize), DVec(usize),
-    FMat(usize, usize), DMat(usize, usize), IMat(usize, usize), UMat(usize, usize),
-    Sampler(usize), Texture(usize)
+    Bool, Uint, Int, Float, Double, FVec(u8), IVec(u8), UVec(u8), DVec(u8),
+    FMat(u8, u8), DMat(u8, u8), IMat(u8, u8), UMat(u8, u8),
+    Sampler(u8), Texture(u8)
 }
 
 pub struct TokenizerCache<'s: 't, 't> { counter: usize, cache: &'t RefCell<Vec<Token<'s>>>, source: &'t RefCell<Source<'s>> }
@@ -79,27 +94,33 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
     {
         TokenizerCache { counter: self.counter, cache: self.cache, source: self.source }
     }
-    pub fn current(&self) -> Option<&'t Token<'s>>
+    pub fn current(&self) -> &'t Token<'s>
     {
-        if self.counter < self.cache.borrow().len()
+        while self.counter >= self.cache.borrow().len()
         {
-            Some(unsafe { &std::mem::transmute::<_, &'t Vec<_>>(&*self.cache.borrow())[self.counter] })
+            self.cache.borrow_mut().push(self.source.borrow_mut().next());
         }
-        else if let Some(t) = self.source.borrow_mut().next()
-        {
-            self.cache.borrow_mut().push(t);
-            Some(unsafe { std::mem::transmute::<_, &'t Vec<_>>(&*self.cache.borrow()).last().unwrap() })
-        }
-        else { None }
+        unsafe { &std::mem::transmute::<_, &'t Vec<_>>(&*self.cache.borrow())[self.counter] }
     }
-    pub fn consume(&mut self) { self.counter += 1; }
-    pub fn revert(&mut self) { self.counter = self.counter.saturating_sub(1); }
+    pub fn consume(&mut self) -> &mut Self { self.counter += 1; self }
+    pub fn revert(&mut self) -> &mut Self { self.counter = self.counter.saturating_sub(1); self }
     
-    pub fn next(&mut self) -> Option<&'t Token<'s>>
+    pub fn next(&mut self) -> &'t Token<'s>
     {
-        let t = self.current(); if t.is_some() { self.consume(); } t
+        let t = self.current(); self.consume(); t
     }
-    pub fn prev(&mut self) -> Option<&'t Token<'s>> { self.revert(); self.current() }
+    pub fn prev(&mut self) -> &'t Token<'s> { self.revert(); self.current() }
+
+    pub fn drop_until<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
+    {
+        while !predicate(self.current()) { self.consume(); }
+        self
+    }
+}
+impl<'s> Token<'s>
+{
+    pub fn is_list_delimiter(&self) -> bool { match self { &Token::ListDelimiter(_) => true, _ => false } }
+    pub fn is_basic_type(&self) -> bool { match self { &Token::BasicType(_, _) => true, _ => false } }
 }
 
 const OPCLASS: &'static [char] = &['<', '＜', '>', '＞', '=', '＝', '!', '！', '$', '＄', '%', '％', '&', '＆', '~', '～', '^', '＾', '-', 'ー',
@@ -114,16 +135,17 @@ impl<'s> Source<'s>
         Source { pos: pf, slice: sf }
     }
 
-    pub fn next(&mut self) -> Option<Token<'s>>
+    pub fn next(&mut self) -> Token<'s>
     {
         self.drop_ignores();
         
-        if self.slice.is_empty() { Some(Token::EOF) }
+        if self.slice.is_empty() { Token::EOF(self.pos.clone()) }
         else
         {
             self.list_delimiter().or_else(|| self.stmt_delimiter()).or_else(|| self.item_desc_delimiter()).or_else(|| self.object_descender())
                 .or_else(|| self.begin_enclosure()).or_else(|| self.end_enclosure())
                 .or_else(|| self.numeric()).or_else(|| self.operator()).or_else(|| self.identifier())
+                .unwrap_or(Token::UnknownChar(self.pos.clone()))
         }
     }
 
