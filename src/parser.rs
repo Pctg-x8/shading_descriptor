@@ -14,7 +14,8 @@ pub enum ParseError<'t>
 {
 	ExpectingIdentNextIn(&'t Location), ExpectingIdentOrIn(&'t Location), Expecting(ExpectingKind, &'t Location),
 	ExpectingListDelimiterOrParentheseClosing(&'t Location),
-	ExpectingEnclosed(ExpectingKind, EnclosureKind, &'t Location), ExpectingOpen(EnclosureKind, &'t Location), ExpectingClose(EnclosureKind, &'t Location)
+	ExpectingEnclosed(ExpectingKind, EnclosureKind, &'t Location), ExpectingOpen(EnclosureKind, &'t Location), ExpectingClose(EnclosureKind, &'t Location),
+	UnexpectedClose(EnclosureKind, &'t Location), InvalidExpressionFragment(&'t Location)
 }
 impl<'t> Debug for ParseError<'t>
 {
@@ -32,7 +33,7 @@ impl<'t> ParseError<'t>
 		match *self
 		{
 			ExpectingIdentNextIn(p) | ExpectingIdentOrIn(p) | Expecting(_, p)  | ExpectingEnclosed(_, _, p) | ExpectingClose(_, p)
-			| ExpectingListDelimiterOrParentheseClosing(p) | ExpectingOpen(_, p) => p
+			| ExpectingListDelimiterOrParentheseClosing(p) | ExpectingOpen(_, p) | UnexpectedClose(_, p) | InvalidExpressionFragment(p) => p
 		}
 	}
 }
@@ -51,6 +52,10 @@ impl<'t> Error for ParseError<'t>
 			ParseError::ExpectingClose(EnclosureKind::Parenthese, _) => "Expecting a `)`",
 			ParseError::ExpectingOpen(EnclosureKind::Parenthese, _) => "Expecting a `(`",
 			ParseError::ExpectingListDelimiterOrParentheseClosing(_) => "Expecting a ',' or a ')'",
+			ParseError::UnexpectedClose(EnclosureKind::Parenthese, _) => "Unexpected ')'",
+			ParseError::UnexpectedClose(EnclosureKind::Brace, _) => "Unexpected '}'",
+			ParseError::UnexpectedClose(EnclosureKind::Bracket, _) => "Unexpected ']'",
+			ParseError::InvalidExpressionFragment(_) => "An invalid expression fragment found",
 			_ => unreachable!()
 		}
 	}
@@ -162,7 +167,7 @@ pub fn semantic_inputs<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<V
 		let p1 = tok.current().position();
 		match semantic_input(tok)
 		{
-			Ok(s) => semantics.push(s), Err(e) => { if e.position() == p1 { tok.revert(); break; } else { errors.push(e); tok.drop_until(Token::is_basic_type).consume(); } }
+			Ok(s) => semantics.push(s), Err(e) => { if e.position() == p1 { tok.unshift(); break; } else { errors.push(e); tok.drop_until(Token::is_basic_type).consume(); } }
 		}
 		let delimitered = match tok.current() { &Token::ListDelimiter(_) => { tok.consume(); true }, _ => false };
 		match tok.current() { &Token::ListDelimiter(_) if !delimitered => { tok.consume(); }, _ => if !delimitered { break; } }

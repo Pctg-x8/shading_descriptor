@@ -103,13 +103,13 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
         unsafe { &std::mem::transmute::<_, &'t Vec<_>>(&*self.cache.borrow())[self.counter] }
     }
     pub fn consume(&mut self) -> &mut Self { self.counter += 1; self }
-    pub fn revert(&mut self) -> &mut Self { self.counter = self.counter.saturating_sub(1); self }
+    pub fn unshift(&mut self) -> &mut Self { self.counter = self.counter.saturating_sub(1); self }
     
     pub fn next(&mut self) -> &'t Token<'s>
     {
         let t = self.current(); self.consume(); t
     }
-    pub fn prev(&mut self) -> &'t Token<'s> { self.revert(); self.current() }
+    pub fn prev(&mut self) -> &'t Token<'s> { self.unshift(); self.current() }
 
     pub fn drop_until<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
     {
