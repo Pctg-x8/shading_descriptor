@@ -10,5 +10,6 @@ mod expression_parser;
 
 pub use tokparse::{Location, Source, Token, NumericTy, EnclosureKind, TokenizerCache, Semantics, Keyword, BType};
 pub use parser::{SemanticInput, semantic_input, semantic_inputs};
+pub use parser::{SemanticOutput, semantic_output};
 pub use parser::{ShaderStage, ShaderStageDefinition, shader_stage_definition};
 pub use expression_parser::{Expression, ExpressionFragment, expression};

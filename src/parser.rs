@@ -3,11 +3,12 @@
 use tokparse::*;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::error::Error;
+use expression_parser::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ExpectingKind
 {
-	ItemDelimiter, Semantics, Type, ShaderStage
+	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, Ident, ConcreteExpression
 }
 #[derive(Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -48,6 +49,9 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::ItemDelimiter, _) => "Expecting a `:`",
 			ParseError::Expecting(ExpectingKind::Type, _) => "Expecting a type",
 			ParseError::Expecting(ExpectingKind::ShaderStage, _) => "Expecting any of shader stage(VertexShader, FragmentShader, GeometryShader, HullShader or DomainShader)",
+			ParseError::Expecting(ExpectingKind::OutDef, _) => "Expecting `out`",
+			ParseError::Expecting(ExpectingKind::Ident, _) => "Expecting an identifier",
+			ParseError::Expecting(ExpectingKind::ConcreteExpression, _) => "Expecting a concrete expression",
 			ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, _) => "Expecting a semantic enclosured by ()",
 			ParseError::ExpectingClose(EnclosureKind::Parenthese, _) => "Expecting a `)`",
 			ParseError::ExpectingOpen(EnclosureKind::Parenthese, _) => "Expecting a `(`",
@@ -98,6 +102,50 @@ pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> 
 		&Token::EndEnclosure(_, EnclosureKind::Parenthese) => Ok(ShaderStageDefinition { location, stage, inputs }),
 		e => Err(vec![ParseError::ExpectingClose(EnclosureKind::Parenthese, e.position())])
 	}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticOutput<'s> { pub location: Location, pub name: Option<&'s str>, pub semantics: Semantics, pub _type: Option<BType>, pub expr: Expression<'s> }
+/// Parse an output declaration from each shader stage
+/// # Example
+/// 
+/// ```
+/// # use pureshader::*;
+/// # use std::cell::RefCell;
+/// let (s, v) = (RefCell::new(Source::new("out _(SV_Position) = mvp * pos")), RefCell::new(Vec::new()));
+/// let mut tokcache = TokenizerCache::new(&v, &s);
+/// let so = semantic_output(&mut tokcache).unwrap();
+/// assert_eq!(so.location, Location::default());
+/// assert_eq!(so.name, None); assert_eq!(so.semantics, Semantics::SVPosition); assert_eq!(so._type, None);
+/// ```
+pub fn semantic_output<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<SemanticOutput<'s>, ParseError<'t>>
+{
+	let location = match tok.next() { &Token::Keyword(ref loc, Keyword::Out) => loc.clone(), e => return Err(ParseError::Expecting(ExpectingKind::OutDef, e.position())) };
+	let name = match tok.next()
+	{
+		&Token::Placeholder(_) => None, &Token::Identifier(Source { slice, .. }) => Some(slice),
+		e => return Err(ParseError::Expecting(ExpectingKind::Ident, e.position()))
+	};
+	match tok.next() { &Token::BeginEnclosure(_, EnclosureKind::Parenthese) => (), e => return Err(ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, e.position())) }
+	let semantics = match tok.next() { &Token::Semantics(_, sem) => sem, e => return Err(ParseError::Expecting(ExpectingKind::Semantics, e.position())) };
+	match tok.next() { &Token::EndEnclosure(_, EnclosureKind::Parenthese) => (), e => return Err(ParseError::ExpectingClose(EnclosureKind::Parenthese, e.position())) };
+	let _type = match tok.current()
+	{
+		&Token::ItemDescriptorDelimiter(_) =>
+		{
+			tok.consume();
+			match tok.next()
+			{
+				&Token::BasicType(_, t) => Some(t), &Token::Placeholder(_) => None, e => return Err(ParseError::Expecting(ExpectingKind::Type, e.position()))
+			}
+		},
+		_ => None
+	};
+	match tok.next() { &Token::Equal(_) => (), e => return Err(ParseError::Expecting(ExpectingKind::ConcreteExpression, e.position())) };
+	let e_begin = if tok.current().position().line == location.line { Some(location.column) }
+	else if tok.current().position().column > location.column { None }
+	else { return Err(ParseError::Expecting(ExpectingKind::ConcreteExpression, tok.current().position())); };
+	expression(tok, e_begin, None).map(|expr| SemanticOutput { location, name, semantics, _type, expr })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
