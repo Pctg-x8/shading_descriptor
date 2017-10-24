@@ -200,15 +200,11 @@ pub struct SemanticOutput<'s> { pub location: Location, pub name: Option<&'s str
 /// ```
 pub fn semantic_output<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<SemanticOutput<'s>, ParseError<'t>>
 {
-	let location = match tok.next() { &Token::Keyword(ref loc, Keyword::Out) => loc.clone(), e => return Err(ParseError::Expecting(ExpectingKind::OutDef, e.position())) };
-	let name = match tok.next()
-	{
-		&Token::Placeholder(_) => None, &Token::Identifier(Source { slice, .. }) => Some(slice),
-		e => return Err(ParseError::Expecting(ExpectingKind::Ident, e.position()))
-	};
-	match tok.next() { &Token::BeginEnclosure(_, EnclosureKind::Parenthese) => (), e => return Err(ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, e.position())) }
-	let semantics = match tok.next() { &Token::Semantics(_, sem) => sem, e => return Err(ParseError::Expecting(ExpectingKind::Semantics, e.position())) };
-	match tok.next() { &Token::EndEnclosure(_, EnclosureKind::Parenthese) => (), e => return Err(ParseError::ExpectingClose(EnclosureKind::Parenthese, e.position())) };
+	let location = TMatch!(tok; Token::Keyword(ref loc, Keyword::Out) => loc.clone(), |p| ParseError::Expecting(ExpectingKind::OutDef, p));
+	let (_, name) = name(tok, true)?;
+	TMatch!(tok; Token::BeginEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, p));
+	let semantics = TMatch!(tok; Token::Semantics(_, sem) => sem, |p| ParseError::Expecting(ExpectingKind::Semantics, p));
+	TMatch!(tok; Token::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
 	let _type = match tok.current()
 	{
 		&Token::ItemDescriptorDelimiter(_) =>
@@ -221,7 +217,7 @@ pub fn semantic_output<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<S
 		},
 		_ => None
 	};
-	match tok.next() { &Token::Equal(_) => (), e => return Err(ParseError::Expecting(ExpectingKind::ConcreteExpression, e.position())) };
+	TMatch!(tok; Token::Equal(_), |p| ParseError::Expecting(ExpectingKind::ConcreteExpression, p));
 	let e_begin = if tok.current().position().line == location.line { Some(location.column) }
 	else if tok.current().position().column > location.column { None }
 	else { return Err(ParseError::Expecting(ExpectingKind::ConcreteExpression, tok.current().position())); };
@@ -259,17 +255,13 @@ pub fn semantic_input<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<Se
 		&Token::Placeholder(ref pos) => (pos.clone(), None),
 		e => return Err(ParseError::ExpectingIdentOrIn(e.position()))
 	};
-	match tok.next() { &Token::BeginEnclosure(_, EnclosureKind::Parenthese) => (), e => return Err(ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, e.position())) }
-	let semantics = match tok.next()
-	{
-		&Token::Semantics(_, sem) => sem,
-		e => return Err(ParseError::Expecting(ExpectingKind::Semantics, e.position()))
-	};
-	match tok.next() { &Token::EndEnclosure(_, EnclosureKind::Parenthese) => (), e => return Err(ParseError::ExpectingClose(EnclosureKind::Parenthese, e.position())) };
-	match tok.next() { &Token::ItemDescriptorDelimiter(_) => (), e => return Err(ParseError::Expecting(ExpectingKind::ItemDelimiter, e.position())) }
+	TMatch!(tok; Token::BeginEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, p));
+	let semantics = TMatch!(tok; Token::Semantics(_, sem) => sem, |p| ParseError::Expecting(ExpectingKind::Semantics, p));
+	TMatch!(tok; Token::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
+	TMatch!(tok; Token::ItemDescriptorDelimiter(_), |p| ParseError::Expecting(ExpectingKind::ItemDelimiter, p));
 	match tok.next()
 	{
-		&Token::BasicType(_, ty) => Ok(SemanticInput { location, name, semantics, _type: ty }),
+		&Token::BasicType(_, _type) => Ok(SemanticInput { location, name, semantics, _type }),
 		e => Err(ParseError::Expecting(ExpectingKind::Type, e.position()))
 	}
 }
