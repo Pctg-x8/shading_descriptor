@@ -10,7 +10,7 @@ use std::ops::Deref;
 pub enum ExpressionFragment<'s>
 {
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>), Operator(Source<'s>),
-    Primary(Location, Box<Expression<'s>>), ObjectDescender(Location)
+    Primary(Location, Box<Expression<'s>>), ObjectDescender(Location), ListDelimiter(Location)
 }
 impl<'s> ExpressionFragment<'s>
 {
@@ -19,6 +19,7 @@ impl<'s> ExpressionFragment<'s>
         match *self
         {
             ExpressionFragment::Identifier(ref s) | ExpressionFragment::Numeric(ref s, _) | ExpressionFragment::NumericF(ref s, _) | ExpressionFragment::Operator(ref s) => Some(s.slice),
+            ExpressionFragment::ObjectDescender(_) => Some("."), ExpressionFragment::ListDelimiter(_) => Some(","),
             _ => None
         }
     }
@@ -81,6 +82,7 @@ pub fn expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, expression_ba
             Token::NumericF(ref s, t) => { v.place_back() <- ExpressionFragment::NumericF(s.clone(), t); },
             Token::Operator(ref s) => { v.place_back() <- ExpressionFragment::Operator(s.clone()); },
             Token::ObjectDescender(ref p) => { v.place_back() <- ExpressionFragment::ObjectDescender(p.clone()); },
+            Token::ListDelimiter(ref p) => { v.place_back() <- ExpressionFragment::ListDelimiter(p.clone()); },
             _ => { stream.unshift(); break; }
         }
     }

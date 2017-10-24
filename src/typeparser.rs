@@ -38,7 +38,7 @@ impl<'s> TypeFragment<'s>
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Type<'s>(Vec<TypeFragment<'s>>);
+pub struct Type<'s>(pub Vec<TypeFragment<'s>>);
 impl<'s> Deref for Type<'s> { type Target = [TypeFragment<'s>]; fn deref(&self) -> &[TypeFragment<'s>] { &self.0 } }
 
 /// Parses an user-defined type
