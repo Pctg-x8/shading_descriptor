@@ -6,10 +6,11 @@ extern crate regex;
 
 mod tokparse;
 mod parser;
-mod expression_parser;
+mod expression_parser; mod typeparser;
 
 pub use tokparse::{Location, Source, Token, NumericTy, EnclosureKind, TokenizerCache, Semantics, Keyword, BType};
 pub use parser::{SemanticInput, semantic_input, semantic_inputs};
 pub use parser::{SemanticOutput, semantic_output};
 pub use parser::{ShaderStage, ShaderStageDefinition, shader_stage_definition};
 pub use expression_parser::{Expression, ExpressionFragment, expression};
+pub use typeparser::{Type, TypeFragment, user_type};

@@ -8,7 +8,7 @@ use expression_parser::*;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ExpectingKind
 {
-	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, Ident, ConcreteExpression
+	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, Ident, ConcreteExpression, Expression
 }
 #[derive(Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -52,6 +52,7 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::OutDef, _) => "Expecting `out`",
 			ParseError::Expecting(ExpectingKind::Ident, _) => "Expecting an identifier",
 			ParseError::Expecting(ExpectingKind::ConcreteExpression, _) => "Expecting a concrete expression",
+			ParseError::Expecting(ExpectingKind::Expression, _) => "Expecting an expression",
 			ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, _) => "Expecting a semantic enclosured by ()",
 			ParseError::ExpectingClose(EnclosureKind::Parenthese, _) => "Expecting a `)`",
 			ParseError::ExpectingOpen(EnclosureKind::Parenthese, _) => "Expecting a `(`",

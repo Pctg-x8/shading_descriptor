@@ -1,7 +1,7 @@
 //! Expression Parser
 
 use tokparse::{Location, Source, Token, TokenizerCache, NumericTy, EnclosureKind};
-use parser::ParseError;
+use parser::{ParseError, ExpectingKind};
 use std::ops::Deref;
 
 // Expression = a list of some tokens
@@ -81,8 +81,9 @@ pub fn expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, expression_ba
             Token::NumericF(ref s, t) => { v.place_back() <- ExpressionFragment::NumericF(s.clone(), t); },
             Token::Operator(ref s) => { v.place_back() <- ExpressionFragment::Operator(s.clone()); },
             Token::ObjectDescender(ref p) => { v.place_back() <- ExpressionFragment::ObjectDescender(p.clone()); },
-            ref e => { stream.unshift(); return Err(ParseError::InvalidExpressionFragment(e.position())); }
+            _ => { stream.unshift(); break; }
         }
     }
-    Ok(Expression(v))
+    if v.is_empty() { Err(ParseError::Expecting(ExpectingKind::Expression, stream.current().position())) }
+    else { Ok(Expression(v)) }
 }
