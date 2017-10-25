@@ -18,7 +18,7 @@ pub enum ParseError<'t>
 	ExpectingIdentNextIn(&'t Location), ExpectingIdentOrIn(&'t Location), Expecting(ExpectingKind, &'t Location),
 	ExpectingListDelimiterOrParentheseClosing(&'t Location),
 	ExpectingEnclosed(ExpectingKind, EnclosureKind, &'t Location), ExpectingOpen(EnclosureKind, &'t Location), ExpectingClose(EnclosureKind, &'t Location),
-	UnexpectedClose(EnclosureKind, &'t Location), InvalidExpressionFragment(&'t Location)
+	UnexpectedClose(EnclosureKind, &'t Location), Unexpected(&'t Location), InvalidExpressionFragment(&'t Location)
 }
 impl<'t> Debug for ParseError<'t>
 {
@@ -35,7 +35,7 @@ impl<'t> ParseError<'t>
 		use self::ParseError::*;
 		match *self
 		{
-			ExpectingIdentNextIn(p) | ExpectingIdentOrIn(p) | Expecting(_, p)  | ExpectingEnclosed(_, _, p) | ExpectingClose(_, p)
+			ExpectingIdentNextIn(p) | ExpectingIdentOrIn(p) | Expecting(_, p)  | ExpectingEnclosed(_, _, p) | ExpectingClose(_, p) | Unexpected(p)
 			| ExpectingListDelimiterOrParentheseClosing(p) | ExpectingOpen(_, p) | UnexpectedClose(_, p) | InvalidExpressionFragment(p) => p
 		}
 	}
@@ -66,50 +66,13 @@ impl<'t> Error for ParseError<'t>
 			ParseError::UnexpectedClose(EnclosureKind::Brace, _) => "Unexpected '}'",
 			ParseError::UnexpectedClose(EnclosureKind::Bracket, _) => "Unexpected ']'",
 			ParseError::InvalidExpressionFragment(_) => "An invalid expression fragment found",
+			ParseError::Unexpected(_) => "Unexpected token",
 			_ => unreachable!()
 		}
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShaderStage { Vertex, Fragment, Geometry, Hull, Domain }
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShaderStageDefinition<'s> { pub location: Location, pub stage: ShaderStage, pub inputs: Vec<SemanticInput<'s>> }
-/// Parse an shader stage definition
-/// # Example
-/// 
-/// ```
-/// # use pureshader::*;
-/// # use std::cell::RefCell;
-/// let (s, v) = (RefCell::new(Source::new("FragmentShader(uv(TEXCOORD0): f2,)")), RefCell::new(Vec::new()));
-/// let mut tokcache = TokenizerCache::new(&v, &s);
-/// assert_eq!(shader_stage_definition(&mut tokcache), Ok(ShaderStageDefinition
-/// {
-///   location: Location::default(), stage: ShaderStage::Fragment, inputs: vec![
-///     SemanticInput { location: Location { line: 1, column: 16 }, name: Some("uv"), semantics: Semantics::Texcoord(0), _type: BType::FVec(2) }
-///   ]
-/// }));
-/// ```
-pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<ShaderStageDefinition<'s>, Vec<ParseError<'t>>>
-{
-	let (location, stage) = match tok.next()
-	{
-		&Token::Keyword(ref pos, Keyword::VertexShader) => (pos.clone(), ShaderStage::Vertex),
-		&Token::Keyword(ref pos, Keyword::FragmentShader) => (pos.clone(), ShaderStage::Fragment),
-		&Token::Keyword(ref pos, Keyword::GeometryShader) => (pos.clone(), ShaderStage::Geometry),
-		&Token::Keyword(ref pos, Keyword::HullShader) => (pos.clone(), ShaderStage::Hull),
-		&Token::Keyword(ref pos, Keyword::DomainShader) => (pos.clone(), ShaderStage::Domain),
-		e => return Err(vec![ParseError::Expecting(ExpectingKind::ShaderStage, e.position())])
-	};
-	match tok.next() { &Token::BeginEnclosure(_, EnclosureKind::Parenthese) => (), e => return Err(vec![ParseError::ExpectingOpen(EnclosureKind::Parenthese, e.position())]) }
-	let inputs = match semantic_inputs(tok) { Ok(v) => v, Err(ev) => return Err(ev) };
-	match tok.next()
-	{
-		&Token::EndEnclosure(_, EnclosureKind::Parenthese) => Ok(ShaderStageDefinition { location, stage, inputs }),
-		e => Err(vec![ParseError::ExpectingClose(EnclosureKind::Parenthese, e.position())])
-	}
-}
-
+/// トークンマッチングマクロ
 macro_rules! TMatch
 {
 	($stream: expr; $pat: pat => $extract: expr, $err: expr) =>
@@ -121,6 +84,100 @@ macro_rules! TMatch
 		match *$stream.current() { $pat => { $stream.consume(); }, ref e => return Err($err(e.position())) }
 	}
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShaderStage { Vertex, Fragment, Geometry, Hull, Domain }
+/// シェーダステージ定義
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShaderStageDefinition<'s>
+{
+	pub location: Location, pub stage: ShaderStage,
+	pub inputs: Vec<SemanticInput<'s>>, pub outputs: Vec<SemanticOutput<'s>>,
+	pub uniforms: Vec<UniformDeclaration<'s>>, pub constants: Vec<ConstantDeclaration<'s>>,
+	pub values: Vec<ValueDeclaration<'s>>
+}
+/// Parse an shader stage definition
+/// # Example
+/// 
+/// ```
+/// # use pureshader::*;
+/// # use std::cell::RefCell;
+/// let (s, v) = (RefCell::new(Source::new("FragmentShader(uv(TEXCOORD0): f2,)")), RefCell::new(Vec::new()));
+/// let mut tokcache = TokenizerCache::new(&v, &s);
+/// assert_eq!(shader_stage_definition(&mut tokcache), Ok(ShaderStageDefinition
+/// {
+///   location: Location::default(), stage: ShaderStage::Fragment, inputs: vec![
+///     SemanticInput { location: Location { line: 1, column: 16 }, name: Some("uv"), semantics: Semantics::Texcoord(0), _type: BType::FVec(2) },
+///   ], outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new()
+/// }));
+/// ```
+pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<ShaderStageDefinition<'s>, Vec<ParseError<'t>>>
+{
+	let (location, stage) = match *tok.next()
+	{
+		Token::Keyword(ref pos, Keyword::VertexShader) => (pos, ShaderStage::Vertex),
+		Token::Keyword(ref pos, Keyword::FragmentShader) => (pos, ShaderStage::Fragment),
+		Token::Keyword(ref pos, Keyword::GeometryShader) => (pos, ShaderStage::Geometry),
+		Token::Keyword(ref pos, Keyword::HullShader) => (pos, ShaderStage::Hull),
+		Token::Keyword(ref pos, Keyword::DomainShader) => (pos, ShaderStage::Domain),
+		ref e => { tok.unshift(); return Err(vec![ParseError::Expecting(ExpectingKind::ShaderStage, e.position())]) }
+	};
+	TMatch!(tok; Token::BeginEnclosure(_, EnclosureKind::Parenthese), |p| vec![ParseError::ExpectingOpen(EnclosureKind::Parenthese, p)]);
+	let inputs = match semantic_inputs(tok) { Ok(v) => v, Err(ev) => return Err(ev) };
+	TMatch!(tok; Token::EndEnclosure(_, EnclosureKind::Parenthese), |p| vec![ParseError::ExpectingClose(EnclosureKind::Parenthese, p)]);
+	let (mut outputs, mut uniforms, mut constants, mut values) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+	let mut errors = Vec::new();
+	loop
+	{
+		if tok.current().is_eof() || tok.current().position().column <= location.column { break; }
+		let head_loc = tok.current().position();
+		match semantic_output(tok)
+		{
+			Ok(v) => { outputs.push(v); continue; },
+			Err(e) => if e.position() != head_loc
+			{
+				errors.push(e);
+				tok.drop_line(); while tok.current().position().column > head_loc.column { tok.drop_line(); }
+				continue;
+			}
+		}
+		match uniform_decl(tok)
+		{
+			Ok(v) => { uniforms.push(v); continue; },
+			Err(e) => if e.position() != head_loc
+			{
+				errors.push(e);
+				tok.drop_line(); while tok.current().position().column > head_loc.column { tok.drop_line(); }
+				continue;
+			}
+		}
+		match constant_decl(tok)
+		{
+			Ok(v) => { constants.push(v); continue; },
+			Err(e) => if e.position() != head_loc
+			{
+				errors.push(e);
+				tok.drop_line(); while tok.current().position().column > head_loc.column { tok.drop_line(); }
+				continue;
+			}
+		}
+		match value_decl(tok)
+		{
+			Ok(v) => { values.push(v); continue; },
+			Err(e) => if e.position() != head_loc
+			{
+				errors.push(e);
+				tok.drop_line(); while tok.current().position().column > head_loc.column { tok.drop_line(); }
+				continue;
+			}
+		}
+		errors.push(ParseError::Unexpected(head_loc));
+		tok.drop_line(); while tok.current().position().column > head_loc.column { tok.drop_line(); }
+	}
+	if errors.is_empty() { Ok(ShaderStageDefinition { location: location.clone(), stage, inputs, outputs, uniforms, constants, values }) }
+	else { Err(errors) }
+}
+
 pub fn name<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, allow_placeholder: bool) -> Result<(&'t Location, Option<&'s str>), ParseError<'t>>
 {
 	match *tok.next()

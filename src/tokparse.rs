@@ -124,12 +124,18 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
         while !predicate(self.current()) { self.consume(); }
         self
     }
+    pub fn drop_line(&mut self) -> &mut Self
+    {
+        let inl = self.current().position().line;
+        self.drop_until(|t| t.position().line != inl)
+    }
 }
 impl<'s> Token<'s>
 {
     pub fn is_list_delimiter(&self) -> bool { match self { &Token::ListDelimiter(_) => true, _ => false } }
     pub fn is_item_delimiter(&self) -> bool { discriminant(self) == discriminant(&Token::ItemDescriptorDelimiter(Location::default())) }
     pub fn is_basic_type(&self) -> bool { match self { &Token::BasicType(_, _) => true, _ => false } }
+    pub fn is_eof(&self) -> bool { discriminant(self) == discriminant(&Token::EOF(Location::default())) }
 }
 
 const OPCLASS: &'static [char] = &['<', '＜', '>', '＞', '=', '＝', '!', '！', '$', '＄', '%', '％', '&', '＆', '~', '～', '^', '＾', '-', 'ー',
