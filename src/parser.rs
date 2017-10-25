@@ -9,7 +9,8 @@ use typeparser::*;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ExpectingKind
 {
-	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ConcreteExpression, Expression
+	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl,
+	ConcreteExpression, Expression, Pattern
 }
 #[derive(Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -56,6 +57,7 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::Ident, _) => "Expecting an identifier",
 			ParseError::Expecting(ExpectingKind::ConcreteExpression, _) => "Expecting a concrete expression",
 			ParseError::Expecting(ExpectingKind::Expression, _) => "Expecting an expression",
+			ParseError::Expecting(ExpectingKind::ValueDecl, _) => "Expecting `let`",
 			ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, _) => "Expecting a semantic enclosured by ()",
 			ParseError::ExpectingClose(EnclosureKind::Parenthese, _) => "Expecting a `)`",
 			ParseError::ExpectingOpen(EnclosureKind::Parenthese, _) => "Expecting a `(`",
@@ -126,6 +128,43 @@ pub fn name<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, allow_placeholder: boo
 		Token::Placeholder(ref p) if allow_placeholder => Ok((p, None)), Token::Identifier(Source { slice, ref pos }) => Ok((pos, Some(slice))),
 		ref e => Err(ParseError::Expecting(ExpectingKind::Ident, e.position()))
 	}
+}
+
+fn determine_expression_head<'s: 't, 't>(tok: &TokenizerCache<'s, 't>, loc: &'t Location) -> Option<Option<usize>>
+{
+	if tok.current().position().line == loc.line { Some(Some(loc.column)) }
+	else if tok.current().position().column > loc.column { Some(None) } else { None }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueDeclaration<'s> { pub location: Location, pub pat: Expression<'s>, pub _type: Option<Type<'s>>, pub value: Expression<'s> }
+/// Parse a value(`let`) declaration
+/// # Example
+/// 
+/// ```
+/// # use pureshader::*;
+/// # use std::cell::RefCell;
+/// let (s, v) = (RefCell::new(Source::new("let succ x: int -> _ = x + 1")), RefCell::new(Vec::new()));
+/// let mut tokcache = TokenizerCache::new(&v, &s);
+/// let vd = value_decl(&mut tokcache).unwrap();
+/// assert_eq!(vd.location, Location::default());
+/// assert_eq!(vd.pat[0].text(), Some("succ")); assert_eq!(vd.pat[1].text(), Some("x"));
+/// assert_eq!(vd._type.as_ref().unwrap()[0].basic_type(), Some(BType::Int));
+/// assert_eq!(vd._type.as_ref().unwrap()[1].text(), Some("->")); assert!(vd._type.as_ref().unwrap()[2].is_placeholder());
+/// assert_eq!(vd.value[0].text(), Some("x")); assert_eq!(vd.value[1].text(), Some("+"));
+/// assert_eq!(vd.value[2].text(), Some("1"));
+/// ```
+pub fn value_decl<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<ValueDeclaration<'s>, ParseError<'t>>
+{
+	let location = TMatch!(tok; Token::Keyword(ref loc, Keyword::Let) => loc, |p| ParseError::Expecting(ExpectingKind::ValueDecl, p));
+	let pbegin = determine_expression_head(tok, location).ok_or_else(|| ParseError::Expecting(ExpectingKind::Pattern, tok.current().position()))?;
+	let pat = expression(tok, pbegin, None)?;
+	let _type = if tok.current().is_item_delimiter() { tok.consume(); Some(user_type(tok, None)?) }
+	else { None };
+	TMatch!(tok; Token::Equal(_), |p| ParseError::Expecting(ExpectingKind::ConcreteExpression, p));
+	let vbegin = determine_expression_head(tok, location).ok_or_else(|| ParseError::Expecting(ExpectingKind::ConcreteExpression, tok.current().position()))?;
+	let value = expression(tok, vbegin, None)?;
+	Ok(ValueDeclaration { location: location.clone(), pat, _type, value })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -4,7 +4,7 @@ use tokparse::{Location, Source, Token, TokenizerCache, NumericTy, EnclosureKind
 use parser::{ParseError, ExpectingKind};
 use std::ops::Deref;
 
-// Expression = a list of some tokens
+// Expression(Pattern) = a list of some tokens
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpressionFragment<'s>

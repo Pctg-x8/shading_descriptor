@@ -6,6 +6,7 @@ use std::io::stderr;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::cell::RefCell;
 use std;
+use std::mem::discriminant;
 
 use regex::Regex;
 
@@ -73,8 +74,10 @@ pub enum Keyword
     // blend factors //
     SrcColor, SrcAlpha, DestColor, DestAlpha, ConstantFactor
 }
+/// セマンティクス
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Semantics { Position(usize), SVPosition, Texcoord(usize), Color(usize), SVTarget }
+/// 基本型/組み込み型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BType
 {
@@ -83,10 +86,10 @@ pub enum BType
     Sampler(u8), Texture(u8)
 }
 
-pub struct TokenizerCache<'s: 't, 't> { counter: usize, cache: &'t RefCell<Vec<Token<'s>>>, source: &'t RefCell<Source<'s>> }
+pub struct TokenizerCache<'s: 't, 't> { counter: usize, cache: &'t RefCell<Vec<Box<Token<'s>>>>, source: &'t RefCell<Source<'s>> }
 impl<'s: 't, 't> TokenizerCache<'s, 't>
 {
-    pub fn new(cache: &'t RefCell<Vec<Token<'s>>>, source: &'t RefCell<Source<'s>>) -> Self
+    pub fn new(cache: &'t RefCell<Vec<Box<Token<'s>>>>, source: &'t RefCell<Source<'s>>) -> Self
     {
         TokenizerCache { counter: 0, cache, source }
     }
@@ -98,9 +101,14 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
     {
         while self.counter >= self.cache.borrow().len()
         {
-            self.cache.borrow_mut().push(self.source.borrow_mut().next());
+            let mut b = self.cache.borrow_mut();
+            b.place_back() <- box self.source.borrow_mut().next();
         }
-        unsafe { &std::mem::transmute::<_, &'t Vec<_>>(&*self.cache.borrow())[self.counter] }
+        unsafe
+        {
+            let v = std::mem::transmute::<_, &'t Vec<Box<_>>>(&*self.cache.borrow());
+            &*v[self.counter]
+        }
     }
     pub fn consume(&mut self) -> &mut Self { self.counter += 1; self }
     pub fn unshift(&mut self) -> &mut Self { self.counter = self.counter.saturating_sub(1); self }
@@ -120,6 +128,7 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
 impl<'s> Token<'s>
 {
     pub fn is_list_delimiter(&self) -> bool { match self { &Token::ListDelimiter(_) => true, _ => false } }
+    pub fn is_item_delimiter(&self) -> bool { discriminant(self) == discriminant(&Token::ItemDescriptorDelimiter(Location::default())) }
     pub fn is_basic_type(&self) -> bool { match self { &Token::BasicType(_, _) => true, _ => false } }
 }
 
