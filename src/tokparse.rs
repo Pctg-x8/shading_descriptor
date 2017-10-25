@@ -68,11 +68,15 @@ pub enum EnclosureKind { Parenthese, Bracket, Brace }
 pub enum Keyword
 {
     Let, In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
-    DepthTest, DepthWrite, StencilTest, Blend,
+    DepthTest, DepthWrite, DepthBounds, StencilTest, StencilOps, StencilCompare, StencilWriteMask, Blend,
     // blend ops //
     Add, Sub,
     // blend factors //
-    SrcColor, SrcAlpha, DestColor, DestAlpha, ConstantFactor
+    SrcColor, SrcAlpha, DestColor, DestAlpha, ConstantFactor,
+    // Compare Ops //
+    Always, Never, Equal, Inequal, Greater, Less, GreaterEq, LessEq,
+    // Stencil Ops //
+    Keep, Zero, Replace, IncrWrap, IncrClamp, DecrWrap, DecrClamp, Invert
 }
 /// セマンティクス
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,10 +301,14 @@ impl<'s> Source<'s>
                 "HullShader" => Some(Token::Keyword(s.pos, Keyword::HullShader)),
                 "DomainShader" => Some(Token::Keyword(s.pos, Keyword::DomainShader)),
                 // RenderStates //
-                "DepthTest" =>   Some(Token::Keyword(s.pos, Keyword::DepthTest)),
-                "DepthWrite" =>  Some(Token::Keyword(s.pos, Keyword::DepthWrite)),
+                "DepthTest"   => Some(Token::Keyword(s.pos, Keyword::DepthTest)),
+                "DepthWrite"  => Some(Token::Keyword(s.pos, Keyword::DepthWrite)),
+                "DepthBounds" => Some(Token::Keyword(s.pos, Keyword::DepthBounds)),
                 "StencilTest" => Some(Token::Keyword(s.pos, Keyword::StencilTest)),
-                "Blend" =>       Some(Token::Keyword(s.pos, Keyword::Blend)),
+                "StencilOps"  => Some(Token::Keyword(s.pos, Keyword::StencilOps)),
+                "StencilCompare"   => Some(Token::Keyword(s.pos, Keyword::StencilCompare)),
+                "StencilWriteMask" => Some(Token::Keyword(s.pos, Keyword::StencilWriteMask)),
+                "Blend"       => Some(Token::Keyword(s.pos, Keyword::Blend)),
                 // BlendOps //
                 "Add" => Some(Token::Keyword(s.pos, Keyword::Add)),
                 "Sub" => Some(Token::Keyword(s.pos, Keyword::Sub)),
@@ -310,6 +318,24 @@ impl<'s> Source<'s>
                 "DestColor" => Some(Token::Keyword(s.pos, Keyword::DestColor)),
                 "DestAlpha" => Some(Token::Keyword(s.pos, Keyword::DestAlpha)),
                 "ConstantFactor" => Some(Token::Keyword(s.pos, Keyword::ConstantFactor)),
+                // CompareOps //
+                "Always"    => Some(Token::Keyword(s.pos, Keyword::Always)),
+                "Never"     => Some(Token::Keyword(s.pos, Keyword::Never)),
+                "Equal"     => Some(Token::Keyword(s.pos, Keyword::Equal)),
+                "Inequal"   => Some(Token::Keyword(s.pos, Keyword::Inequal)),
+                "Greater"   => Some(Token::Keyword(s.pos, Keyword::Greater)),
+                "Less"      => Some(Token::Keyword(s.pos, Keyword::Less)),
+                "GreaterEq" => Some(Token::Keyword(s.pos, Keyword::GreaterEq)),
+                "LessEq"    => Some(Token::Keyword(s.pos, Keyword::LessEq)),
+                // StencilOps //
+                "Keep" => Some(Token::Keyword(s.pos, Keyword::Keep)),
+                "Zero" | "Clear" => Some(Token::Keyword(s.pos, Keyword::Zero)),
+                "Replace" => Some(Token::Keyword(s.pos, Keyword::Replace)),
+                "IncrementWrap" => Some(Token::Keyword(s.pos, Keyword::IncrWrap)),
+                "IncrementClamp" | "IncrementSaturate" => Some(Token::Keyword(s.pos, Keyword::IncrClamp)),
+                "DecrementWrap" => Some(Token::Keyword(s.pos, Keyword::DecrWrap)),
+                "DecrementClamp" | "DecrementSaturate" => Some(Token::Keyword(s.pos, Keyword::DecrClamp)),
+                "Invert" => Some(Token::Keyword(s.pos, Keyword::Invert)),
                 // BasicTypes //
                 "bool" =>   Some(Token::BasicType(s.pos, BType::Bool)),
                 "int" =>    Some(Token::BasicType(s.pos, BType::Int)),
@@ -513,6 +539,19 @@ impl<'s> Source<'s>
         {
             Some(c@'.') | Some(c@'．') => Some(Token::ObjectDescender(self.split(c.len_utf8(), 1).pos)),
             _ => None
+        }
+    }
+}
+
+// Text Conversion //
+impl<'s> Token<'s>
+{
+    pub fn as_f32(&self) -> f32
+    {
+        match *self
+        {
+            Token::Numeric(Source { slice, .. }, _) | Token::NumericF(Source { slice, .. }, _) => slice.parse().unwrap(),
+            _ => unreachable!()
         }
     }
 }

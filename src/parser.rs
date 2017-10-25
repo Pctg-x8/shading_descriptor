@@ -10,7 +10,8 @@ use typeparser::*;
 pub enum ExpectingKind
 {
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl,
-	ConcreteExpression, Expression, Pattern
+	ConcreteExpression, Expression, Pattern, Numeric,
+	CompareOps, StencilOps, DepthStencilStates
 }
 #[derive(Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -58,6 +59,9 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::ConcreteExpression, _) => "Expecting a concrete expression",
 			ParseError::Expecting(ExpectingKind::Expression, _) => "Expecting an expression",
 			ParseError::Expecting(ExpectingKind::ValueDecl, _) => "Expecting `let`",
+			ParseError::Expecting(ExpectingKind::CompareOps, _) => "Expecting a comparsion operator",
+			ParseError::Expecting(ExpectingKind::StencilOps, _) => "Expecting a stencil operator",
+			ParseError::Expecting(ExpectingKind::Numeric, _) => "Expecting a numeric literal",
 			ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, _) => "Expecting a semantic enclosured by ()",
 			ParseError::ExpectingClose(EnclosureKind::Parenthese, _) => "Expecting a `)`",
 			ParseError::ExpectingOpen(EnclosureKind::Parenthese, _) => "Expecting a `(`",
@@ -82,6 +86,158 @@ macro_rules! TMatch
 	($stream: expr; $pat: pat, $err: expr) =>
 	{
 		match *$stream.current() { $pat => { $stream.consume(); }, ref e => return Err($err(e.position())) }
+	};
+	(Numeric: $stream: expr; $err: expr) =>
+	{
+		match *$stream.current()
+		{
+			ref t@Token::Numeric(_, _) | ref t@Token::NumericF(_, _) => { $stream.consume(); t },
+			ref e => return Err($err(e.position()))
+		}
+	}
+}
+
+/// シェーディングパイプラインステート
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShadingState<T> { Enable(T), Disable }
+impl<T: Copy> Copy for ShadingState<T> {}
+impl<T: Eq> Eq for ShadingState<T> {}
+impl<T: Default> ShadingState<T>
+{
+	fn modify_part(&mut self) -> &mut T
+	{
+		if let ShadingState::Disable = *self
+		{
+			*self = ShadingState::Enable(T::default());
+		}
+		if let ShadingState::Enable(ref mut v) = *self { v } else { unreachable!(); }
+	}
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompareOp { Always, Never, Equal, Inequal, Greater, Less, GreaterEq, LessEq }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StencilOp { Keep, Zero, Replace, IncrementWrap, DecrementWrap, IncrementClamp, DecrementClamp, Invert }
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShadingStates
+{
+	depth_test: ShadingState<CompareOp>, depth_write: ShadingState<()>,
+	depth_bounds: ShadingState<[f32; 2]>, stencil_test: ShadingState<StencilTestConfig>
+}
+impl Default for ShadingStates
+{
+	fn default() -> Self
+	{
+		ShadingStates
+		{
+			depth_test: ShadingState::Enable(CompareOp::Greater),
+			depth_write: ShadingState::Enable(()),
+			depth_bounds: ShadingState::Enable([0.0, 1.0]),
+			stencil_test: ShadingState::Disable,
+		}
+	}
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StencilTestConfig
+{
+	pub op_fail: StencilOp, pub op_pass: StencilOp, pub op_depth_fail: StencilOp,
+	pub op_compare: CompareOp, pub compare_mask: u32, pub reference: u32, pub write_mask: u32
+}
+impl Default for StencilTestConfig
+{
+	fn default() -> Self
+	{
+		StencilTestConfig
+		{
+			op_fail: StencilOp::Keep, op_pass: StencilOp::Keep, op_depth_fail: StencilOp::Keep,
+			op_compare: CompareOp::Always, compare_mask: 0xffff_ffff, reference: 0, write_mask: 0xffff_ffff
+		}
+	}
+}
+pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut ShadingStates) -> Result<(), ParseError<'t>>
+{
+	let disabling = if let Token::Operator(Source { slice: "!", .. }) = *tok.current() { tok.consume(); true } else { false };
+
+	match *tok.next()
+	{
+		Token::Keyword(_, Keyword::DepthTest) =>
+		{
+			sink.depth_test = if disabling { ShadingState::Disable } else
+			{
+				ShadingState::Enable(compare_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?)
+			};
+		},
+		Token::Keyword(_, Keyword::DepthWrite) => { sink.depth_write = if disabling { ShadingState::Disable } else { ShadingState::Enable(()) }; },
+		Token::Keyword(_, Keyword::DepthBounds) =>
+		{
+			sink.depth_bounds = if disabling { ShadingState::Disable } else
+			{
+				let min = TMatch!(Numeric: tok; |p| ParseError::Expecting(ExpectingKind::Numeric, p));
+				let max = TMatch!(Numeric: tok; |p| ParseError::Expecting(ExpectingKind::Numeric, p));
+				ShadingState::Enable([min.as_f32(), max.as_f32()])
+			};
+		},
+		Token::Keyword(_, Keyword::StencilOps) =>
+		{
+			let opf = stencil_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
+			let opp = stencil_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
+			let opdf = stencil_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
+			sink.stencil_test.modify_part().op_fail = opf;
+			sink.stencil_test.modify_part().op_pass = opp;
+			sink.stencil_test.modify_part().op_depth_fail = opdf;
+		},
+		Token::Keyword(_, Keyword::StencilCompare) =>
+		{
+			let op = compare_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?;
+			let mask = if let Token::BeginEnclosure(_, EnclosureKind::Parenthese) = *tok.current()
+			{
+				tok.consume();
+				let n = TMatch!(tok; Token::Numeric(Source { slice, .. }, _) => slice.parse().unwrap(), |p| ParseError::Expecting(ExpectingKind::Numeric, p));
+				TMatch!(tok; Token::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
+				Some(n)
+			}
+			else { None };
+			let refer = TMatch!(tok; Token::Numeric(Source { slice, .. }, _) => slice.parse().unwrap(), |p| ParseError::Expecting(ExpectingKind::Numeric, p));
+			sink.stencil_test.modify_part().op_compare = op;
+			if let Some(m) = mask { sink.stencil_test.modify_part().compare_mask = m; }
+			sink.stencil_test.modify_part().reference = refer;
+		},
+		Token::Keyword(_, Keyword::StencilWriteMask) =>
+		{
+			let mask = TMatch!(tok; Token::Numeric(Source { slice, .. }, _) => slice.parse().unwrap(), |p| ParseError::Expecting(ExpectingKind::Numeric, p));
+			sink.stencil_test.modify_part().write_mask = mask;
+		},
+		ref e => { tok.unshift(); return Err(ParseError::Expecting(ExpectingKind::DepthStencilStates, e.position())); }
+	}
+	Ok(())
+}
+fn compare_op<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Option<CompareOp>
+{
+	match *tok.next()
+	{
+		Token::Keyword(_, Keyword::Always) => Some(CompareOp::Always),
+		Token::Keyword(_, Keyword::Never)  => Some(CompareOp::Never),
+		Token::Keyword(_, Keyword::Equal)     | Token::Operator(Source { slice: "==", .. }) => Some(CompareOp::Equal),
+		Token::Keyword(_, Keyword::Inequal)   | Token::Operator(Source { slice: "!=", .. }) => Some(CompareOp::Inequal),
+		Token::Keyword(_, Keyword::Greater)   | Token::Operator(Source { slice: ">", .. })  => Some(CompareOp::Greater),
+		Token::Keyword(_, Keyword::Less)      | Token::Operator(Source { slice: "<", .. })  => Some(CompareOp::Less),
+		Token::Keyword(_, Keyword::GreaterEq) | Token::Operator(Source { slice: ">=", .. }) => Some(CompareOp::GreaterEq),
+		Token::Keyword(_, Keyword::LessEq)    | Token::Operator(Source { slice: "<=", .. }) => Some(CompareOp::LessEq),
+		_ => { tok.unshift(); None }
+	}
+}
+fn stencil_op(tok: &mut TokenizerCache) -> Option<StencilOp>
+{
+	match *tok.next()
+	{
+		Token::Keyword(_, Keyword::Keep) => Some(StencilOp::Keep),
+		Token::Keyword(_, Keyword::Zero) => Some(StencilOp::Zero),
+		Token::Keyword(_, Keyword::Replace) => Some(StencilOp::Replace),
+		Token::Keyword(_, Keyword::Invert) => Some(StencilOp::Invert),
+		Token::Keyword(_, Keyword::IncrWrap) => Some(StencilOp::IncrementWrap),
+		Token::Keyword(_, Keyword::DecrWrap) => Some(StencilOp::DecrementWrap),
+		Token::Keyword(_, Keyword::IncrClamp) => Some(StencilOp::IncrementClamp),
+		Token::Keyword(_, Keyword::DecrClamp) => Some(StencilOp::DecrementClamp),
+		_ => { tok.unshift(); None }
 	}
 }
 

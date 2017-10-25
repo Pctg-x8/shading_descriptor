@@ -14,5 +14,6 @@ pub use parser::{SemanticOutput, semantic_output};
 pub use parser::{UniformDeclaration, ConstantDeclaration, uniform_decl, constant_decl};
 pub use parser::{ValueDeclaration, value_decl};
 pub use parser::{ShaderStage, ShaderStageDefinition, shader_stage_definition};
+pub use parser::{ShadingState, ShadingStates, CompareOp, StencilOp, StencilTestConfig};
 pub use expression_parser::{Expression, ExpressionFragment, expression};
 pub use typeparser::{Type, TypeFragment, user_type};
