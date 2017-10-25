@@ -19,7 +19,8 @@ pub enum ParseError<'t>
 	ExpectingIdentNextIn(&'t Location), ExpectingIdentOrIn(&'t Location), Expecting(ExpectingKind, &'t Location),
 	ExpectingListDelimiterOrParentheseClosing(&'t Location),
 	ExpectingEnclosed(ExpectingKind, EnclosureKind, &'t Location), ExpectingOpen(EnclosureKind, &'t Location), ExpectingClose(EnclosureKind, &'t Location),
-	UnexpectedClose(EnclosureKind, &'t Location), Unexpected(&'t Location), InvalidExpressionFragment(&'t Location)
+	UnexpectedClose(EnclosureKind, &'t Location), Unexpected(&'t Location), InvalidExpressionFragment(&'t Location),
+	PartialDisabling(Keyword, &'t Location)
 }
 impl<'t> Debug for ParseError<'t>
 {
@@ -37,7 +38,8 @@ impl<'t> ParseError<'t>
 		match *self
 		{
 			ExpectingIdentNextIn(p) | ExpectingIdentOrIn(p) | Expecting(_, p)  | ExpectingEnclosed(_, _, p) | ExpectingClose(_, p) | Unexpected(p)
-			| ExpectingListDelimiterOrParentheseClosing(p) | ExpectingOpen(_, p) | UnexpectedClose(_, p) | InvalidExpressionFragment(p) => p
+			| ExpectingListDelimiterOrParentheseClosing(p) | ExpectingOpen(_, p) | UnexpectedClose(_, p) | InvalidExpressionFragment(p)
+			| PartialDisabling(_, p) => p
 		}
 	}
 }
@@ -71,6 +73,9 @@ impl<'t> Error for ParseError<'t>
 			ParseError::UnexpectedClose(EnclosureKind::Bracket, _) => "Unexpected ']'",
 			ParseError::InvalidExpressionFragment(_) => "An invalid expression fragment found",
 			ParseError::Unexpected(_) => "Unexpected token",
+			ParseError::PartialDisabling(Keyword::StencilCompare, _) => "`StencilCompare` cannot be disabled partially",
+			ParseError::PartialDisabling(Keyword::StencilOps, _) => "`StencilOps` cannot be disabled partially",
+			ParseError::PartialDisabling(Keyword::StencilWriteMask, _) => "`StencilWriteMask` cannot be disabled partially",
 			_ => unreachable!()
 		}
 	}
@@ -176,8 +181,9 @@ pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut Shad
 				ShadingState::Enable([min.as_f32(), max.as_f32()])
 			};
 		},
-		Token::Keyword(_, Keyword::StencilOps) =>
+		Token::Keyword(ref p, Keyword::StencilOps) =>
 		{
+			if disabling { tok.unshift(); return Err(ParseError::PartialDisabling(Keyword::StencilOps, p)); }
 			let opf = stencil_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
 			let opp = stencil_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
 			let opdf = stencil_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
@@ -185,8 +191,9 @@ pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut Shad
 			sink.stencil_test.modify_part().op_pass = opp;
 			sink.stencil_test.modify_part().op_depth_fail = opdf;
 		},
-		Token::Keyword(_, Keyword::StencilCompare) =>
+		Token::Keyword(ref p, Keyword::StencilCompare) =>
 		{
+			if disabling { tok.unshift(); return Err(ParseError::PartialDisabling(Keyword::StencilCompare, p)); }
 			let op = compare_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?;
 			let mask = if let Token::BeginEnclosure(_, EnclosureKind::Parenthese) = *tok.current()
 			{
@@ -201,10 +208,15 @@ pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut Shad
 			if let Some(m) = mask { sink.stencil_test.modify_part().compare_mask = m; }
 			sink.stencil_test.modify_part().reference = refer;
 		},
-		Token::Keyword(_, Keyword::StencilWriteMask) =>
+		Token::Keyword(ref p, Keyword::StencilWriteMask) =>
 		{
+			if disabling { tok.unshift(); return Err(ParseError::PartialDisabling(Keyword::StencilWriteMask, p)); }
 			let mask = TMatch!(tok; Token::Numeric(Source { slice, .. }, _) => slice.parse().unwrap(), |p| ParseError::Expecting(ExpectingKind::Numeric, p));
 			sink.stencil_test.modify_part().write_mask = mask;
+		},
+		Token::Keyword(_, Keyword::StencilTest) if disabling =>
+		{
+			sink.stencil_test = ShadingState::Disable;
 		},
 		ref e => { tok.unshift(); return Err(ParseError::Expecting(ExpectingKind::DepthStencilStates, e.position())); }
 	}
