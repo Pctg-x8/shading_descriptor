@@ -11,7 +11,7 @@ pub enum ExpectingKind
 {
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl,
 	ConcreteExpression, Expression, Pattern, Numeric,
-	CompareOps, StencilOps, DepthStencilStates, BlendKw, BlendOps, BlendConstants
+	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, Keyword(Keyword)
 }
 #[derive(Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -20,7 +20,7 @@ pub enum ParseError<'t>
 	ExpectingListDelimiterOrParentheseClosing(&'t Location),
 	ExpectingEnclosed(ExpectingKind, EnclosureKind, &'t Location), ExpectingOpen(EnclosureKind, &'t Location), ExpectingClose(EnclosureKind, &'t Location),
 	UnexpectedClose(EnclosureKind, &'t Location), Unexpected(&'t Location), InvalidExpressionFragment(&'t Location),
-	PartialDisabling(Keyword, &'t Location)
+	PartialDisabling(Keyword, &'t Location), BlendFactorRestriction(&'t Location)
 }
 impl<'t> Debug for ParseError<'t>
 {
@@ -39,7 +39,7 @@ impl<'t> ParseError<'t>
 		{
 			ExpectingIdentNextIn(p) | ExpectingIdentOrIn(p) | Expecting(_, p)  | ExpectingEnclosed(_, _, p) | ExpectingClose(_, p) | Unexpected(p)
 			| ExpectingListDelimiterOrParentheseClosing(p) | ExpectingOpen(_, p) | UnexpectedClose(_, p) | InvalidExpressionFragment(p)
-			| PartialDisabling(_, p) => p
+			| PartialDisabling(_, p) | BlendFactorRestiction(p) => p
 		}
 	}
 }
@@ -64,9 +64,9 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::CompareOps, _) => "Expecting a comparsion operator",
 			ParseError::Expecting(ExpectingKind::StencilOps, _) => "Expecting a stencil operator",
 			ParseError::Expecting(ExpectingKind::Numeric, _) => "Expecting a numeric literal",
-			ParseError::Expecting(ExpectingKind::BlendKw, _) => "Expecting `Blend`",
 			ParseError::Expecting(ExpectingKind::BlendOps, _) => "Expecting a blend operators",
-			ParseError::Expecting(ExpectingKind::BlendConstants, _) => "Expecting a blend constants",
+			ParseError::Expecting(ExpectingKind::BlendFactors, _) => "Expecting a blend factors",
+			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Blend), _) => "Expecting `Blend`",
 			ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, _) => "Expecting a semantic enclosured by ()",
 			ParseError::ExpectingClose(EnclosureKind::Parenthese, _) => "Expecting a `)`",
 			ParseError::ExpectingOpen(EnclosureKind::Parenthese, _) => "Expecting a `(`",
@@ -79,6 +79,7 @@ impl<'t> Error for ParseError<'t>
 			ParseError::PartialDisabling(Keyword::StencilCompare, _) => "`StencilCompare` cannot be disabled partially",
 			ParseError::PartialDisabling(Keyword::StencilOps, _) => "`StencilOps` cannot be disabled partially",
 			ParseError::PartialDisabling(Keyword::StencilWriteMask, _) => "`StencilWriteMask` cannot be disabled partially",
+			ParseError::BlendFactorRestriction(_) => "Constant Blend Factor must be 0 or 1",
 			_ => unreachable!()
 		}
 	}
@@ -103,6 +104,10 @@ macro_rules! TMatch
 			ref e => return Err($err(e.position()))
 		}
 	}
+	(Optional: $stream: expr; $pat: pat => $act: expr) =>
+	{
+		if let $pat = *$stream.current() { $stream.consume(); Some($act) } else { None }
+	};
 	(Optional: $stream: expr; $pat: pat) =>
 	{
 		if let $pat = *$stream.current() { $stream.consume(); true } else { false }
@@ -175,8 +180,7 @@ impl Default for StencilTestConfig
 pub struct BlendingStateConfig
 {
 	pub color_op: BlendOp, pub color_factor_src: BlendFactor, pub color_factor_dest: BlendFactor,
-	pub alpha_op: BlendOp, pub alpha_factor_src: BlendFactor, pub alpha_factor_dest: BlendFactor,
-	pub constant_factor: Option<[f32; 4]>
+	pub alpha_op: BlendOp, pub alpha_factor_src: BlendFactor, pub alpha_factor_dest: BlendFactor
 }
 
 pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut ShadingStates) -> Result<(), ParseError<'t>>
@@ -248,24 +252,56 @@ pub trait Parser<'s>
 	type ResultTy: 's;
 	fn parse<'t>(tok: &mut TokenizerCache<'s, 't>) -> Result<Self::ResultTy, ParseError<'t>> where 's: 't;
 }
-pub struct BlendingStateParser;
-impl<'s> Parser<'s> for BlendingStateParser
+pub trait ShadingStateParser<'s> : Parser<'s>
 {
-	type ResultTy = ShadingState<BlendingStateConfig>;
+	const HEADING_KEYWORD: Keyword;
+	fn switched_parse<'t>(tok: &mut TokenizerCache<'s, 't>) -> Result<ShadingState<Parser::ResultTy>, ParseError<'t>>
+	{
+		if let Token::Operator(Source { slice: "!", .. }) = *tok.current()
+		{
+			tok.consume();
+			TMatch!(tok; Token::Keyword(_, Self::HEADING_KEYWORD), |p| ParseError::Expecting(ExpectingKind::Keyword(Self::HEADING_KEYWORD), p));
+			ShadingState::Disable
+		}
+		else { ShadingState::Enable(Self::parse(tok)) }
+	}
+}
+impl<'s> ShadingStateParser<'s> for BlendStateConfig { const HEADING_KEYWORD: Keyword = Keyword::Blend; }
+impl<'s> Parser<'s> for BlendStateConfig
+{
+	type ResultTy = Self;
 	fn parse<'t>(tok: &mut TokenizerCache<'s, 't>) -> Result<Self::ResultTy, ParseError<'t>> where 's: 't
 	{
-		fn pat_poland<'s, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<(BlendOp, BlendFactor, BlendFactor), ParseError<'t>>
+		fn pat_poland<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<(BlendOp, BlendFactor, BlendFactor), ParseError<'t>>
 		{
-			let color_op = BlendOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::BlendOps, tok.current().position()))?;
+			let op = BlendOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::BlendOps, tok.current().position()))?;
+			let srcfactor = BlendFactor::parse(tok)?;
+			let dstfactor = BlendFactor::parse(tok)?;
+			Ok((op, srcfactor, dstfactor))
 		}
-		TMatch!(tok; Token::Keyword(_, Keyword::Blend), |p| ParseError::Expecting(ExpectingKind::BlendKw, p));
-		let in_enclosure = TMatch!(Optional: tok; Token::BeginEnclosure(_, _));
-		let color_op = match *tok.next()
+		fn pat_infix<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<(BlendOp, BlendFactor, BlendFactor), ParseError<'t>>
 		{
-			Token::Keyword(_, Keyword::Add) => BlendOp::Add,
-			Token::Keyword(_, Keyword::Sub) => BlendOp::Sub,
-			ref e => return Err(ParseError::Expecting())
+			let srcfactor = BlendFactor::parse(tok)?;
+			let op = BlendOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpetingKind::BlendOps, tok.current().position()))?;
+			let dstfactor = BlendFactor::parse(tok)?;
+			Ok((op, srcfactor, dstfactor))
 		}
+
+		TMatch!(tok; Token::Keyword(_, Self::HEADING_KEYWORD), |p| ParseError::Expecting(ExpectingKind::Keyword(Self::HEADING_KEYWORD), p));
+		let in_enclosure = TMatch!(Optional: tok; Token::BeginEnclosure(_, e) => e);
+		let (color_op, color_factor_src, color_factor_dest) = {
+			let save = tok.save();
+			if let Ok(v) = pat_poland(tok) { tok } else { *tok = save; pat_infix(tok)? }
+		};
+		if let Some(e) = in_enclosure { TMatch!(tok; Token::EndEnclosure(_, e), |p| ParseError::ExpectingClose(e, p)); }
+		let in_enclosure = TMatch!(Optional: tok; Token::BeginEnclosure(_, e) => e);
+		let (alpha_op, alpha_factor_src, alpha_factor_dest) = {
+			let save = tok.save();
+			if let Ok(v) = pat_poland(tok) { tok } else { *tok = save; pat_infix(tok)? }
+		};
+		if let Some(e) = in_enclosure { TMatch!(tok; Token::EndEnclosure(_, e), |p| ParseError::ExpectingClose(e, p)); }
+
+		Ok(BlendingStateConfig { color_op, color_factor_src, color_factor_dest, alpha_op, alpha_factor_src, alpha_factor_dest })
 	}
 }
 fn compare_op(tok: &mut TokenizerCache) -> Option<CompareOp>
@@ -323,7 +359,10 @@ impl<'s> Parser<'s> for BlendFactor
 			Token::Keyword(_, Keyword::DestColor) => Ok(BlendFactor::DestColor(inv)),
 			Token::Keyword(_, Keyword::DestAlpha) => Ok(BlendFactor::DestAlpha(inv)),
 			ref n@Token::Numeric(_) | ref n@Token::NumericF(_) =>
-				if n.
+				if n.match1() { Ok(if inv { BlendFactor::Zero } else { BlendFactor::One }) }
+				else if n.match0() { Ok(if inv { BlendFactor::One } else { BlendFactor::Zero }) }
+				else { Err(ParseError::BlendFactorRestriction(n.position())) },
+			ref e => Err(ParseError::Expecting(ExpectingKind::BlendFactors, e.position()))
 		}
 	}
 }

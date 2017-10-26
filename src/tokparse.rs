@@ -553,4 +553,36 @@ impl<'s> Token<'s>
             _ => unreachable!()
         }
     }
+    pub fn match1(&self) -> bool
+    {
+        match *self
+        {
+            Token::Numeric(Source { slice, .. }, NumericTy::Long) | Token::Numeric(Source { slice, .. }, NumericTy::UnsignedLong)
+            | Token::NumericF(Source { slice, .. }, NumericTy::Long) | Token::NumericF(Source { slice, .. }, NumericTy::UnsignedLong) => slice.parse::<u64>() == Ok(1),
+            Token::Numeric(Source { slice, .. }, _) => slice.parse::<usize>() == Ok(1),
+            Token::NumericF(Source { slice, .. }, NumericTy::Double) => slice.parse::<f64>() == Ok(1.0),
+            Token::NumericF(Source [ slice, .. ], _) => slice.parse::<f32>() == Ok(1.0),
+            _ => false
+        }
+    }
+    pub fn match0(&self) -> bool
+    {
+        match *self
+        {
+            Token::Numeric(Source { slice, .. }, t) => match t
+            {
+                NumericTy::UnsignedLong | NumericTy::Long => slice.parse::<u64>() == Ok(0),
+                NumericTy::Double => slice.parse::<f64>() == Ok(0),
+                NumericTy::Float => slice.parse::<f32>() == Ok(0),
+                _ => slice.parse::<usize>() == Ok(0)
+            },
+            Token::NumericF(Source { slice, .. }, t) => match t
+            {
+                NumericTy::UnsignedLong | NumericTy::Long => slice.parse::<u64>() == Ok(0),
+                NumericTy::Float => slice.parse::<f32>() == Ok(0),
+                _ => slice.parse::<f64>() == Ok(0)
+            },
+            _ => false
+        }
+    }
 }
