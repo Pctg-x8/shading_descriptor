@@ -72,7 +72,7 @@ pub enum Keyword
     // blend ops //
     Add, Sub,
     // blend factors //
-    SrcColor, SrcAlpha, DestColor, DestAlpha, ConstantFactor,
+    SrcColor, SrcAlpha, DestColor, DestAlpha,
     // Compare Ops //
     Always, Never, Equal, Inequal, Greater, Less, GreaterEq, LessEq,
     // Stencil Ops //
@@ -317,7 +317,6 @@ impl<'s> Source<'s>
                 "SrcAlpha"  => Some(Token::Keyword(s.pos, Keyword::SrcAlpha)),
                 "DestColor" => Some(Token::Keyword(s.pos, Keyword::DestColor)),
                 "DestAlpha" => Some(Token::Keyword(s.pos, Keyword::DestAlpha)),
-                "ConstantFactor" => Some(Token::Keyword(s.pos, Keyword::ConstantFactor)),
                 // CompareOps //
                 "Always"    => Some(Token::Keyword(s.pos, Keyword::Always)),
                 "Never"     => Some(Token::Keyword(s.pos, Keyword::Never)),
