@@ -1,19 +1,19 @@
 //! Syntax Parser
 
 use tokparse::*;
-use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::error::Error;
 use expression_parser::*;
 use typeparser::*;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpectingKind
 {
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl,
 	ConcreteExpression, Expression, Pattern, Numeric,
 	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, Keyword(Keyword)
 }
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
 {
 	ExpectingIdentNextIn(&'t Location), ExpectingIdentOrIn(&'t Location), Expecting(ExpectingKind, &'t Location),
@@ -22,13 +22,9 @@ pub enum ParseError<'t>
 	UnexpectedClose(EnclosureKind, &'t Location), Unexpected(&'t Location), InvalidExpressionFragment(&'t Location),
 	PartialDisabling(Keyword, &'t Location), BlendFactorRestriction(&'t Location)
 }
-impl<'t> Debug for ParseError<'t>
-{
-	fn fmt(&self, fmt: &mut Formatter) -> FmtResult { write!(fmt, "{} at {}", self.description(), self.position()) }
-}
 impl<'t> Display for ParseError<'t>
 {
-	fn fmt(&self, fmt: &mut Formatter) -> FmtResult { Debug::fmt(self, fmt) }
+	fn fmt(&self, fmt: &mut Formatter) -> FmtResult { write!(fmt, "{} at {}", self.description(), self.position()) }
 }
 impl<'t> ParseError<'t>
 {
@@ -66,6 +62,7 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::Numeric, _) => "Expecting a numeric literal",
 			ParseError::Expecting(ExpectingKind::BlendOps, _) => "Expecting a blend operators",
 			ParseError::Expecting(ExpectingKind::BlendFactors, _) => "Expecting a blend factors",
+			ParseError::Expecting(ExpectingKind::DepthStencilStates, _) => "Expecting any of depth stencil states",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Blend), _) => "Expecting `Blend`",
 			ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, _) => "Expecting a semantic enclosured by ()",
 			ParseError::ExpectingClose(EnclosureKind::Parenthese, _) => "Expecting a `)`",
@@ -80,7 +77,7 @@ impl<'t> Error for ParseError<'t>
 			ParseError::PartialDisabling(Keyword::StencilOps, _) => "`StencilOps` cannot be disabled partially",
 			ParseError::PartialDisabling(Keyword::StencilWriteMask, _) => "`StencilWriteMask` cannot be disabled partially",
 			ParseError::BlendFactorRestriction(_) => "Constant Blend Factor must be 0 or 1",
-			_ => unreachable!()
+			ref de => unreachable!(de)
 		}
 	}
 }
@@ -131,6 +128,10 @@ pub fn shading_pipeline<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Resu
 	loop
 	{
 		let headp = stream.current().position();
+		let mut errors_t = Vec::new();
+		let mut has_error = false;
+		let save = stream.save();
+		// println!("dbg: head : {:?}", stream.current());
 		match shader_stage_definition(stream)
 		{
 			Ok((ShaderStage::Vertex, v))   => { sp.vsh = Some(v); continue; }
@@ -140,28 +141,37 @@ pub fn shading_pipeline<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Resu
 			Ok((ShaderStage::Fragment, v)) => { sp.fsh = Some(v); continue; }
 			Err(mut e) => if headp != stream.current().position()
 			{
-				errors.append(&mut e);
-				stream.drop_line(); while stream.current().position().column > headp.column { stream.drop_line(); }
+				errors_t.append(&mut e); *stream = save;
+				has_error = true;
 			}
 		}
+		// println!("dbg: no shader stage : {:?}", headp);
+		let save = stream.save();
 		match BlendingStateConfig::switched_parse(stream)
 		{
 			Ok(bs) => { sp.state.blending = bs; continue; }
 			Err(e) => if headp != stream.current().position()
 			{
-				errors.push(e);
-				stream.drop_line(); while stream.current().position().column > headp.column { stream.drop_line(); }
+				errors_t.push(e); *stream = save;
+				has_error = true;
 			}
 		}
+		let save = stream.save();
 		if let Err(e) = depth_state(stream, &mut sp.state)
 		{
 			if headp != stream.current().position()
 			{
-				errors.push(e);
-				stream.drop_line(); while stream.current().position().column > headp.column { stream.drop_line(); }
+				errors_t.push(e); *stream = save;
+				has_error = true;
 			}
 		}
-		break;
+		else { continue; }
+		errors.append(&mut errors_t);
+		if has_error
+		{
+			stream.drop_line(); while stream.current().position().column > headp.column { stream.drop_line(); }
+		}
+		else { break; }
 	}
 	if errors.is_empty() { Ok(sp) } else { Err(errors) }
 }
@@ -352,7 +362,7 @@ impl<'s> Parser<'s> for BlendingStateConfig
 		{
 			match *tok.current()
 			{
-				Token::EndEnclosure(_, ee) if ee == e => (),
+				Token::EndEnclosure(_, ee) if ee == e => { tok.consume(); },
 				ref et => return Err(ParseError::ExpectingClose(e, et.position()))
 			}
 		}
@@ -365,7 +375,7 @@ impl<'s> Parser<'s> for BlendingStateConfig
 		{
 			match *tok.current()
 			{
-				Token::EndEnclosure(_, ee) if ee == e => (),
+				Token::EndEnclosure(_, ee) if ee == e => { tok.consume(); },
 				ref et => return Err(ParseError::ExpectingClose(e, et.position()))
 			}
 		}
@@ -476,6 +486,7 @@ pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> 
 	TMatch!(tok; Token::BeginEnclosure(_, EnclosureKind::Parenthese), |p| vec![ParseError::ExpectingOpen(EnclosureKind::Parenthese, p)]);
 	let inputs = match semantic_inputs(tok) { Ok(v) => v, Err(ev) => return Err(ev) };
 	TMatch!(tok; Token::EndEnclosure(_, EnclosureKind::Parenthese), |p| vec![ParseError::ExpectingClose(EnclosureKind::Parenthese, p)]);
+	TMatch!(tok; Token::ItemDescriptorDelimiter(_), |p| vec![ParseError::Expecting(ExpectingKind::ItemDelimiter, p)]);
 	let (mut outputs, mut uniforms, mut constants, mut values) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
 	let mut errors = Vec::new();
 	loop

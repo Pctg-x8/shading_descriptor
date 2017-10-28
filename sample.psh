@@ -1,12 +1,12 @@
 # PureShader Sample Script
 
-!DepthTest !DepthWrite !StencilTest
+!DepthTest !DepthWrite !DepthBounds
 Blend (Add SrcAlpha ~SrcAlpha) (Add ~DestAlpha 1)
 # Blend (Add SrcAlpha ~SrcAlpha) #(Add SrcAlpha ~SrcAlpha)
 # Blend PremultipliedAlpha
 
 VertexShader(pos(POSITION): f4, uv(TEXCOORD0): f2):
-  uniform mvp(set = 0, binding = 0): mf4
+  uniform mvp: mf4
   let trans x: f4 -> _ = mvp * x
   out _(SV_Position) = trans pos
   out _(TEXCOORD0) = uv
