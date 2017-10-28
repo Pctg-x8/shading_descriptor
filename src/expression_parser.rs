@@ -10,7 +10,7 @@ use std::ops::Deref;
 pub enum ExpressionFragment<'s>
 {
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>), Operator(Source<'s>),
-    Primary(Location, Box<Expression<'s>>), ObjectDescender(Location), ListDelimiter(Location)
+    Primary(Location, Expression<'s>), ObjectDescender(Location), ListDelimiter(Location)
 }
 impl<'s> ExpressionFragment<'s>
 {
@@ -27,7 +27,7 @@ impl<'s> ExpressionFragment<'s>
     {
         match *self
         {
-            ExpressionFragment::Primary(_, ref x) => Some(&**x), _ => None
+            ExpressionFragment::Primary(_, ref x) => Some(x), _ => None
         }
     }
 }
@@ -73,7 +73,7 @@ pub fn expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, expression_ba
             Token::EOF(ref p) => if let Some(k) = correspond_closing { return Err(ParseError::ExpectingClose(k, p)); } else { break; },
             Token::BeginEnclosure(ref p, k@EnclosureKind::Parenthese) | Token::BeginEnclosure(ref p, k@EnclosureKind::Brace) =>
             {
-                v.place_back() <- ExpressionFragment::Primary(p.clone(), box expression(stream, Some(expression_base), Some(k))?);
+                v.place_back() <- ExpressionFragment::Primary(p.clone(), expression(stream, Some(expression_base), Some(k))?);
             },
             Token::EndEnclosure(_, k) if Some(k) == correspond_closing => break,
             Token::EndEnclosure(ref p, k) => { stream.unshift(); return Err(ParseError::UnexpectedClose(k, p)); },
