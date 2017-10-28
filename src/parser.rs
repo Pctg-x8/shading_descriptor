@@ -141,8 +141,7 @@ pub fn shading_pipeline<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Resu
 			Ok((ShaderStage::Fragment, v)) => { sp.fsh = Some(v); continue; }
 			Err(mut e) => if headp != stream.current().position()
 			{
-				errors_t.append(&mut e); *stream = save;
-				has_error = true;
+				errors_t.append(&mut e); *stream = save; has_error = true;
 			}
 		}
 		// println!("dbg: no shader stage : {:?}", headp);
@@ -255,7 +254,7 @@ pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut Shad
 		{
 			sink.depth_test = if disabling { ShadingState::Disable } else
 			{
-				ShadingState::Enable(compare_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?)
+				ShadingState::Enable(CompareOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?)
 			};
 		},
 		Token::Keyword(_, Keyword::DepthWrite) => { sink.depth_write = if disabling { ShadingState::Disable } else { ShadingState::Enable(()) }; },
@@ -271,9 +270,9 @@ pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut Shad
 		Token::Keyword(ref p, Keyword::StencilOps) =>
 		{
 			if disabling { tok.unshift(); return Err(ParseError::PartialDisabling(Keyword::StencilOps, p)); }
-			let opf = stencil_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
-			let opp = stencil_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
-			let opdf = stencil_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
+			let opf  = StencilOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
+			let opp  = StencilOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
+			let opdf = StencilOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
 			sink.stencil_test.modify_part().op_fail = opf;
 			sink.stencil_test.modify_part().op_pass = opp;
 			sink.stencil_test.modify_part().op_depth_fail = opdf;
@@ -281,7 +280,7 @@ pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut Shad
 		Token::Keyword(ref p, Keyword::StencilCompare) =>
 		{
 			if disabling { tok.unshift(); return Err(ParseError::PartialDisabling(Keyword::StencilCompare, p)); }
-			let op = compare_op(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?;
+			let op = CompareOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?;
 			let mask = if let Token::BeginEnclosure(_, EnclosureKind::Parenthese) = *tok.current()
 			{
 				tok.consume();
@@ -301,10 +300,7 @@ pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut Shad
 			let mask = TMatch!(tok; Token::Numeric(Source { slice, .. }, _) => slice.parse().unwrap(), |p| ParseError::Expecting(ExpectingKind::Numeric, p));
 			sink.stencil_test.modify_part().write_mask = mask;
 		},
-		Token::Keyword(_, Keyword::StencilTest) if disabling =>
-		{
-			sink.stencil_test = ShadingState::Disable;
-		},
+		Token::Keyword(_, Keyword::StencilTest) if disabling => { sink.stencil_test = ShadingState::Disable; },
 		ref e => { tok.unshift(); return Err(ParseError::Expecting(ExpectingKind::DepthStencilStates, e.position())); }
 	}
 	Ok(())
@@ -383,39 +379,45 @@ impl<'s> Parser<'s> for BlendingStateConfig
 		Ok(BlendingStateConfig { color_op, color_factor_src, color_factor_dest, alpha_op, alpha_factor_src, alpha_factor_dest })
 	}
 }
-fn compare_op(tok: &mut TokenizerCache) -> Option<CompareOp>
+impl CompareOp
 {
-	match *tok.next()
+	fn consume_classify(tok: &mut TokenizerCache) -> Option<Self>
 	{
-		Token::Keyword(_, Keyword::Always) => Some(CompareOp::Always),
-		Token::Keyword(_, Keyword::Never)  => Some(CompareOp::Never),
-		Token::Keyword(_, Keyword::Equal)     | Token::Operator(Source { slice: "==", .. }) => Some(CompareOp::Equal),
-		Token::Keyword(_, Keyword::Inequal)   | Token::Operator(Source { slice: "!=", .. }) => Some(CompareOp::Inequal),
-		Token::Keyword(_, Keyword::Greater)   | Token::Operator(Source { slice: ">", .. })  => Some(CompareOp::Greater),
-		Token::Keyword(_, Keyword::Less)      | Token::Operator(Source { slice: "<", .. })  => Some(CompareOp::Less),
-		Token::Keyword(_, Keyword::GreaterEq) | Token::Operator(Source { slice: ">=", .. }) => Some(CompareOp::GreaterEq),
-		Token::Keyword(_, Keyword::LessEq)    | Token::Operator(Source { slice: "<=", .. }) => Some(CompareOp::LessEq),
-		_ => { tok.unshift(); None }
+		match *tok.next()
+		{
+			Token::Keyword(_, Keyword::Always) => Some(CompareOp::Always),
+			Token::Keyword(_, Keyword::Never)  => Some(CompareOp::Never),
+			Token::Keyword(_, Keyword::Equal)     | Token::Operator(Source { slice: "==", .. }) => Some(CompareOp::Equal),
+			Token::Keyword(_, Keyword::Inequal)   | Token::Operator(Source { slice: "!=", .. }) => Some(CompareOp::Inequal),
+			Token::Keyword(_, Keyword::Greater)   | Token::Operator(Source { slice: ">", .. })  => Some(CompareOp::Greater),
+			Token::Keyword(_, Keyword::Less)      | Token::Operator(Source { slice: "<", .. })  => Some(CompareOp::Less),
+			Token::Keyword(_, Keyword::GreaterEq) | Token::Operator(Source { slice: ">=", .. }) => Some(CompareOp::GreaterEq),
+			Token::Keyword(_, Keyword::LessEq)    | Token::Operator(Source { slice: "<=", .. }) => Some(CompareOp::LessEq),
+			_ => { tok.unshift(); None }
+		}
 	}
 }
-fn stencil_op(tok: &mut TokenizerCache) -> Option<StencilOp>
+impl StencilOp
 {
-	match *tok.next()
+	fn consume_classify(tok: &mut TokenizerCache) -> Option<Self>
 	{
-		Token::Keyword(_, Keyword::Keep)      => Some(StencilOp::Keep),
-		Token::Keyword(_, Keyword::Zero)      => Some(StencilOp::Zero),
-		Token::Keyword(_, Keyword::Replace)   => Some(StencilOp::Replace),
-		Token::Keyword(_, Keyword::Invert)    => Some(StencilOp::Invert),
-		Token::Keyword(_, Keyword::IncrWrap)  => Some(StencilOp::IncrementWrap),
-		Token::Keyword(_, Keyword::DecrWrap)  => Some(StencilOp::DecrementWrap),
-		Token::Keyword(_, Keyword::IncrClamp) => Some(StencilOp::IncrementClamp),
-		Token::Keyword(_, Keyword::DecrClamp) => Some(StencilOp::DecrementClamp),
-		_ => { tok.unshift(); None }
+		match *tok.next()
+		{
+			Token::Keyword(_, Keyword::Keep)      => Some(StencilOp::Keep),
+			Token::Keyword(_, Keyword::Zero)      => Some(StencilOp::Zero),
+			Token::Keyword(_, Keyword::Replace)   => Some(StencilOp::Replace),
+			Token::Keyword(_, Keyword::Invert)    => Some(StencilOp::Invert),
+			Token::Keyword(_, Keyword::IncrWrap)  => Some(StencilOp::IncrementWrap),
+			Token::Keyword(_, Keyword::DecrWrap)  => Some(StencilOp::DecrementWrap),
+			Token::Keyword(_, Keyword::IncrClamp) => Some(StencilOp::IncrementClamp),
+			Token::Keyword(_, Keyword::DecrClamp) => Some(StencilOp::DecrementClamp),
+			_ => { tok.unshift(); None }
+		}
 	}
 }
 impl BlendOp
 {
-	pub fn consume_classify(tok: &mut TokenizerCache) -> Option<Self>
+	fn consume_classify(tok: &mut TokenizerCache) -> Option<Self>
 	{
 		match *tok.next()
 		{
