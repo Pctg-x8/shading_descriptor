@@ -68,7 +68,10 @@ pub enum EnclosureKind { Parenthese, Bracket, Brace }
 pub enum Keyword
 {
     Let, In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
-    DepthTest, DepthWrite, DepthBounds, StencilTest, StencilOps, StencilCompare, StencilWriteMask, Blend,
+    DepthTest, DepthWrite, DepthBounds, StencilTest, StencilOps, StencilCompare, StencilWriteMask, Blend, Type, Data,
+    If, Then, Else,
+    // reserved but not used //
+    Where, Do, Case, Of,
     // blend ops //
     Add, Sub,
     // blend factors //
@@ -289,12 +292,19 @@ impl<'s> Source<'s>
             {
                 "_" => Some(Token::Placeholder(s.pos)),
                 "let" => Some(Token::Keyword(s.pos, Keyword::Let)),
+                "where" => Some(Token::Keyword(s.pos, Keyword::Where)),
+                "do" => Some(Token::Keyword(s.pos, Keyword::Do)),
+                "case" => Some(Token::Keyword(s.pos, Keyword::Case)),
+                "of" => Some(Token::Keyword(s.pos, Keyword::Of)),
+                "if" => Some(Token::Keyword(s.pos, Keyword::If)),
+                "then" => Some(Token::Keyword(s.pos, Keyword::Then)),
+                "else" => Some(Token::Keyword(s.pos, Keyword::Else)),
                 "in" => Some(Token::Keyword(s.pos, Keyword::In)),
                 "out" => Some(Token::Keyword(s.pos, Keyword::Out)),
                 "uniform" => Some(Token::Keyword(s.pos, Keyword::Uniform)),
                 "constant" => Some(Token::Keyword(s.pos, Keyword::Constant)),
-                "set" => Some(Token::Keyword(s.pos, Keyword::Set)),
-                "binding" => Some(Token::Keyword(s.pos, Keyword::Binding)),
+                "type" => Some(Token::Keyword(s.pos, Keyword::Type)),
+                "data" => Some(Token::Keyword(s.pos, Keyword::Data)),
                 "VertexShader" => Some(Token::Keyword(s.pos, Keyword::VertexShader)),
                 "FragmentShader" => Some(Token::Keyword(s.pos, Keyword::FragmentShader)),
                 "GeometryShader" => Some(Token::Keyword(s.pos, Keyword::GeometryShader)),

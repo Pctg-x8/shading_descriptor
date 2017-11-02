@@ -89,3 +89,20 @@ pub fn expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, expression_ba
     if v.is_empty() { Err(ParseError::Expecting(ExpectingKind::Expression, stream.current().position())) }
     else { Ok(Expression(v)) }
 }
+
+/// ラムダ抽象
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Lambda<'s> { Binder(&'s str, Box<Lambda<'s>>), Expression(Expression<'s>) }
+// let a b = \x -> c ==> let a = \b -> \x -> c (bを移項する)
+// let a ~> b = a / b ==> let (~>) a b = a / b ==> let ~> = \a -> \b -> a / b (二項演算パターンを分解してa, bを右から移項する)
+// let (n ~> m) x = ... ==> let n ~> m = \x -> ... ==> let ~> = \n -> \m -> \x -> ... (関数適用パターンとみて先に移項する)
+// let f (Ty a) = ... ==> let f a0 | Ty a = a0 = ... ==> let f a0 = case a0 of Ty a => ... ==> let f = \a0 -> case a0 of Ty a => ...
+//  (コンストラクタパターンをa0(自動生成)に置換してガード化、その後caseに置換して最後にa0を移項)
+
+// f a ([Var "f", Var "a"]) => 最後の1ブロックになるまで移項 => "f" = Lambda::Binder (Var "a") ...
+// a ~> b ([Op "~>" (Var "a") (Var "b")]) => もともと(~>) a bの形になっているのでそのまま最後の1ブロックになるまで移項 => "~>" = Lambda::Binder (Var "a") (Lambda::Binder (Var "b") ...)
+// data f4 = f4 float float float float, f4 x y z w = \c -> c x y z w
+// case v of f4 x y z w => x + y + z + w => v (\x -> \y -> \z -> \w -> x + y + z + w)
+//   => (\c -> c x y z w) (\x -> \y -> \z -> \w -> x + y + z + w)
+// data Either a b = Left a | Right b, Left a = \l -> \r -> l a, Right b = \l -> \r -> r b
+// case x of Left a => a + 3 ==> x (\a -> a + 3) (\_ -> Error)

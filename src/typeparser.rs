@@ -5,6 +5,8 @@ use expression_parser::{Expression, expression};
 use parser::{ParseError, ExpectingKind};
 use std::ops::Deref;
 use std::mem::discriminant;
+use std::collections::HashMap;
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeFragment<'s>
@@ -12,6 +14,16 @@ pub enum TypeFragment<'s>
     BasicType(Location, BType), UserType(Source<'s>), Operator(Source<'s>), OpArrow(Location), OpConstraint(Location), Placeholder(Location),
     ArrayDim(Location, Option<Expression<'s>>), Primary(Location, Type<'s>)
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypePatFragment<'s>
+{
+    BasicType(Location, BType), UserType(Source<'s>),
+    Operator    (Source<'s>, Box<TypePatFragment<'s>>, Box<TypePatFragment<'s>>),
+    OpArrow     (Location,   Box<TypePatFragment<'s>>, Box<TypePatFragment<'s>>), Placeholder(Location),
+    ArrayDim(Box<TypePatFragment<'s>>, Option<Box<TypePatFragment<'s>>>), Apply(Box<TypePatFragment<'s>>, Box<TypePatFragment<'s>>)
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypePattern<'s> { pub tyvars: HashMap<Cow<'s, str>, *mut TypePatFragment<'s>>, pub ty: TypePatFragment<'s> }
 impl<'s> TypeFragment<'s>
 {
     pub fn text(&self) -> Option<&'s str>

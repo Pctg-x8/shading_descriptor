@@ -10,7 +10,7 @@ use typeparser::*;
 pub enum ExpectingKind
 {
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl,
-	ConcreteExpression, Expression, Pattern, Numeric,
+	ConcreteExpression, Expression, ConcreteType, Pattern, Numeric, Operator, PrefixDeclarator,
 	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, Keyword(Keyword)
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +56,8 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::Ident, _) => "Expecting an identifier",
 			ParseError::Expecting(ExpectingKind::ConcreteExpression, _) => "Expecting a concrete expression",
 			ParseError::Expecting(ExpectingKind::Expression, _) => "Expecting an expression",
+			ParseError::Expecting(ExpectingKind::ConcreteType, _) => "Expecting a concrete type",
+			ParseError::Expecting(ExpectingKind::Type, _) => "Expecting a type",
 			ParseError::Expecting(ExpectingKind::ValueDecl, _) => "Expecting `let`",
 			ParseError::Expecting(ExpectingKind::CompareOps, _) => "Expecting a comparsion operator",
 			ParseError::Expecting(ExpectingKind::StencilOps, _) => "Expecting a stencil operator",
@@ -63,7 +65,11 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::BlendOps, _) => "Expecting a blend operators",
 			ParseError::Expecting(ExpectingKind::BlendFactors, _) => "Expecting a blend factors",
 			ParseError::Expecting(ExpectingKind::DepthStencilStates, _) => "Expecting any of depth stencil states",
+			ParseError::Expecting(ExpectingKind::Operator, _) => "Expecting an operator",
+			ParseError::Expecting(ExpectingKind::PrefixDeclarator, _) => "Expecting an identifier or an operator within paired parentheses",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Blend), _) => "Expecting `Blend`",
+			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Type), _) => "Expecting `type`",
+			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), _) => "Expecting `data`",
 			ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, _) => "Expecting a semantic enclosured by ()",
 			ParseError::ExpectingClose(EnclosureKind::Parenthese, _) => "Expecting a `)`",
 			ParseError::ExpectingOpen(EnclosureKind::Parenthese, _) => "Expecting a `(`",
@@ -78,6 +84,30 @@ impl<'t> Error for ParseError<'t>
 			ParseError::PartialDisabling(Keyword::StencilWriteMask, _) => "`StencilWriteMask` cannot be disabled partially",
 			ParseError::BlendFactorRestriction(_) => "Constant Blend Factor must be 0 or 1",
 			ref de => unreachable!(de)
+		}
+	}
+}
+
+pub enum ParseResult<'t, T>
+{
+	NotConsumed, Success(T), Failed(ParseError<'t>)
+}
+use self::ParseResult::{NotConsumed, Success, Failed};
+impl<'t, T> ParseResult<'t, T>
+{
+	fn into_result<Fe: FnOnce() -> ParseError<'t>>(self, not_consumed_err: Fe) -> Result<T, ParseError<'t>>
+	{
+		match self
+		{
+			NotConsumed => Err(not_consumed_err()),
+			Success(t) => Ok(t), Failed(e) => Err(e)
+		}
+	}
+	fn into_result_opt(self) -> Result<Option<T>, ParseError<'t>>
+	{
+		match self
+		{
+			NotConsumed => Ok(None), Success(t) => Ok(Some(t)), Failed(e) => Err(e)
 		}
 	}
 }
@@ -173,6 +203,99 @@ pub fn shading_pipeline<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Resu
 		else { break; }
 	}
 	if errors.is_empty() { Ok(sp) } else { Err(errors) }
+}
+
+/// 型シノニム/データ定義
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeFn<'s> { pub location: Location, pub pat: Type<'s>, pub bound: Type<'s> }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataConstructor<'s> { pub location: Location, pub name: &'s str, pub args: Vec<&'s str> }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeDeclaration<'s> { pub location: Location, pub pat: Type<'s>, pub constructors: Vec<DataConstructor<'s>> }
+pub fn type_fn<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<TypeFn<'s>, ParseError<'t>>
+{
+	let location = TMatch!(stream; Token::Keyword(ref p, Keyword::Type) => p, |p| ParseError::Expecting(ExpectingKind::Keyword(Keyword::Type), p));
+	let pat = user_type(stream, None)?;
+	TMatch!(stream; Token::Equal(_), |p| ParseError::Expecting(ExpectingKind::ConcreteType, p));
+	// let tbegin = determine_expression_head(stream, location).ok_or_else(|| ParseError::Expecting(ExpectingKind::ConcreteType, stream.current().position()))?;
+	let bound = user_type(stream, None)?;
+	Ok(TypeFn { location: location.clone(), pat, bound })
+}
+pub fn type_decl<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<TypeDeclaration<'s>, ParseError<'t>>
+{
+	fn prefix<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, DataConstructor<'s>>
+	{
+		let (location, name) = match prefix_declarator(stream)
+		{
+			Success(v) => v, Failed(e) => return Failed(e), NotConsumed => return NotConsumed
+		};
+		let mut args = Vec::new();
+		loop
+		{
+			match *stream.current()
+			{
+				Token::Identifier(Source { slice, .. }) => { stream.consume(); args.push(slice) },
+				_ => break
+			}
+		}
+		Success(DataConstructor { location: location.clone(), name, args })
+	}
+	fn infix<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, DataConstructor<'s>>
+	{
+		let (location, arg1) = match *stream.current() { Token::Identifier(ref s) => { stream.consume(); (&s.pos, s.slice) }, _ => return NotConsumed };
+		let name = match *stream.current()
+		{
+			Token::Operator(Source { slice, .. }) => slice, ref e => return Failed(ParseError::Expecting(ExpectingKind::Operator, e.position()))
+		};
+		let mut args = Vec::new();
+		loop
+		{
+			match *stream.current()
+			{
+				Token::Identifier(Source { slice, .. }) => { stream.consume(); args.push(slice) },
+				_ => break
+			}
+		}
+		Success(DataConstructor { location: location.clone(), name, args })
+	}
+	let location = TMatch!(stream; Token::Keyword(ref p, Keyword::Data) => p, |p| ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), p));
+	let pat = user_type(stream, None)?;
+	TMatch!(stream; Token::Equal(_), |p| ParseError::Expecting(ExpectingKind::ConcreteType, p));
+	let mut constructors = Vec::new();
+	loop
+	{
+		match prefix(stream)
+		{
+			Success(v) => { constructors.push(v); continue; }, Failed(e) => return Err(e), NotConsumed => ()
+		}
+		match infix(stream)
+		{
+			Success(v) => { constructors.push(v); continue; }, Failed(e) => return Err(e), NotConsumed => break
+		}
+	}
+	Ok(TypeDeclaration { location: location.clone(), pat, constructors })
+}
+
+fn prefix_declarator<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, (&'t Location, &'s str)>
+{
+	match *stream.next()
+	{
+		Token::Identifier(Source { slice, ref pos }) => Success((pos, slice)),
+		Token::BeginEnclosure(ref p, EnclosureKind::Parenthese) =>
+		{
+			let name = match *stream.current()
+			{
+				Token::Operator(Source { slice, .. }) => slice, ref e => return Failed(ParseError::Expecting(ExpectingKind::Operator, e.position()))
+			};
+			match *stream.current()
+			{
+				Token::EndEnclosure(_, EnclosureKind::Parenthese) => (), ref e => return Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, e.position()))
+			}
+			Success((p, name))
+		},
+		Token::Operator(Source { ref pos, .. }) => { stream.unshift(); Failed(ParseError::ExpectingEnclosed(ExpectingKind::Operator, EnclosureKind::Parenthese, pos)) },
+		ref e => { stream.unshift(); NotConsumed }
+	}
 }
 
 /// シェーディングパイプラインステート
