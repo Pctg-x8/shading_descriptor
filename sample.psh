@@ -7,7 +7,7 @@ Blend (Add SrcAlpha ~SrcAlpha) (Add ~DestAlpha 1)
 
 VertexShader(pos(POSITION): f4, uv(TEXCOORD0): f2):
   uniform mvp: mf4
-  let trans x: f4 -> _ = mvp * x
+  trans x: f4 -> _ = let mat = mvp in mat * x
   out _(SV_Position) = trans pos
   out _(TEXCOORD0) = uv
 

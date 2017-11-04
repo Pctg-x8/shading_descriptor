@@ -1,7 +1,7 @@
 //! Layout Parser
 //! Based on the syntax of Haskell 2010: https://www.haskell.org/onlinereport/haskell2010/haskellch10.html
 
-use tokparse::{Source, Token, EnclosureKind, Keyword};
+use tokparse::{Location, Source, Token, EnclosureKind, Keyword};
 use std::mem::replace;
 
 #[derive(Debug)]
@@ -81,6 +81,120 @@ impl<'s> Iterator for LexemeIndentInsertions<'s>
                 }
                 self.last_line = Some(t.position().line);
                 Some(LexemeInsertions::Token(t))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LFTState { Free, EmptyInserted }
+pub struct LayoutFreeTokenStream<'s>
+{
+    source: LexemeIndentInsertions<'s>, lookahead: Option<LexemeInsertions<'s>>,
+    indent_stack: Vec<usize>, state: LFTState
+}
+impl<'s> From<LexemeIndentInsertions<'s>> for LayoutFreeTokenStream<'s>
+{
+    fn from(v: LexemeIndentInsertions<'s>) -> Self
+    {
+        LayoutFreeTokenStream { source: v, lookahead: None, indent_stack: Vec::new(), state: LFTState::Free }
+    }
+}
+impl<'s> LayoutFreeTokenStream<'s>
+{
+    fn look1(&mut self) -> Option<LexemeInsertions<'s>>
+    {
+        if self.lookahead.is_none() { self.source.next() } else { self.lookahead.take() }
+    }
+}
+impl<'s> Iterator for LayoutFreeTokenStream<'s>
+{
+    type Item = Token<'s>;
+    fn next(&mut self) -> Option<Self::Item>
+    {
+        fn from_angle_indent<'s>(this: &mut LayoutFreeTokenStream<'s>, n: usize) -> Option<Token<'s>>
+        {
+            if let Some(&m) = this.indent_stack.last()
+            {
+                if m == n
+                {
+                    return Some(Token::StatementDelimiter(Location::default()));
+                }
+                else if n < m
+                {
+                    this.lookahead = Some(LexemeInsertions::AngleIndent(n));
+                    this.indent_stack.pop();
+                    return Some(Token::EndEnclosure(Location::default(), EnclosureKind::Brace));
+                }
+            }
+            this.next()
+        }
+
+        match self.state
+        {
+            LFTState::Free => match self.look1().unwrap()
+            {
+                LexemeInsertions::AngleIndent(n) => from_angle_indent(self, n),
+                LexemeInsertions::BraceIndent(n) =>
+                {
+                    if let Some(&m) = self.indent_stack.last()
+                    {
+                        if n > m
+                        {
+                            self.indent_stack.push(n);
+                            return Some(Token::BeginEnclosure(Location::default(), EnclosureKind::Brace));
+                        }
+                    }
+                    else if n > 0
+                    {
+                        self.indent_stack.push(n);
+                        return Some(Token::BeginEnclosure(Location::default(), EnclosureKind::Brace));
+                    }
+                    self.state = LFTState::EmptyInserted; self.lookahead = Some(LexemeInsertions::AngleIndent(n));
+                    Some(Token::BeginEnclosure(Location::default(), EnclosureKind::Brace))
+                },
+                LexemeInsertions::Token(Token::EndEnclosure(p, EnclosureKind::Brace)) =>
+                {
+                    if self.indent_stack.last() == Some(&0)
+                    {
+                        self.indent_stack.pop(); Some(Token::EndEnclosure(p, EnclosureKind::Brace))
+                    }
+                    else
+                    {
+                        panic!("Layout error at {}", p);
+                    }
+                },
+                LexemeInsertions::Token(Token::BeginEnclosure(p, EnclosureKind::Brace)) =>
+                {
+                    self.indent_stack.push(0); Some(Token::BeginEnclosure(p, EnclosureKind::Brace))
+                },
+                LexemeInsertions::Token(Token::EOF(p)) =>
+                {
+                    let rval = if let Some(&m) = self.indent_stack.last()
+                    {
+                        if m != 0 { Some(Token::EndEnclosure(p.clone(), EnclosureKind::Brace)) }
+                        else { panic!("Layout error at {}", p) }
+                    }
+                    else { None };
+                    self.lookahead = Some(LexemeInsertions::Token(Token::EOF(p))); rval
+                }
+                LexemeInsertions::Token(t) =>
+                {
+                    /*if let Some(&m) = self.indent_stack.last()
+                    {
+                        if m != 0
+                        {
+                            self.indent_stack.pop(); self.lookahead = Some(LexemeInsertions::Token(t));
+                            return Some(Token::EndEnclosure(t.position.clone(), EnclosureKind::Brace));
+                        }
+                        // if m != 0 { panic!("Layout error at {}", t.position().clone()); }
+                    }*/
+                    Some(t)
+                }
+            },
+            LFTState::EmptyInserted =>
+            {
+                self.state = LFTState::Free; Some(Token::EndEnclosure(Location::default(), EnclosureKind::Brace))
             }
         }
     }
