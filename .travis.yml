@@ -1,4 +1,13 @@
 language: rust
 rust:
-  - nightly
+- nightly
 cache: cargo
+notifications:
+  pushover:
+    api_key:
+      secure: BLMeUorN+JBUiTCNk0BJRRqN9Z2crIr5O6upih9qH8WXA83ZofAs9drJmiveZ61fVDUa40dgvJRASelyw92cGPqTsMujvl/VWv0dmKrIJglmYrN/2nsCpVWS6f5+18x24ggYCsQ8NQONCyKyDEduORzeuo+4452bOryWQnbzKt3UraZYceVF05XpTumv4VqGLYXtd1VFBgMzITKDRyRBq2riw/vfsZXVYvbJqhTpLy4Mn03jpuAV7NzVZ02Kce9nG6TJyqkt9U7Pa5eCdoCB3C5XqOeyoACsWvxdbgoHMwvMvk0Gv6G8q/R+CaeR9lReHG2rqTrnC5JaYIyygUZ4G+nf3Fv2RYZzN1EUUG8TEZlw0nEUFoS2CLSeIbOxp+4qzSdN4OtaEWaIGXHNn4VbjtLP+wA6W/cE4GIA9vwsA4KE8I4sxiIzje/ITPyOnm4N25qep/fQjLVMnfQem8pt8zVhdQ7ZwhlxyGEm8nnbECQvg3PPAxT8//plmeWAfN+bGHGsY5RdOJWa7DFaYoi4HPUWhPy14Me1hvow9SV2kZWky/7IRT2UIBhlzPe43W8DrCAZx1qotoW9WA028C0//lluF6HmZDS/hkvLRk4QWu6b3Clq81mOk03VkReAQYuNIwQ0IC8Iza2x0m4MejazoOVrLJ0mvLTkL5ZFze+ZZb4=
+    users:
+      secure: LXuL/bexyMp+pdtfmBCQqXEhKg23039YL1LVsh/igdUP79YIQ8JKA0Wf3Vdd2MAlGRP7mxkaQeeAlYAB746VlxnTB+KmQryw96PeWneqlixx9OVt0hBpieKpSsaPt7pl5lYWbfNKZg0hwyADu/1dbD6/R74cE0gda6P6TW8aOglIqV7CeeFsStR5ijMQxTVG8vJpcS7GDc5OxAcq+WkfVLx86JQ6CENRVgBJB3Q7f6WeiA6BNaoiY0iBHUGvNhpF8kZVFM7j8/+MA14PMhX/8Ikxk+QnRyAS1VkQImHosWMIdlDoyaCkHPqyplNZFqJp51pgccBploxIsH8RGexZHRAL0DMzTb+9n4Ojy5vT7ER1N04UjEbmy9HgViotJugij6iXKSCvJ2iB630Kw55b7DBAw4RmzXemV6E+QyiVzSm1lXgoT2whdsJyG/KMhQYrWCjLGbD57v6N1xQKr7GnADgvXhozlfaWHnDHvGrX1dTXLmzwmoQWjbVIeARouTtB81+U/1udVQAWnVsKNYr/+8rGiat9hJMXiUwwB6QTAer4yDbMSbqPsadlbcKJEjODHuvJ73H1dpPW+KyqcvGtadrhWBq6OYxLoao0OSBwAYAL+0mmFaX9/0ygrsV363Ef+Tq38c/iKDdXurHiYb7iqgOew6Ux4TU3s73wvTA6wp8=
+    template: "%{repository},%{commit},%{message},%{foo},%{build_url}"
+    on_success: always
+    on_failure: always
