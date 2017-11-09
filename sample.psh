@@ -7,11 +7,13 @@ Blend (Add SrcAlpha ~SrcAlpha) (Add ~DestAlpha 1)
 
 VertexShader(pos(POSITION): f4, uv(TEXCOORD0): f2):
   uniform mvp: mf4
-  trans x: f4 -> _ = let mat = mvp in mat * x
+  trans x: f4 -> _ =
+    let mat = mvp in mat * x
   out _(SV_Position) = trans pos
   out _(TEXCOORD0) = uv
 
-FragmentShader(uv(TEXCOORD0): f2):
+# これ(:かwhere)はどっちでもいい letとかtypeとかと同じブロック規則が適用される
+FragmentShader(uv(TEXCOORD0): f2) where
   # descriptor
   uniform texture: sampler2
   # push constant

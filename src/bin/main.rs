@@ -8,7 +8,7 @@ fn main()
 {
     let fcontent = std::fs::File::open(std::env::args().nth(1).unwrap())
         .and_then(|mut fp| { let mut s = String::new(); fp.read_to_string(&mut s).map(move |_| s) }).unwrap();
-    let (src, tvec) = (RefCell::new(Source::new(&fcontent)), RefCell::new(Vec::new()));
+    let (src, tvec) = (RefCell::new(Source::new(&fcontent).into()), RefCell::new(Vec::new()));
     let mut cache = TokenizerCache::new(&tvec, &src);
     match shading_pipeline(&mut cache)
     {

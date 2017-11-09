@@ -37,7 +37,15 @@ impl<'s> Source<'s>
     pub fn new(s: &'s str) -> Self { Source { pos: Location::default(), slice: s } }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Token<'s>
+pub struct TokenizerState<'s> { pub src: Source<'s>, pub last_line: usize }
+impl<'s> From<Source<'s>> for TokenizerState<'s>
+{
+    fn from(src: Source<'s>) -> Self { TokenizerState { src, last_line: 0 } }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Token<'s> { pub line_head: bool, pub kind: TokenKind<'s> }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenKind<'s>
 {
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>),
     Operator(Source<'s>), Equal(Location), Arrow(Location), TyArrow(Location), BeginEnclosure(Location, EnclosureKind), EndEnclosure(Location, EnclosureKind),
@@ -45,11 +53,11 @@ pub enum Token<'s>
 
     Keyword(Location, Keyword), Semantics(Location, Semantics), BasicType(Location, BType)
 }
-impl<'s> Token<'s>
+impl<'s> TokenKind<'s>
 {
     pub fn position(&self) -> &Location
     {
-        use Token::*;
+        use self::TokenKind::*;
 
         match *self
         {
@@ -58,6 +66,18 @@ impl<'s> Token<'s>
             | ListDelimiter(ref pos) | StatementDelimiter(ref pos) | ItemDescriptorDelimiter(ref pos) | ObjectDescender(ref pos) | EOF(ref pos) | UnknownChar(ref pos)
             | Placeholder(ref pos) | Keyword(ref pos, _) | Semantics(ref pos, _) | BasicType(ref pos, _) => pos
         }
+    }
+}
+impl<'s> Token<'s>
+{
+    pub fn position(&self) -> &Location { self.kind.position() }
+    pub fn is_begin_enclosure_of(&self, kind: EnclosureKind) -> bool
+    {
+        match self.kind { TokenKind::BeginEnclosure(_, k) => k == kind, _ => false }
+    }
+    pub fn is_end_enclosure_of(&self, kind: EnclosureKind) -> bool
+    {
+        match self.kind { TokenKind::EndEnclosure(_, k) => k == kind, _ => false }
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,10 +113,10 @@ pub enum BType
     Sampler(u8), Texture(u8)
 }
 
-pub struct TokenizerCache<'s: 't, 't> { counter: usize, cache: &'t RefCell<Vec<Box<Token<'s>>>>, source: &'t RefCell<Source<'s>> }
+pub struct TokenizerCache<'s: 't, 't> { counter: usize, cache: &'t RefCell<Vec<Box<Token<'s>>>>, source: &'t RefCell<TokenizerState<'s>> }
 impl<'s: 't, 't> TokenizerCache<'s, 't>
 {
-    pub fn new(cache: &'t RefCell<Vec<Box<Token<'s>>>>, source: &'t RefCell<Source<'s>>) -> Self
+    pub fn new(cache: &'t RefCell<Vec<Box<Token<'s>>>>, source: &'t RefCell<TokenizerState<'s>>) -> Self
     {
         TokenizerCache { counter: 0, cache, source }
     }
@@ -117,19 +137,18 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
             &*v[self.counter]
         }
     }
-    pub fn consume(&mut self) -> &mut Self { self.counter += 1; self }
+    pub fn shift(&mut self) -> &mut Self { self.counter += 1; self }
     pub fn unshift(&mut self) -> &mut Self { self.counter = self.counter.saturating_sub(1); self }
     
     pub fn next(&mut self) -> &'t Token<'s>
     {
-        let t = self.current(); self.consume(); t
+        let t = self.current(); self.shift(); t
     }
     pub fn prev(&mut self) -> &'t Token<'s> { self.unshift(); self.current() }
 
     pub fn drop_until<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
     {
-        while !predicate(self.current()) { self.consume(); }
-        self
+        while !predicate(self.current()) { self.shift(); } self
     }
     pub fn drop_line(&mut self) -> &mut Self
     {
@@ -139,15 +158,35 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
 }
 impl<'s> Token<'s>
 {
-    pub fn is_list_delimiter(&self) -> bool { match self { &Token::ListDelimiter(_) => true, _ => false } }
-    pub fn is_item_delimiter(&self) -> bool { discriminant(self) == discriminant(&Token::ItemDescriptorDelimiter(Location::default())) }
-    pub fn is_basic_type(&self) -> bool { match self { &Token::BasicType(_, _) => true, _ => false } }
-    pub fn is_eof(&self) -> bool { discriminant(self) == discriminant(&Token::EOF(Location::default())) }
+    pub fn is_list_delimiter(&self) -> bool { match self.kind { TokenKind::ListDelimiter(_) => true, _ => false } }
+    pub fn is_item_delimiter(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::ItemDescriptorDelimiter(Location::default())) }
+    pub fn is_basic_type(&self) -> bool { match self.kind { TokenKind::BasicType(_, _) => true, _ => false } }
+    pub fn is_eof(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::EOF(Location::default())) }
+    pub fn is_equal(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::Equal(Location::default())) }
 }
 
 const OPCLASS: &'static [char] = &['<', '＜', '>', '＞', '=', '＝', '!', '！', '$', '＄', '%', '％', '&', '＆', '~', '～', '^', '＾', '-', 'ー',
     '@', '＠', '+', '＋', '*', '＊', '/', '／', '・', '?', '？', '|', '｜', '∥', '―'];
 
+impl<'s> TokenizerState<'s>
+{
+    pub fn next(&mut self) -> Token<'s>
+    {
+        self.src.drop_ignores();
+        
+        if self.src.slice.is_empty() { Token { kind: TokenKind::EOF(self.src.pos.clone()), line_head: self.src.pos.line != self.last_line } }
+        else
+        {
+            let tk = self.src.list_delimiter().or_else(|| self.src.stmt_delimiter()).or_else(|| self.src.item_desc_delimiter()).or_else(|| self.src.object_descender())
+                .or_else(|| self.src.begin_enclosure()).or_else(|| self.src.end_enclosure())
+                .or_else(|| self.src.numeric()).or_else(|| self.src.operator()).or_else(|| self.src.identifier())
+                .unwrap_or(TokenKind::UnknownChar(self.src.pos.clone()));
+            let line_head = tk.position().line != self.last_line;
+            self.last_line = tk.position().line;
+            Token { line_head, kind: tk }
+        }
+    }
+}
 impl<'s> Source<'s>
 {
     fn split(&mut self, at: usize, charat: usize) -> Self
@@ -155,20 +194,6 @@ impl<'s> Source<'s>
         let sf = &self.slice[..at]; self.slice = &self.slice[at..];
         let pf = self.pos.clone(); self.pos += charat;
         Source { pos: pf, slice: sf }
-    }
-
-    pub fn next(&mut self) -> Token<'s>
-    {
-        self.drop_ignores();
-        
-        if self.slice.is_empty() { Token::EOF(self.pos.clone()) }
-        else
-        {
-            self.list_delimiter().or_else(|| self.stmt_delimiter()).or_else(|| self.item_desc_delimiter()).or_else(|| self.object_descender())
-                .or_else(|| self.begin_enclosure()).or_else(|| self.end_enclosure())
-                .or_else(|| self.numeric()).or_else(|| self.operator()).or_else(|| self.identifier())
-                .unwrap_or(Token::UnknownChar(self.pos.clone()))
-        }
     }
 
     /// Drops ignored characters and comments
@@ -259,10 +284,10 @@ impl<'s> Source<'s>
     /// # use pureshader::*;
     /// let mut s = Source::new("ident(");
     /// 
-    /// assert_eq!(s.identifier(), Some(Token::Identifier(Source { pos: Location::default(), slice: "ident" })));
+    /// assert_eq!(s.identifier(), Some(TokenKind::Identifier(Source { pos: Location::default(), slice: "ident" })));
     /// assert_eq!(s, Source { pos: Location { line: 1, column: 6 }, slice: "(" });
     /// ```
-    pub fn identifier(&mut self) -> Option<Token<'s>>
+    pub fn identifier(&mut self) -> Option<TokenKind<'s>>
     {
         if self.slice.starts_with(|c: char| (c.is_alphanumeric() && !c.is_digit(10)) || c == '_')
         {
@@ -290,111 +315,111 @@ impl<'s> Source<'s>
 
             match s.slice
             {
-                "_" => Some(Token::Placeholder(s.pos)),
-                "let" => Some(Token::Keyword(s.pos, Keyword::Let)),
-                "where" => Some(Token::Keyword(s.pos, Keyword::Where)),
-                "do" => Some(Token::Keyword(s.pos, Keyword::Do)),
-                "case" => Some(Token::Keyword(s.pos, Keyword::Case)),
-                "of" => Some(Token::Keyword(s.pos, Keyword::Of)),
-                "if" => Some(Token::Keyword(s.pos, Keyword::If)),
-                "then" => Some(Token::Keyword(s.pos, Keyword::Then)),
-                "else" => Some(Token::Keyword(s.pos, Keyword::Else)),
-                "in" => Some(Token::Keyword(s.pos, Keyword::In)),
-                "out" => Some(Token::Keyword(s.pos, Keyword::Out)),
-                "uniform" => Some(Token::Keyword(s.pos, Keyword::Uniform)),
-                "constant" => Some(Token::Keyword(s.pos, Keyword::Constant)),
-                "type" => Some(Token::Keyword(s.pos, Keyword::Type)),
-                "data" => Some(Token::Keyword(s.pos, Keyword::Data)),
-                "VertexShader" => Some(Token::Keyword(s.pos, Keyword::VertexShader)),
-                "FragmentShader" => Some(Token::Keyword(s.pos, Keyword::FragmentShader)),
-                "GeometryShader" => Some(Token::Keyword(s.pos, Keyword::GeometryShader)),
-                "HullShader" => Some(Token::Keyword(s.pos, Keyword::HullShader)),
-                "DomainShader" => Some(Token::Keyword(s.pos, Keyword::DomainShader)),
+                "_" => Some(TokenKind::Placeholder(s.pos)),
+                "let" => Some(TokenKind::Keyword(s.pos, Keyword::Let)),
+                "where" => Some(TokenKind::Keyword(s.pos, Keyword::Where)),
+                "do" => Some(TokenKind::Keyword(s.pos, Keyword::Do)),
+                "case" => Some(TokenKind::Keyword(s.pos, Keyword::Case)),
+                "of" => Some(TokenKind::Keyword(s.pos, Keyword::Of)),
+                "if" => Some(TokenKind::Keyword(s.pos, Keyword::If)),
+                "then" => Some(TokenKind::Keyword(s.pos, Keyword::Then)),
+                "else" => Some(TokenKind::Keyword(s.pos, Keyword::Else)),
+                "in" => Some(TokenKind::Keyword(s.pos, Keyword::In)),
+                "out" => Some(TokenKind::Keyword(s.pos, Keyword::Out)),
+                "uniform" => Some(TokenKind::Keyword(s.pos, Keyword::Uniform)),
+                "constant" => Some(TokenKind::Keyword(s.pos, Keyword::Constant)),
+                "type" => Some(TokenKind::Keyword(s.pos, Keyword::Type)),
+                "data" => Some(TokenKind::Keyword(s.pos, Keyword::Data)),
+                "VertexShader" => Some(TokenKind::Keyword(s.pos, Keyword::VertexShader)),
+                "FragmentShader" => Some(TokenKind::Keyword(s.pos, Keyword::FragmentShader)),
+                "GeometryShader" => Some(TokenKind::Keyword(s.pos, Keyword::GeometryShader)),
+                "HullShader" => Some(TokenKind::Keyword(s.pos, Keyword::HullShader)),
+                "DomainShader" => Some(TokenKind::Keyword(s.pos, Keyword::DomainShader)),
                 // RenderStates //
-                "DepthTest"   => Some(Token::Keyword(s.pos, Keyword::DepthTest)),
-                "DepthWrite"  => Some(Token::Keyword(s.pos, Keyword::DepthWrite)),
-                "DepthBounds" => Some(Token::Keyword(s.pos, Keyword::DepthBounds)),
-                "StencilTest" => Some(Token::Keyword(s.pos, Keyword::StencilTest)),
-                "StencilOps"  => Some(Token::Keyword(s.pos, Keyword::StencilOps)),
-                "StencilCompare"   => Some(Token::Keyword(s.pos, Keyword::StencilCompare)),
-                "StencilWriteMask" => Some(Token::Keyword(s.pos, Keyword::StencilWriteMask)),
-                "Blend"       => Some(Token::Keyword(s.pos, Keyword::Blend)),
+                "DepthTest"   => Some(TokenKind::Keyword(s.pos, Keyword::DepthTest)),
+                "DepthWrite"  => Some(TokenKind::Keyword(s.pos, Keyword::DepthWrite)),
+                "DepthBounds" => Some(TokenKind::Keyword(s.pos, Keyword::DepthBounds)),
+                "StencilTest" => Some(TokenKind::Keyword(s.pos, Keyword::StencilTest)),
+                "StencilOps"  => Some(TokenKind::Keyword(s.pos, Keyword::StencilOps)),
+                "StencilCompare"   => Some(TokenKind::Keyword(s.pos, Keyword::StencilCompare)),
+                "StencilWriteMask" => Some(TokenKind::Keyword(s.pos, Keyword::StencilWriteMask)),
+                "Blend"       => Some(TokenKind::Keyword(s.pos, Keyword::Blend)),
                 // BlendOps //
-                "Add" => Some(Token::Keyword(s.pos, Keyword::Add)),
-                "Sub" => Some(Token::Keyword(s.pos, Keyword::Sub)),
+                "Add" => Some(TokenKind::Keyword(s.pos, Keyword::Add)),
+                "Sub" => Some(TokenKind::Keyword(s.pos, Keyword::Sub)),
                 // BlendFactors //
-                "SrcColor"  => Some(Token::Keyword(s.pos, Keyword::SrcColor)),
-                "SrcAlpha"  => Some(Token::Keyword(s.pos, Keyword::SrcAlpha)),
-                "DestColor" => Some(Token::Keyword(s.pos, Keyword::DestColor)),
-                "DestAlpha" => Some(Token::Keyword(s.pos, Keyword::DestAlpha)),
+                "SrcColor"  => Some(TokenKind::Keyword(s.pos, Keyword::SrcColor)),
+                "SrcAlpha"  => Some(TokenKind::Keyword(s.pos, Keyword::SrcAlpha)),
+                "DestColor" => Some(TokenKind::Keyword(s.pos, Keyword::DestColor)),
+                "DestAlpha" => Some(TokenKind::Keyword(s.pos, Keyword::DestAlpha)),
                 // CompareOps //
-                "Always"    => Some(Token::Keyword(s.pos, Keyword::Always)),
-                "Never"     => Some(Token::Keyword(s.pos, Keyword::Never)),
-                "Equal"     => Some(Token::Keyword(s.pos, Keyword::Equal)),
-                "Inequal"   => Some(Token::Keyword(s.pos, Keyword::Inequal)),
-                "Greater"   => Some(Token::Keyword(s.pos, Keyword::Greater)),
-                "Less"      => Some(Token::Keyword(s.pos, Keyword::Less)),
-                "GreaterEq" => Some(Token::Keyword(s.pos, Keyword::GreaterEq)),
-                "LessEq"    => Some(Token::Keyword(s.pos, Keyword::LessEq)),
+                "Always"    => Some(TokenKind::Keyword(s.pos, Keyword::Always)),
+                "Never"     => Some(TokenKind::Keyword(s.pos, Keyword::Never)),
+                "Equal"     => Some(TokenKind::Keyword(s.pos, Keyword::Equal)),
+                "Inequal"   => Some(TokenKind::Keyword(s.pos, Keyword::Inequal)),
+                "Greater"   => Some(TokenKind::Keyword(s.pos, Keyword::Greater)),
+                "Less"      => Some(TokenKind::Keyword(s.pos, Keyword::Less)),
+                "GreaterEq" => Some(TokenKind::Keyword(s.pos, Keyword::GreaterEq)),
+                "LessEq"    => Some(TokenKind::Keyword(s.pos, Keyword::LessEq)),
                 // StencilOps //
-                "Keep" => Some(Token::Keyword(s.pos, Keyword::Keep)),
-                "Zero" | "Clear" => Some(Token::Keyword(s.pos, Keyword::Zero)),
-                "Replace" => Some(Token::Keyword(s.pos, Keyword::Replace)),
-                "IncrementWrap" => Some(Token::Keyword(s.pos, Keyword::IncrWrap)),
-                "IncrementClamp" | "IncrementSaturate" => Some(Token::Keyword(s.pos, Keyword::IncrClamp)),
-                "DecrementWrap" => Some(Token::Keyword(s.pos, Keyword::DecrWrap)),
-                "DecrementClamp" | "DecrementSaturate" => Some(Token::Keyword(s.pos, Keyword::DecrClamp)),
-                "Invert" => Some(Token::Keyword(s.pos, Keyword::Invert)),
+                "Keep" => Some(TokenKind::Keyword(s.pos, Keyword::Keep)),
+                "Zero" | "Clear" => Some(TokenKind::Keyword(s.pos, Keyword::Zero)),
+                "Replace" => Some(TokenKind::Keyword(s.pos, Keyword::Replace)),
+                "IncrementWrap" => Some(TokenKind::Keyword(s.pos, Keyword::IncrWrap)),
+                "IncrementClamp" | "IncrementSaturate" => Some(TokenKind::Keyword(s.pos, Keyword::IncrClamp)),
+                "DecrementWrap" => Some(TokenKind::Keyword(s.pos, Keyword::DecrWrap)),
+                "DecrementClamp" | "DecrementSaturate" => Some(TokenKind::Keyword(s.pos, Keyword::DecrClamp)),
+                "Invert" => Some(TokenKind::Keyword(s.pos, Keyword::Invert)),
                 // BasicTypes //
-                "bool" =>   Some(Token::BasicType(s.pos, BType::Bool)),
-                "int" =>    Some(Token::BasicType(s.pos, BType::Int)),
-                "uint" =>   Some(Token::BasicType(s.pos, BType::Uint)),
-                "float" =>  Some(Token::BasicType(s.pos, BType::Float)),
-                "double" => Some(Token::BasicType(s.pos, BType::Double)),
-                _ => if let Some(c) = RE_FV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::FVec(c[1].parse().unwrap()))) }
-                else if let Some(c) = RE_DV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::DVec(c[1].parse().unwrap()))) }
-                else if let Some(c) = RE_IV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::IVec(c[1].parse().unwrap()))) }
-                else if let Some(c) = RE_UV.captures(s.slice) { Some(Token::BasicType(s.pos, BType::UVec(c[1].parse().unwrap()))) }
+                "bool" =>   Some(TokenKind::BasicType(s.pos, BType::Bool)),
+                "int" =>    Some(TokenKind::BasicType(s.pos, BType::Int)),
+                "uint" =>   Some(TokenKind::BasicType(s.pos, BType::Uint)),
+                "float" =>  Some(TokenKind::BasicType(s.pos, BType::Float)),
+                "double" => Some(TokenKind::BasicType(s.pos, BType::Double)),
+                _ => if let Some(c) = RE_FV.captures(s.slice) { Some(TokenKind::BasicType(s.pos, BType::FVec(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_DV.captures(s.slice) { Some(TokenKind::BasicType(s.pos, BType::DVec(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_IV.captures(s.slice) { Some(TokenKind::BasicType(s.pos, BType::IVec(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_UV.captures(s.slice) { Some(TokenKind::BasicType(s.pos, BType::UVec(c[1].parse().unwrap()))) }
                 else if let Some(c) = RE_MF.captures(s.slice)
                 {
                     let n = c[1].parse().unwrap(); let n2 = c.get(2).map(|s| s.as_str().parse().unwrap()).unwrap_or(n);
-                    Some(Token::BasicType(s.pos, BType::FMat(n, n2)))
+                    Some(TokenKind::BasicType(s.pos, BType::FMat(n, n2)))
                 }
                 else if let Some(c) = RE_MD.captures(s.slice)
                 {
                     let n = c[1].parse().unwrap(); let n2 = c.get(2).map(|s| s.as_str().parse().unwrap()).unwrap_or(n);
-                    Some(Token::BasicType(s.pos, BType::DMat(n, n2)))
+                    Some(TokenKind::BasicType(s.pos, BType::DMat(n, n2)))
                 }
                 else if let Some(c) = RE_MI.captures(s.slice)
                 {
                     let n = c[1].parse().unwrap(); let n2 = c.get(2).map(|s| s.as_str().parse().unwrap()).unwrap_or(n);
-                    Some(Token::BasicType(s.pos, BType::IMat(n, n2)))
+                    Some(TokenKind::BasicType(s.pos, BType::IMat(n, n2)))
                 }
                 else if let Some(c) = RE_MU.captures(s.slice)
                 {
                     let n = c[1].parse().unwrap(); let n2 = c.get(2).map(|s| s.as_str().parse().unwrap()).unwrap_or(n);
-                    Some(Token::BasicType(s.pos, BType::UMat(n, n2)))
+                    Some(TokenKind::BasicType(s.pos, BType::UMat(n, n2)))
                 }
-                else if let Some(c) = RE_SAMPLER.captures(s.slice) { Some(Token::BasicType(s.pos, BType::Sampler(c[1].parse().unwrap()))) }
-                else if let Some(c) = RE_TEXTURE.captures(s.slice) { Some(Token::BasicType(s.pos, BType::Texture(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_SAMPLER.captures(s.slice) { Some(TokenKind::BasicType(s.pos, BType::Sampler(c[1].parse().unwrap()))) }
+                else if let Some(c) = RE_TEXTURE.captures(s.slice) { Some(TokenKind::BasicType(s.pos, BType::Texture(c[1].parse().unwrap()))) }
                 else if let Some(c) = RE_POSITION.captures(s.slice)
                 {
                     let n = c.get(1).map(|s| s.as_str().parse().unwrap()).unwrap_or(0);
-                    Some(Token::Semantics(s.pos, Semantics::Position(n)))
+                    Some(TokenKind::Semantics(s.pos, Semantics::Position(n)))
                 }
                 else if let Some(c) = RE_TEXCOORD.captures(s.slice)
                 {
                     let n = c.get(1).map(|s| s.as_str().parse().unwrap()).unwrap_or(0);
-                    Some(Token::Semantics(s.pos, Semantics::Texcoord(n)))
+                    Some(TokenKind::Semantics(s.pos, Semantics::Texcoord(n)))
                 }
                 else if let Some(c) = RE_COLOR.captures(s.slice)
                 {
                     let n = c.get(1).map(|s| s.as_str().parse().unwrap()).unwrap_or(0);
-                    Some(Token::Semantics(s.pos, Semantics::Color(n)))
+                    Some(TokenKind::Semantics(s.pos, Semantics::Color(n)))
                 }
-                else if RE_SV_POSITION.is_match(s.slice) { Some(Token::Semantics(s.pos, Semantics::SVPosition)) }
-                else if RE_SV_TARGET.is_match(s.slice) { Some(Token::Semantics(s.pos, Semantics::SVTarget)) }
-                else { Some(Token::Identifier(s)) }
+                else if RE_SV_POSITION.is_match(s.slice) { Some(TokenKind::Semantics(s.pos, Semantics::SVPosition)) }
+                else if RE_SV_TARGET.is_match(s.slice) { Some(TokenKind::Semantics(s.pos, Semantics::SVTarget)) }
+                else { Some(TokenKind::Identifier(s)) }
             }
         }
         else { None }
@@ -406,10 +431,10 @@ impl<'s> Source<'s>
     /// # use pureshader::*;
     /// let mut s = Source::new("0.33f4");
     ///
-    /// assert_eq!(s.numeric(), Some(Token::NumericF(Source { pos: Location::default(), slice: "0.33" }, Some(NumericTy::Float))));
+    /// assert_eq!(s.numeric(), Some(TokenKind::NumericF(Source { pos: Location::default(), slice: "0.33" }, Some(NumericTy::Float))));
     /// assert_eq!(s, Source { pos: Location { line: 1, column: 6 }, slice: "4" });
     /// ```
-    pub fn numeric(&mut self) -> Option<Token<'s>>
+    pub fn numeric(&mut self) -> Option<TokenKind<'s>>
     {
         if !self.slice.starts_with(|c: char| c.is_digit(10)) { return None; }
         let (ipart_c, ipart_b) = self.slice.chars().take_while(|&c| c.is_digit(10) || c == '_').fold((0, 0), |(cc, bb), c| (cc + 1, bb + c.len_utf8()));
@@ -419,12 +444,12 @@ impl<'s> Source<'s>
         {
             let (fpart_c, fpart_b) = s_rest.chars().skip(1).take_while(|&c| c.is_digit(10) || c == '_').fold((0, 0), |(cc, bb), c| (cc + 1, bb + c.len_utf8()));
             let ss = self.split(ipart_b + 1 + fpart_b, ipart_c + 1 + fpart_c);
-            Some(Token::NumericF(ss, self.numeric_ty()))
+            Some(TokenKind::NumericF(ss, self.numeric_ty()))
         }
         else
         {
             let ss = self.split(ipart_b, ipart_c);
-            Some(Token::Numeric(ss, self.numeric_ty()))
+            Some(TokenKind::Numeric(ss, self.numeric_ty()))
         }
     }
     fn numeric_ty(&mut self) -> Option<NumericTy>
@@ -455,19 +480,19 @@ impl<'s> Source<'s>
     /// # use pureshader::*;
     /// let mut s = Source::new("++=");
     /// 
-    /// assert_eq!(s.operator(), Some(Token::Operator(Source { pos: Location::default(), slice: "++=" })));
+    /// assert_eq!(s.operator(), Some(TokenKind::Operator(Source { pos: Location::default(), slice: "++=" })));
     /// assert_eq!(s, Source { pos: Location { line: 1, column: 4 }, slice: "" });
     /// ```
-    pub fn operator(&mut self) -> Option<Token<'s>>
+    pub fn operator(&mut self) -> Option<TokenKind<'s>>
     {
         let (c, b) = self.slice.chars().take_while(|&c| OPCLASS.iter().any(|&x| x == c)).fold((0, 0), |(cc, bb), c| (cc + 1, bb + c.len_utf8()));
         if c > 0
         {
             let ss = self.split(b, c);
-            if ss.slice == "=" || ss.slice == "＝" { Some(Token::Equal(ss.pos)) }
-            else if ss.slice == "=>" || ss.slice == "＝＞" || ss.slice == "=＞" || ss.slice == "＝>" { Some(Token::Arrow(ss.pos)) }
-            else if ss.slice == "->" || ss.slice == "ー＞" || ss.slice == "-＞" || ss.slice == "ー>" { Some(Token::TyArrow(ss.pos)) }
-            else { Some(Token::Operator(ss)) }
+            if ss.slice == "=" || ss.slice == "＝" { Some(TokenKind::Equal(ss.pos)) }
+            else if ss.slice == "=>" || ss.slice == "＝＞" || ss.slice == "=＞" || ss.slice == "＝>" { Some(TokenKind::Arrow(ss.pos)) }
+            else if ss.slice == "->" || ss.slice == "ー＞" || ss.slice == "-＞" || ss.slice == "ー>" { Some(TokenKind::TyArrow(ss.pos)) }
+            else { Some(TokenKind::Operator(ss)) }
         }
         else { None }
     }
@@ -479,16 +504,16 @@ impl<'s> Source<'s>
     /// # use pureshader::*;
     /// let mut s = Source::new("{}");
     ///
-    /// assert_eq!(s.begin_enclosure(), Some(Token::BeginEnclosure(Location::default(), EnclosureKind::Brace)));
+    /// assert_eq!(s.begin_enclosure(), Some(TokenKind::BeginEnclosure(Location::default(), EnclosureKind::Brace)));
     /// assert_eq!(s, Source { pos: Location { line: 1, column: 2 }, slice: "}" });
     /// ```
-    pub fn begin_enclosure(&mut self) -> Option<Token<'s>>
+    pub fn begin_enclosure(&mut self) -> Option<TokenKind<'s>>
     {
         match self.slice.chars().next()
         {
-            Some(c@'(') | Some(c@'（') => { let s = Token::BeginEnclosure(self.pos.clone(), EnclosureKind::Parenthese); self.split(c.len_utf8(), 1); Some(s) },
-            Some(c@'{') | Some(c@'｛') => { let s = Token::BeginEnclosure(self.pos.clone(), EnclosureKind::Brace);      self.split(c.len_utf8(), 1); Some(s) },
-            Some(c@'[') | Some(c@'［') => { let s = Token::BeginEnclosure(self.pos.clone(), EnclosureKind::Bracket);    self.split(c.len_utf8(), 1); Some(s) }
+            Some(c@'(') | Some(c@'（') => { let s = TokenKind::BeginEnclosure(self.pos.clone(), EnclosureKind::Parenthese); self.split(c.len_utf8(), 1); Some(s) },
+            Some(c@'{') | Some(c@'｛') => { let s = TokenKind::BeginEnclosure(self.pos.clone(), EnclosureKind::Brace);      self.split(c.len_utf8(), 1); Some(s) },
+            Some(c@'[') | Some(c@'［') => { let s = TokenKind::BeginEnclosure(self.pos.clone(), EnclosureKind::Bracket);    self.split(c.len_utf8(), 1); Some(s) }
             _ => None
         }
     }
@@ -500,66 +525,66 @@ impl<'s> Source<'s>
     /// let mut s = Source::new("{}");
     ///
     /// s.begin_enclosure().unwrap();
-    /// assert_eq!(s.end_enclosure(), Some(Token::EndEnclosure(Location { line: 1, column: 2 }, EnclosureKind::Brace)));
+    /// assert_eq!(s.end_enclosure(), Some(TokenKind::EndEnclosure(Location { line: 1, column: 2 }, EnclosureKind::Brace)));
     /// assert_eq!(s, Source { pos: Location { line: 1, column: 3 }, slice: "" });
     /// ```
-    pub fn end_enclosure(&mut self) -> Option<Token<'s>>
+    pub fn end_enclosure(&mut self) -> Option<TokenKind<'s>>
     {
         match self.slice.chars().next()
         {
-            Some(c@')') | Some(c@'）') => { let s = Token::EndEnclosure(self.pos.clone(), EnclosureKind::Parenthese); self.split(c.len_utf8(), 1); Some(s) },
-            Some(c@'}') | Some(c@'｝') => { let s = Token::EndEnclosure(self.pos.clone(), EnclosureKind::Brace);      self.split(c.len_utf8(), 1); Some(s) },
-            Some(c@']') | Some(c@'］') => { let s = Token::EndEnclosure(self.pos.clone(), EnclosureKind::Bracket);    self.split(c.len_utf8(), 1); Some(s) }
+            Some(c@')') | Some(c@'）') => { let s = TokenKind::EndEnclosure(self.pos.clone(), EnclosureKind::Parenthese); self.split(c.len_utf8(), 1); Some(s) },
+            Some(c@'}') | Some(c@'｝') => { let s = TokenKind::EndEnclosure(self.pos.clone(), EnclosureKind::Brace);      self.split(c.len_utf8(), 1); Some(s) },
+            Some(c@']') | Some(c@'］') => { let s = TokenKind::EndEnclosure(self.pos.clone(), EnclosureKind::Bracket);    self.split(c.len_utf8(), 1); Some(s) }
             _ => None
         }
     }
 
     /// Strips a list delimiter (, or 、)
-    pub fn list_delimiter(&mut self) -> Option<Token<'s>>
+    pub fn list_delimiter(&mut self) -> Option<TokenKind<'s>>
     {
         match self.slice.chars().next()
         {
-            Some(c@',') | Some(c@'、') | Some(c@'，') => Some(Token::ListDelimiter(self.split(c.len_utf8(), 1).pos)),
+            Some(c@',') | Some(c@'、') | Some(c@'，') => Some(TokenKind::ListDelimiter(self.split(c.len_utf8(), 1).pos)),
             _ => None
         }
     }
     /// Strips a statement delimiter (; or 。)
-    pub fn stmt_delimiter(&mut self) -> Option<Token<'s>>
+    pub fn stmt_delimiter(&mut self) -> Option<TokenKind<'s>>
     {
         match self.slice.chars().next()
         {
-            Some(c@';') | Some(c@'；') | Some(c@'。') => Some(Token::StatementDelimiter(self.split(c.len_utf8(), 1).pos)),
+            Some(c@';') | Some(c@'；') | Some(c@'。') => Some(TokenKind::StatementDelimiter(self.split(c.len_utf8(), 1).pos)),
             _ => None
         }
     }
     /// Strips a delimiter which is followed by item
-    pub fn item_desc_delimiter(&mut self) -> Option<Token<'s>>
+    pub fn item_desc_delimiter(&mut self) -> Option<TokenKind<'s>>
     {
         match self.slice.chars().next()
         {
-            Some(c@':') | Some(c@'：') => Some(Token::ItemDescriptorDelimiter(self.split(c.len_utf8(), 1).pos)),
+            Some(c@':') | Some(c@'：') => Some(TokenKind::ItemDescriptorDelimiter(self.split(c.len_utf8(), 1).pos)),
             _ => None
         }
     }
     /// Strips a period
-    pub fn object_descender(&mut self) -> Option<Token<'s>>
+    pub fn object_descender(&mut self) -> Option<TokenKind<'s>>
     {
         match self.slice.chars().next()
         {
-            Some(c@'.') | Some(c@'．') => Some(Token::ObjectDescender(self.split(c.len_utf8(), 1).pos)),
+            Some(c@'.') | Some(c@'．') => Some(TokenKind::ObjectDescender(self.split(c.len_utf8(), 1).pos)),
             _ => None
         }
     }
 }
 
 // Text Conversion //
-impl<'s> Token<'s>
+impl<'s> TokenKind<'s>
 {
     pub fn as_f32(&self) -> f32
     {
         match *self
         {
-            Token::Numeric(Source { slice, .. }, _) | Token::NumericF(Source { slice, .. }, _) => slice.parse().unwrap(),
+            TokenKind::Numeric(Source { slice, .. }, _) | TokenKind::NumericF(Source { slice, .. }, _) => slice.parse().unwrap(),
             _ => unreachable!()
         }
     }
@@ -567,11 +592,11 @@ impl<'s> Token<'s>
     {
         match *self
         {
-            Token::Numeric(Source { slice, .. }, Some(NumericTy::Long)) | Token::Numeric(Source { slice, .. }, Some(NumericTy::UnsignedLong))
-            | Token::NumericF(Source { slice, .. }, Some(NumericTy::Long)) | Token::NumericF(Source { slice, .. }, Some(NumericTy::UnsignedLong)) => slice.parse::<u64>() == Ok(1),
-            Token::Numeric(Source { slice, .. }, _) => slice.parse::<usize>() == Ok(1),
-            Token::NumericF(Source { slice, .. }, Some(NumericTy::Double)) => slice.parse::<f64>() == Ok(1.0),
-            Token::NumericF(Source { slice, .. }, _) => slice.parse::<f32>() == Ok(1.0),
+            TokenKind::Numeric(Source { slice, .. }, Some(NumericTy::Long)) | TokenKind::Numeric(Source { slice, .. }, Some(NumericTy::UnsignedLong))
+            | TokenKind::NumericF(Source { slice, .. }, Some(NumericTy::Long)) | TokenKind::NumericF(Source { slice, .. }, Some(NumericTy::UnsignedLong)) => slice.parse::<u64>() == Ok(1),
+            TokenKind::Numeric(Source { slice, .. }, _) => slice.parse::<usize>() == Ok(1),
+            TokenKind::NumericF(Source { slice, .. }, Some(NumericTy::Double)) => slice.parse::<f64>() == Ok(1.0),
+            TokenKind::NumericF(Source { slice, .. }, _) => slice.parse::<f32>() == Ok(1.0),
             _ => false
         }
     }
@@ -579,14 +604,14 @@ impl<'s> Token<'s>
     {
         match *self
         {
-            Token::Numeric(Source { slice, .. }, t) => match t
+            TokenKind::Numeric(Source { slice, .. }, t) => match t
             {
                 Some(NumericTy::UnsignedLong) | Some(NumericTy::Long) => slice.parse::<u64>() == Ok(0),
                 Some(NumericTy::Double) => slice.parse::<f64>() == Ok(0.0),
                 Some(NumericTy::Float) => slice.parse::<f32>() == Ok(0.0),
                 _ => slice.parse::<usize>() == Ok(0)
             },
-            Token::NumericF(Source { slice, .. }, t) => match t
+            TokenKind::NumericF(Source { slice, .. }, t) => match t
             {
                 Some(NumericTy::UnsignedLong) | Some(NumericTy::Long) => slice.parse::<u64>() == Ok(0),
                 Some(NumericTy::Float) => slice.parse::<f32>() == Ok(0.0),
