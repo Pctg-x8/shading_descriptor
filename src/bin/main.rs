@@ -13,7 +13,7 @@ fn main()
     match shading_pipeline(&mut cache)
     {
         Ok(p) => println!("{:?}", p),
-        Err(ve) => { for e in ve { println!("Error: {:?}", e); } }
+        Err(ve) => { for e in ve { println!("Error: {}", e); } }
     }
     /*loop
     {

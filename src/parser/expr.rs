@@ -65,7 +65,7 @@ pub fn expr_lettings<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: 
 {
     let (location, vals) = match letting_common(stream)
     {
-        ParseResult::Success(v) => v, ParseResult::Failed(e) => return ParseResult::Failed(e), ParseResult::NotConsumed => return ParseResult::NotConsumed
+        Success(v) => v, Failed(e) => return Failed(e), NotConsumed => return NotConsumed
     };
     if !(Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && match stream.current().kind { TokenKind::Keyword(_, Keyword::In) => true, _ => false })
     {
@@ -146,7 +146,7 @@ pub fn letting_common<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> ParseR
         if stream.current().keyword() == Some(Keyword::In) { break; }
         if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
         let defbegin = get_definition_leftmost(block_start, stream);
-        let pat = expression(stream, defbegin, None)?;
+        let pat = expression(stream, defbegin, None).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
         if !stream.current().is_equal() || !Leftmost::Exclusive(defbegin).satisfy(stream.current(), false)
         {
             return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
@@ -204,7 +204,6 @@ pub fn expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usi
         }
     }
     let mut v = Vec::new();
-    CheckLayout!(Leftmost::Inclusive(leftmost) => stream);
     match conv_fragment(stream, corresponding_closing)
     {
         ConvResult::Fragment(f) => v.push(f),
