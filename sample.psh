@@ -18,4 +18,4 @@ FragmentShader(uv(TEXCOORD0): f2) where
   uniform texture: sampler2
   # push constant
   constant multiply: f4
-  out _(SV_Target) = texture.sample(uv) * multiply
+  out _(SV_Target) = let mf f = if f > 1 then f else 1 in texture.sample(uv) * mf multiply
