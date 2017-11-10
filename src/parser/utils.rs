@@ -91,6 +91,7 @@ impl Leftmost
 	{
 		match self { Leftmost::Nothing => nothing, _ => self }
 	}
+	pub fn is_explicit(&self) -> bool { self.is_nothing() }
 }
 
 pub fn take_current_block_begin<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Leftmost

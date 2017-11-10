@@ -38,11 +38,18 @@ impl<'s> Deref for Expression<'s>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockContent<'s>
+{
+    BlockVars { location: Location, vals: Vec<(Expression<'s>, FullExpression<'s>)> },
+    Expression(FullExpression<'s>)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FullExpression<'s>
 {
     Lettings { location: Location, vals: Vec<(Expression<'s>, FullExpression<'s>)>, subexpr: Box<FullExpression<'s>> },
     Conditional { location: Location, inv: bool, cond: Box<FullExpression<'s>>, then: Box<FullExpression<'s>>, else_: Option<Box<FullExpression<'s>>> },
-    Expression(Expression<'s>)
+    Block(Location, Vec<BlockContent<'s>>), Expression(Expression<'s>)
 }
 pub fn full_expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize, enclosure: Option<EnclosureKind>) -> ParseResult<'t, FullExpression<'s>>
 {
@@ -50,37 +57,22 @@ pub fn full_expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost
     {
         TokenKind::Keyword(_, Keyword::Let) => expr_lettings(stream, leftmost),
         TokenKind::Keyword(_, Keyword::If) | TokenKind::Keyword(_, Keyword::Unless) => expr_conditional(stream, leftmost),
+        TokenKind::Keyword(_, Keyword::Do) => block_content(stream),
         _ => expression(stream, leftmost, enclosure).map(FullExpression::Expression)
     }
 }
 pub fn expr_lettings<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
-    let location = TMatchFirst!(stream; TokenKind::Keyword(ref p, Keyword::Let) => p);
-    let block_start = take_current_block_begin(stream);
-    let mut vals = Vec::new(); let mut brk_with_in = false;
-    while block_start.satisfy(stream.current(), true)
+    let (location, vals) = match letting_common(stream)
     {
-        if TMatch!(Optional: stream; TokenKind::Keyword(_, Keyword::In)) { brk_with_in = true; break; }
-        let defbegin = get_definition_leftmost(block_start, stream);
-        let pat = expression(stream, defbegin, None)?;
-        if !stream.current().is_equal() || !Leftmost::Exclusive(defbegin).satisfy(stream.current(), false)
-        {
-            return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
-        }
-        stream.shift(); CheckLayout!(Leftmost::Exclusive(defbegin) => stream);
-        let rhs = full_expression(stream, defbegin, None).into_result(|| ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()))?;
-        vals.place_back() <- (pat, rhs);
-        while TMatch!(Optional: stream; TokenKind::StatementDelimiter(_)) {  }
-    }
-    if !brk_with_in
+        ParseResult::Success(v) => v, ParseResult::Failed(e) => return ParseResult::Failed(e), ParseResult::NotConsumed => return ParseResult::NotConsumed
+    };
+    if !(Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && match stream.current().kind { TokenKind::Keyword(_, Keyword::In) => true, _ => false })
     {
-        if !(Leftmost::Inclusive(leftmost).satisfy(stream.current(), false) && match stream.current().kind { TokenKind::Keyword(_, Keyword::In) => true, _ => false })
-        {
-            return Failed(ParseError::Expecting(ExpectingKind::LetIn, stream.current().position()));
-        }
-        stream.shift();
+        return Failed(ParseError::Expecting(ExpectingKind::LetIn, stream.current().position()));
     }
-    let subexpr = box full_expression(stream, leftmost, None)?;
+    stream.shift();
+    let subexpr = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
     Success(FullExpression::Lettings { location: location.clone(), vals, subexpr })
 }
 pub fn expr_conditional<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
@@ -92,19 +84,80 @@ pub fn expr_conditional<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmos
         _ => return NotConsumed
     };
     let cond = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::ConditionExpr, stream.current().position()))?;
-    if !(Leftmost::Inclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::Then))
+    if !(Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::Then))
     {
         return Failed(ParseError::Expecting(ExpectingKind::Keyword(Keyword::Then), stream.current().position()));
     }
     stream.shift();
     let then = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
-    let else_ = if Leftmost::Inclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::Else)
+    let else_ = if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::Else)
     {
         stream.shift();
         Some(box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?)
     }
     else { None };
     Success(FullExpression::Conditional { location: location.clone(), cond, inv, then, else_ })
+}
+pub fn block_content<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, FullExpression<'s>>
+{
+    let location = TMatchFirst!(stream; TokenKind::Keyword(ref p, Keyword::Do) => p);
+    let block_start = take_current_block_begin(stream);
+    let mut s = Vec::new();
+    while block_start.satisfy(stream.current(), true)
+    {
+        if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { return Success(FullExpression::Block(location.clone(), s)); }
+        let defbegin = get_definition_leftmost(block_start, stream);
+        if stream.current().keyword() == Some(Keyword::Let) { s.place_back() <- blk_vars(stream, defbegin)?; }
+        else
+        {
+            match full_expression(stream, defbegin, None)
+            {
+                Success(x) => { s.place_back() <- BlockContent::Expression(x); },
+                Failed(f) => return Failed(f),
+                NotConsumed => break
+            }
+        }
+    }
+    if block_start.is_explicit() && !stream.current().is_end_enclosure_of(EnclosureKind::Brace) { return Failed(ParseError::ExpectingClose(EnclosureKind::Brace, stream.current().position())); }
+    Success(FullExpression::Block(location.clone(), s))
+}
+pub fn blk_vars<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, BlockContent<'s>>
+{
+    let (location, vals) = match letting_common(stream)
+    {
+        Success(v) => v, Failed(e) => return Failed(e), NotConsumed => return NotConsumed
+    };
+    if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::In)
+    {
+        stream.shift();
+        let subexpr = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+        Success(BlockContent::Expression(FullExpression::Lettings { location: location.clone(), vals, subexpr }))
+    }
+    else { Success(BlockContent::BlockVars { location: location.clone(), vals }) }
+}
+pub fn letting_common<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, (&'t Location, Vec<(Expression<'s>, FullExpression<'s>)>)>
+{
+    // let 〜(decls) [in?]
+    let location = TMatchFirst!(stream; TokenKind::Keyword(ref p, Keyword::Let) => p);
+    let block_start = take_current_block_begin(stream);
+    let mut vals = Vec::new();
+    while block_start.satisfy(stream.current(), true)
+    {
+        if stream.current().keyword() == Some(Keyword::In) { break; }
+        if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
+        let defbegin = get_definition_leftmost(block_start, stream);
+        let pat = expression(stream, defbegin, None)?;
+        if !stream.current().is_equal() || !Leftmost::Exclusive(defbegin).satisfy(stream.current(), false)
+        {
+            return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
+        }
+        stream.shift(); CheckLayout!(Leftmost::Exclusive(defbegin) => stream);
+        let rhs = full_expression(stream, defbegin, None).into_result(|| ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()))?;
+        vals.place_back() <- (pat, rhs);
+        while TMatch!(Optional: stream; TokenKind::StatementDelimiter(_)) {  }
+    }
+    if block_start.is_explicit() && !stream.current().is_end_enclosure_of(EnclosureKind::Brace) { return Failed(ParseError::ExpectingClose(EnclosureKind::Brace, stream.current().position())); }
+    Success((location, vals))
 }
 
 /// Parses an expression

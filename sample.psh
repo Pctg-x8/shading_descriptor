@@ -18,4 +18,10 @@ FragmentShader(uv(TEXCOORD0): f2) where
   uniform texture: sampler2
   # push constant
   constant multiply: f4
-  out _(SV_Target) = let mf f = if f > 1 then f else 1 in texture.sample(uv) * mf multiply
+  out _(SV_Target) = let mf f = if f > 1 then do f else 1 in texture.sample(uv) * mf multiply
+  
+  workout t = if t == 0
+    then do
+      2 * cos 30 + 2
+      break with 3
+    else error
