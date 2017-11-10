@@ -10,7 +10,8 @@ pub enum ExpectingKind
 {
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl, Constructor,
 	ConcreteExpression, Expression, ConcreteType, Pattern, Numeric, Operator, PrefixDeclarator, Argument, ShaderBlock,
-	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, LetIn, TypePattern, ExpressionPattern, Keyword(Keyword)
+	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, LetIn, TypePattern, ExpressionPattern, ConditionExpr,
+	Keyword(Keyword)
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -71,6 +72,7 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::Argument, _) => "Expecting an argument",
 			ParseError::Expecting(ExpectingKind::ShaderBlock, _) => "Expecting a shader block(following `where` or `:`)",
             ParseError::Expecting(ExpectingKind::LetIn, _) => "Expecting `let .. in ..`, maybe missing `in`",
+			ParseError::Expecting(ExpectingKind::ConditionExpr, _) => "Expecting an expression for a condition",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Blend), _) => "Expecting `Blend`",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Type), _) => "Expecting `type`",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), _) => "Expecting `data`",

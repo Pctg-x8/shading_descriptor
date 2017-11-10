@@ -41,6 +41,7 @@ impl<'s> Deref for Expression<'s>
 pub enum FullExpression<'s>
 {
     Lettings { location: Location, vals: Vec<(Expression<'s>, FullExpression<'s>)>, subexpr: Box<FullExpression<'s>> },
+    Conditional { location: Location, inv: bool, cond: Box<FullExpression<'s>>, then: Box<FullExpression<'s>>, else_: Option<Box<FullExpression<'s>>> },
     Expression(Expression<'s>)
 }
 pub fn full_expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize, enclosure: Option<EnclosureKind>) -> ParseResult<'t, FullExpression<'s>>
@@ -48,6 +49,7 @@ pub fn full_expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost
     match stream.current().kind
     {
         TokenKind::Keyword(_, Keyword::Let) => expr_lettings(stream, leftmost),
+        TokenKind::Keyword(_, Keyword::If) | TokenKind::Keyword(_, Keyword::Unless) => expr_conditional(stream, leftmost),
         _ => expression(stream, leftmost, enclosure).map(FullExpression::Expression)
     }
 }
@@ -66,7 +68,7 @@ pub fn expr_lettings<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: 
             return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
         }
         stream.shift(); CheckLayout!(Leftmost::Exclusive(defbegin) => stream);
-        let rhs = full_expression(stream, defbegin, None)?;
+        let rhs = full_expression(stream, defbegin, None).into_result(|| ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()))?;
         vals.place_back() <- (pat, rhs);
         while TMatch!(Optional: stream; TokenKind::StatementDelimiter(_)) {  }
     }
@@ -80,6 +82,29 @@ pub fn expr_lettings<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: 
     }
     let subexpr = box full_expression(stream, leftmost, None)?;
     Success(FullExpression::Lettings { location: location.clone(), vals, subexpr })
+}
+pub fn expr_conditional<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
+{
+    let (inv, location) = match stream.current().kind
+    {
+        TokenKind::Keyword(ref p, Keyword::If) => { stream.shift(); (false, p) },
+        TokenKind::Keyword(ref p, Keyword::Unless) => { stream.shift(); (true, p) },
+        _ => return NotConsumed
+    };
+    let cond = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::ConditionExpr, stream.current().position()))?;
+    if !(Leftmost::Inclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::Then))
+    {
+        return Failed(ParseError::Expecting(ExpectingKind::Keyword(Keyword::Then), stream.current().position()));
+    }
+    stream.shift();
+    let then = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+    let else_ = if Leftmost::Inclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::Else)
+    {
+        stream.shift();
+        Some(box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?)
+    }
+    else { None };
+    Success(FullExpression::Conditional { location: location.clone(), cond, inv, then, else_ })
 }
 
 /// Parses an expression

@@ -79,6 +79,10 @@ impl<'s> Token<'s>
     {
         match self.kind { TokenKind::EndEnclosure(_, k) => k == kind, _ => false }
     }
+    pub fn keyword(&self) -> Option<Keyword>
+    {
+        match self.kind { TokenKind::Keyword(_, k) => Some(k), _ => None }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
@@ -89,7 +93,7 @@ pub enum Keyword
 {
     Let, In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
     DepthTest, DepthWrite, DepthBounds, StencilTest, StencilOps, StencilCompare, StencilWriteMask, Blend, Type, Data,
-    If, Then, Else,
+    If, Then, Else, Unless,
     // reserved but not used //
     Where, Do, Case, Of,
     // blend ops //
@@ -324,6 +328,7 @@ impl<'s> Source<'s>
                 "if" => Some(TokenKind::Keyword(s.pos, Keyword::If)),
                 "then" => Some(TokenKind::Keyword(s.pos, Keyword::Then)),
                 "else" => Some(TokenKind::Keyword(s.pos, Keyword::Else)),
+                "unless" => Some(TokenKind::Keyword(s.pos, Keyword::Unless)),
                 "in" => Some(TokenKind::Keyword(s.pos, Keyword::In)),
                 "out" => Some(TokenKind::Keyword(s.pos, Keyword::Out)),
                 "uniform" => Some(TokenKind::Keyword(s.pos, Keyword::Uniform)),
