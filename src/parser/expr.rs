@@ -30,11 +30,19 @@ impl<'s> ExpressionFragment<'s>
         }
     }
 }
+impl<'s> Into<Expression<'s>> for ExpressionFragment<'s>
+{
+    fn into(self) -> Expression<'s> { Expression(vec![self]) }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expression<'s>(Vec<ExpressionFragment<'s>>);
 impl<'s> Deref for Expression<'s>
 {
     type Target = [ExpressionFragment<'s>]; fn deref(&self) -> &[ExpressionFragment<'s>] { &self.0 }
+}
+impl<'s> Into<FullExpression<'s>> for Expression<'s>
+{
+    fn into(self) -> FullExpression<'s> { FullExpression::Expression(self) }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,15 +66,12 @@ pub fn full_expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost
         TokenKind::Keyword(_, Keyword::Let) => expr_lettings(stream, leftmost),
         TokenKind::Keyword(_, Keyword::If) | TokenKind::Keyword(_, Keyword::Unless) => expr_conditional(stream, leftmost),
         TokenKind::Keyword(_, Keyword::Do) => block_content(stream),
-        _ => expression(stream, leftmost, enclosure).map(FullExpression::Expression)
+        _ => expression(stream, leftmost, enclosure).map(Into::into)
     }
 }
 pub fn expr_lettings<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
-    let (location, vals) = match letting_common(stream)
-    {
-        Success(v) => v, Failed(e) => return Failed(e), NotConsumed => return NotConsumed
-    };
+    let (location, vals) = BreakParsing!(letting_common(stream));
     if !(Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && match stream.current().kind { TokenKind::Keyword(_, Keyword::In) => true, _ => false })
     {
         return Failed(ParseError::Expecting(ExpectingKind::LetIn, stream.current().position()));
@@ -123,10 +128,7 @@ pub fn block_content<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> ParseRe
 }
 pub fn blk_vars<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, BlockContent<'s>>
 {
-    let (location, vals) = match letting_common(stream)
-    {
-        Success(v) => v, Failed(e) => return Failed(e), NotConsumed => return NotConsumed
-    };
+    let (location, vals) = BreakParsing!(letting_common(stream));
     if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::In)
     {
         stream.shift();
@@ -229,6 +231,7 @@ pub fn expression<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usi
     Success(Expression(v))
 }
 
+/*
 /// ラムダ抽象
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Lambda<'s> { Binder(&'s str, Box<Lambda<'s>>), Expression(Expression<'s>) }
@@ -245,3 +248,4 @@ pub enum Lambda<'s> { Binder(&'s str, Box<Lambda<'s>>), Expression(Expression<'s
 //   => (\c -> c x y z w) (\x -> \y -> \z -> \w -> x + y + z + w)
 // data Either a b = Left a | Right b, Left a = \l -> \r -> l a, Right b = \l -> \r -> r b
 // case x of Left a => a + 3 ==> x (\a -> a + 3) (\_ -> <<Error(どうしよう)>>)
+*/

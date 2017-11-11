@@ -63,6 +63,12 @@ macro_rules! TMatchFirst
 		if let $pat = $stream.current().kind { $stream.shift(); $extract } else { return NotConsumed; }
 	}
 }
+/// FailedまたはNotConsumedで抜ける
+macro_rules! BreakParsing
+{
+	($e: expr) => { match $e { Success(v) => v, Failed(f) => return Failed(f), NotConsumed => return NotConsumed } };
+	{ $($e: tt)* } => { match { $($e)* } { Success(v) => v, Failed(f) => return Failed(f), NotConsumed => return NotConsumed } };
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Leftmost { Nothing, Inclusive(usize), Exclusive(usize) }
@@ -79,10 +85,6 @@ impl Leftmost
 	}
 	pub fn num(&self) -> Option<usize> { match *self { Leftmost::Nothing => None, Leftmost::Inclusive(n) | Leftmost::Exclusive(n) => Some(n) } }
 	pub fn is_nothing(&self) -> bool { match *self { Leftmost::Nothing => true, _ => false } }
-	pub fn into_inclusive(self) -> Self
-	{
-		match self { Leftmost::Nothing | Leftmost::Inclusive(_) => self, Leftmost::Exclusive(n) => Leftmost::Inclusive(n) }
-	}
 	pub fn into_exclusive(self) -> Self
 	{
 		match self { Leftmost::Nothing | Leftmost::Exclusive(_) => self, Leftmost::Inclusive(n) => Leftmost::Exclusive(n) }

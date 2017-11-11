@@ -79,10 +79,8 @@ impl<'s> Token<'s>
     {
         match self.kind { TokenKind::EndEnclosure(_, k) => k == kind, _ => false }
     }
-    pub fn keyword(&self) -> Option<Keyword>
-    {
-        match self.kind { TokenKind::Keyword(_, k) => Some(k), _ => None }
-    }
+    pub fn keyword(&self)  -> Option<Keyword>     { match self.kind { TokenKind::Keyword(_, k)   => Some(k), _ => None } }
+    pub fn operator(&self) -> Option<&Source<'s>> { match self.kind { TokenKind::Operator(ref s) => Some(s), _ => None } }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
@@ -128,20 +126,26 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
     {
         TokenizerCache { counter: self.counter, cache: self.cache, source: self.source }
     }
-    pub fn current(&self) -> &'t Token<'s>
+    fn fill(&self, to: usize)
     {
-        while self.counter >= self.cache.borrow().len()
+        while to >= self.cache.borrow().len()
         {
             let mut b = self.cache.borrow_mut();
             b.place_back() <- box self.source.borrow_mut().next();
         }
+    }
+    pub fn current(&self) -> &'t Token<'s> { self.nth(0) }
+    pub fn nth(&self, adv: usize) -> &'t Token<'s>
+    {
+        self.fill(self.counter + adv);
         unsafe
         {
             let v = std::mem::transmute::<_, &'t Vec<Box<_>>>(&*self.cache.borrow());
-            &*v[self.counter]
+            &*v[self.counter + adv]
         }
     }
-    pub fn shift(&mut self) -> &mut Self { self.counter += 1; self }
+    pub fn shift_n(&mut self, count: usize) -> &mut Self { self.counter += count; self }
+    pub fn shift(&mut self) -> &mut Self { self.shift_n(1) }
     pub fn unshift(&mut self) -> &mut Self { self.counter = self.counter.saturating_sub(1); self }
     
     pub fn next(&mut self) -> &'t Token<'s>
