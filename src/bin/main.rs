@@ -15,6 +15,7 @@ fn main()
         Ok(p) => println!("{:?}", p),
         Err(ve) => { for e in ve { println!("Error: {}", e); } }
     }
+    if !src.borrow().src.slice.is_empty() { println!("Error: Compilation was not completed, remaining since {}", src.borrow().src.pos); }
     /*loop
     {
         let t = cache.next();

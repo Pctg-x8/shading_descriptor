@@ -122,10 +122,8 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
     {
         TokenizerCache { counter: 0, cache, source }
     }
-    pub fn save(&self) -> Self
-    {
-        TokenizerCache { counter: self.counter, cache: self.cache, source: self.source }
-    }
+    pub fn save(&self) -> usize { self.counter }
+    pub fn restore(&mut self, state: usize) -> &mut Self { self.counter = state; self }
     fn fill(&self, to: usize)
     {
         while to >= self.cache.borrow().len()

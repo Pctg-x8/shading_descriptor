@@ -16,11 +16,12 @@ pub struct ShadingPipeline<'s>
 	state: ShadingStates,
 	vsh: Option<ShaderStageDefinition<'s>>,
 	hsh: Option<ShaderStageDefinition<'s>>, dsh: Option<ShaderStageDefinition<'s>>,
-	gsh: Option<ShaderStageDefinition<'s>>, fsh: Option<ShaderStageDefinition<'s>>
+	gsh: Option<ShaderStageDefinition<'s>>, fsh: Option<ShaderStageDefinition<'s>>,
+	values: Vec<ValueDeclaration<'s>>
 }
 pub fn shading_pipeline<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>
 {
-	let mut sp = ShadingPipeline { state: Default::default(), vsh: None, hsh: None, dsh: None, gsh: None, fsh: None };
+	let mut sp = ShadingPipeline { state: Default::default(), vsh: None, hsh: None, dsh: None, gsh: None, fsh: None, values: Vec::new() };
 	let mut errors = Vec::new();
 
 	loop
@@ -28,7 +29,7 @@ pub fn shading_pipeline<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Resu
 		let headp = stream.current().position();
 		let mut errors_t = Vec::new();
 		let mut has_error = false;
-		let save = stream.save();
+		let inst = stream.save();
 		// println!("dbg: head : {:?}", stream.current());
 		match shader_stage_definition(stream)
 		{
