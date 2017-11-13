@@ -6,7 +6,7 @@ mod expr; mod types;
 pub use self::expr::{FullExpression, Expression, ExpressionFragment, expression, full_expression, expr_lettings};
 pub use self::types::{Type, TypeFragment, user_type};
 use self::utils::*;
-use self::err::*; use self::err::ParseResult::*;
+use self::err::*;
 use tokparse::*;
 
 /// シェーディングパイプライン(コンパイル単位)
@@ -26,48 +26,38 @@ pub fn shading_pipeline<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Resu
 
 	loop
 	{
-		let headp = stream.current().position();
-		let mut errors_t = Vec::new();
-		let mut has_error = false;
+		let leftmost = get_definition_leftmost(Leftmost::Inclusive(1), stream);
+		let (mut errors_t, mut has_error) = (Vec::new(), false);
 		let inst = stream.save();
 		// println!("dbg: head : {:?}", stream.current());
 		match shader_stage_definition(stream)
 		{
-			Ok((ShaderStage::Vertex, v))   => { sp.vsh = Some(v); continue; }
-			Ok((ShaderStage::Hull, v))     => { sp.hsh = Some(v); continue; }
-			Ok((ShaderStage::Domain, v))   => { sp.dsh = Some(v); continue; }
-			Ok((ShaderStage::Geometry, v)) => { sp.gsh = Some(v); continue; }
-			Ok((ShaderStage::Fragment, v)) => { sp.fsh = Some(v); continue; }
-			Err(mut e) => if headp != stream.current().position()
-			{
-				errors_t.append(&mut e); *stream = save; has_error = true;
-			}
+			SuccessM((ShaderStage::Vertex, v))   => { sp.vsh = Some(v); continue; }
+			SuccessM((ShaderStage::Hull, v))     => { sp.hsh = Some(v); continue; }
+			SuccessM((ShaderStage::Domain, v))   => { sp.dsh = Some(v); continue; }
+			SuccessM((ShaderStage::Geometry, v)) => { sp.gsh = Some(v); continue; }
+			SuccessM((ShaderStage::Fragment, v)) => { sp.fsh = Some(v); continue; }
+			FailedM(mut e) => { errors_t.append(&mut e); has_error = true; }, _ => ()
 		}
-		// println!("dbg: no shader stage : {:?}", headp);
-		let save = stream.save();
-		match BlendingStateConfig::switched_parse(stream)
+		match BlendingStateConfig::switched_parse(stream.restore(inst))
 		{
-			Ok(bs) => { sp.state.blending = bs; continue; }
-			Err(e) => if headp != stream.current().position()
-			{
-				errors_t.push(e); *stream = save;
-				has_error = true;
-			}
+			Success(bs) => { sp.state.blending = bs; continue; }
+			Failed(e) => { errors_t.push(e); has_error = true; }, _ => ()
 		}
-		let save = stream.save();
-		if let Err(e) = depth_state(stream, &mut sp.state)
+		match depth_state(stream.restore(inst), &mut sp.state)
 		{
-			if headp != stream.current().position()
-			{
-				errors_t.push(e); *stream = save;
-				has_error = true;
-			}
+			Failed(e) => { errors_t.push(e); has_error = true; },
+			Success(_) => continue, _ => ()
 		}
-		else { continue; }
+		match value_decl(stream.restore(inst), leftmost)
+		{
+			Failed(e) => { errors_t.push(e); has_error = true; },
+			Success(v) => { sp.values.push(v); continue; }, _ => ()
+		}
 		errors.append(&mut errors_t);
 		if has_error
 		{
-			stream.drop_line(); while stream.current().position().column > headp.column { stream.drop_line(); }
+			stream.drop_line(); while Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) { stream.drop_line(); }
 		}
 		else { break; }
 	}
@@ -108,7 +98,7 @@ pub fn type_fn<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<TypeFn
 		{
 			return Err(ParseError::Expecting(ExpectingKind::ConcreteType, stream.current().position()));
 		}
-		stream.shift(); CheckLayout!(Leftmost::Exclusive(defblock_begin) => stream, R);
+		stream.shift(); CheckLayout!(Leftmost::Exclusive(defblock_begin) => stream);
 		let bound = types::user_type(stream, defblock_begin, false).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
 		defs.place_back() <- (pat, bound);
 
@@ -224,7 +214,7 @@ fn name<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, allow_placeholder: bool) -
 	match tok.next().kind
 	{
 		TokenKind::Placeholder(ref p) if allow_placeholder => Ok((p, None)), TokenKind::Identifier(Source { slice, ref pos, .. }) => Ok((pos, Some(slice))),
-		ref e => Err(e.position())
+		ref e => { tok.unshift(); Err(e.position()) }
 	}
 }
 
@@ -297,43 +287,53 @@ pub struct BlendingStateConfig
 	pub alpha_op: BlendOp, pub alpha_factor_src: BlendFactor, pub alpha_factor_dest: BlendFactor
 }
 
-pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut ShadingStates) -> Result<(), ParseError<'t>>
+pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut ShadingStates) -> ParseResult<'t, ()>
 {
 	let disabling = TMatch!(Optional: tok; TokenKind::Operator(Source { slice: "!", .. }));
 
-	match tok.next().kind
+	match tok.current().kind
 	{
 		TokenKind::Keyword(_, Keyword::DepthTest) =>
 		{
+			tok.shift();
 			sink.depth_test = if disabling { ShadingState::Disable } else
 			{
-				ShadingState::Enable(CompareOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?)
+				ShadingState::Enable({
+					let c = CompareOp::classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?;
+					tok.shift(); c
+				})
 			};
+			Success(())
 		},
-		TokenKind::Keyword(_, Keyword::DepthWrite) => { sink.depth_write = if disabling { ShadingState::Disable } else { ShadingState::Enable(()) }; },
+		TokenKind::Keyword(_, Keyword::DepthWrite) => { tok.shift(); sink.depth_write = if disabling { ShadingState::Disable } else { ShadingState::Enable(()) }; Success(()) },
 		TokenKind::Keyword(_, Keyword::DepthBounds) =>
 		{
+			tok.shift();
 			sink.depth_bounds = if disabling { ShadingState::Disable } else
 			{
 				let min = TMatch!(Numeric: tok; |p| ParseError::Expecting(ExpectingKind::Numeric, p));
 				let max = TMatch!(Numeric: tok; |p| ParseError::Expecting(ExpectingKind::Numeric, p));
 				ShadingState::Enable([min.as_f32(), max.as_f32()])
 			};
+			Success(())
 		},
-		TokenKind::Keyword(ref p, Keyword::StencilOps) =>
+		TokenKind::Keyword(ref p, k@Keyword::StencilOps) | TokenKind::Keyword(ref p, k@Keyword::StencilCompare) | TokenKind::Keyword(ref p, k@Keyword::StencilWriteMask)
+			 if disabling => Failed(ParseError::PartialDisabling(k, p)),
+		TokenKind::Keyword(_, Keyword::StencilOps) =>
 		{
-			if disabling { tok.unshift(); return Err(ParseError::PartialDisabling(Keyword::StencilOps, p)); }
-			let opf  = StencilOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
-			let opp  = StencilOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
-			let opdf = StencilOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?;
+			tok.shift();
+			let opf  = StencilOp::classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?; tok.shift();
+			let opp  = StencilOp::classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?; tok.shift();
+			let opdf = StencilOp::classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::StencilOps, tok.current().position()))?; tok.shift();
 			sink.stencil_test.modify_part().op_fail = opf;
 			sink.stencil_test.modify_part().op_pass = opp;
 			sink.stencil_test.modify_part().op_depth_fail = opdf;
+			Success(())
 		},
-		TokenKind::Keyword(ref p, Keyword::StencilCompare) =>
+		TokenKind::Keyword(_, Keyword::StencilCompare) =>
 		{
-			if disabling { tok.unshift(); return Err(ParseError::PartialDisabling(Keyword::StencilCompare, p)); }
-			let op = CompareOp::consume_classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?;
+			tok.shift();
+			let op = CompareOp::classify(tok).ok_or_else(|| ParseError::Expecting(ExpectingKind::CompareOps, tok.current().position()))?; tok.shift();
 			let mask = if let TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) = tok.current().kind
 			{
 				tok.shift();
@@ -346,35 +346,37 @@ pub fn depth_state<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, sink: &mut Shad
 			sink.stencil_test.modify_part().op_compare = op;
 			if let Some(m) = mask { sink.stencil_test.modify_part().compare_mask = m; }
 			sink.stencil_test.modify_part().reference = refer;
+			Success(())
 		},
-		TokenKind::Keyword(ref p, Keyword::StencilWriteMask) =>
+		TokenKind::Keyword(_, Keyword::StencilWriteMask) =>
 		{
-			if disabling { tok.unshift(); return Err(ParseError::PartialDisabling(Keyword::StencilWriteMask, p)); }
+			tok.shift();
 			let mask = TMatch!(tok; TokenKind::Numeric(Source { slice, .. }, _) => slice.parse().unwrap(), |p| ParseError::Expecting(ExpectingKind::Numeric, p));
 			sink.stencil_test.modify_part().write_mask = mask;
+			Success(())
 		},
-		TokenKind::Keyword(_, Keyword::StencilTest) if disabling => { sink.stencil_test = ShadingState::Disable; },
-		ref e => { tok.unshift(); return Err(ParseError::Expecting(ExpectingKind::DepthStencilStates, e.position())); }
+		TokenKind::Keyword(_, Keyword::StencilTest) if disabling => { tok.shift(); sink.stencil_test = ShadingState::Disable; Success(()) },
+		ref e if disabling => Failed(ParseError::Expecting(ExpectingKind::DepthStencilStates, e.position())),
+		_ => NotConsumed
 	}
-	Ok(())
 }
 pub trait Parser<'s>
 {
 	type ResultTy: 's;
-	fn parse<'t>(tok: &mut TokenizerCache<'s, 't>) -> Result<Self::ResultTy, ParseError<'t>> where 's: 't;
+	fn parse<'t>(tok: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, Self::ResultTy> where 's: 't;
 }
 pub trait ShadingStateParser<'s> : Parser<'s>
 {
 	const HEADING_KEYWORD: Keyword;
-	fn switched_parse<'t>(tok: &mut TokenizerCache<'s, 't>) -> Result<ShadingState<<Self as Parser<'s>>::ResultTy>, ParseError<'t>>
+	fn switched_parse<'t>(tok: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, ShadingState<<Self as Parser<'s>>::ResultTy>>
 	{
 		if let TokenKind::Operator(Source { slice: "!", .. }) = tok.current().kind
 		{
 			tok.shift();
 			match tok.current().kind
 			{
-				TokenKind::Keyword(_, kw) if kw == Self::HEADING_KEYWORD => { tok.shift(); Ok(ShadingState::Disable) },
-				ref e => Err(ParseError::Expecting(ExpectingKind::Keyword(Self::HEADING_KEYWORD), e.position()))
+				TokenKind::Keyword(_, kw) if kw == Self::HEADING_KEYWORD => { tok.shift(); Success(ShadingState::Disable) },
+				ref e => Failed(ParseError::Expecting(ExpectingKind::Keyword(Self::HEADING_KEYWORD), e.position()))
 			}
 		}
 		else { Self::parse(tok).map(ShadingState::Enable) }
@@ -399,43 +401,43 @@ impl<'s> ShadingStateParser<'s> for BlendingStateConfig { const HEADING_KEYWORD:
 impl<'s> Parser<'s> for BlendingStateConfig
 {
 	type ResultTy = Self;
-	fn parse<'t>(tok: &mut TokenizerCache<'s, 't>) -> Result<Self::ResultTy, ParseError<'t>> where 's: 't
+	fn parse<'t>(tok: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, Self::ResultTy> where 's: 't
 	{
-		fn pat_poland<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<(BlendOp, BlendFactor, BlendFactor), ParseError<'t>>
+		fn pat_poland<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, (BlendOp, BlendFactor, BlendFactor)>
 		{
-			let op = BlendOp::consume_classify(stream).ok_or_else(|| ParseError::Expecting(ExpectingKind::BlendOps, stream.current().position()))?;
+			let op = if let Some(o) = BlendOp::classify(stream) { stream.shift(); o } else { return NotConsumed; };
 			let srcfactor = BlendFactor::parse(stream)?;
 			let dstfactor = BlendFactor::parse(stream)?;
-			Ok((op, srcfactor, dstfactor))
+			Success((op, srcfactor, dstfactor))
 		}
-		fn pat_infix<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<(BlendOp, BlendFactor, BlendFactor), ParseError<'t>>
+		fn pat_infix<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, (BlendOp, BlendFactor, BlendFactor)>
 		{
 			let srcfactor = BlendFactor::parse(stream)?;
-			let op = BlendOp::consume_classify(stream).ok_or_else(|| ParseError::Expecting(ExpectingKind::BlendOps, stream.current().position()))?;
+			let op = BlendOp::classify(stream).ok_or_else(|| ParseError::Expecting(ExpectingKind::BlendOps, stream.current().position()))?; stream.shift();
 			let dstfactor = BlendFactor::parse(stream)?;
-			Ok((op, srcfactor, dstfactor))
+			Success((op, srcfactor, dstfactor))
 		}
 
-		TMatch!(tok; TokenKind::Keyword(_, Self::HEADING_KEYWORD), |p| ParseError::Expecting(ExpectingKind::Keyword(Self::HEADING_KEYWORD), p));
+		TMatchFirst!(tok; TokenKind::Keyword(_, Self::HEADING_KEYWORD));
 		let (color_op, color_factor_src, color_factor_dest) = maybe_enclosed(tok, |stream|
 		{
 			let save = stream.save();
-			pat_poland(stream).or_else(|_| { *stream = save; pat_infix(stream) })
+			pat_poland(stream).or_else(|| pat_infix(stream.restore(save))).into_result(|| ParseError::Expecting(ExpectingKind::BlendOps, stream.current().position()))
 		})?;
 		let (alpha_op, alpha_factor_src, alpha_factor_dest) = maybe_enclosed(tok, |stream|
 		{
 			let save = stream.save();
-			pat_poland(stream).or_else(|_| { *stream = save; pat_infix(stream) })
+			pat_poland(stream).or_else(|| pat_infix(stream.restore(save))).into_result(|| ParseError::Expecting(ExpectingKind::BlendOps, stream.current().position()))
 		})?;
 
-		Ok(BlendingStateConfig { color_op, color_factor_src, color_factor_dest, alpha_op, alpha_factor_src, alpha_factor_dest })
+		Success(BlendingStateConfig { color_op, color_factor_src, color_factor_dest, alpha_op, alpha_factor_src, alpha_factor_dest })
 	}
 }
 impl CompareOp
 {
-	fn consume_classify(tok: &mut TokenizerCache) -> Option<Self>
+	fn classify(tok: &TokenizerCache) -> Option<Self>
 	{
-		match tok.next().kind
+		match tok.current().kind
 		{
 			TokenKind::Keyword(_, Keyword::Always) => Some(CompareOp::Always),
 			TokenKind::Keyword(_, Keyword::Never)  => Some(CompareOp::Never),
@@ -445,15 +447,15 @@ impl CompareOp
 			TokenKind::Keyword(_, Keyword::Less)      | TokenKind::Operator(Source { slice: "<", .. })  => Some(CompareOp::Less),
 			TokenKind::Keyword(_, Keyword::GreaterEq) | TokenKind::Operator(Source { slice: ">=", .. }) => Some(CompareOp::GreaterEq),
 			TokenKind::Keyword(_, Keyword::LessEq)    | TokenKind::Operator(Source { slice: "<=", .. }) => Some(CompareOp::LessEq),
-			_ => { tok.unshift(); None }
+			_ => None
 		}
 	}
 }
 impl StencilOp
 {
-	fn consume_classify(tok: &mut TokenizerCache) -> Option<Self>
+	fn classify(tok: &TokenizerCache) -> Option<Self>
 	{
-		match tok.next().kind
+		match tok.current().kind
 		{
 			TokenKind::Keyword(_, Keyword::Keep)      => Some(StencilOp::Keep),
 			TokenKind::Keyword(_, Keyword::Zero)      => Some(StencilOp::Zero),
@@ -463,39 +465,41 @@ impl StencilOp
 			TokenKind::Keyword(_, Keyword::DecrWrap)  => Some(StencilOp::DecrementWrap),
 			TokenKind::Keyword(_, Keyword::IncrClamp) => Some(StencilOp::IncrementClamp),
 			TokenKind::Keyword(_, Keyword::DecrClamp) => Some(StencilOp::DecrementClamp),
-			_ => { tok.unshift(); None }
+			_ => None
 		}
 	}
 }
 impl BlendOp
 {
-	fn consume_classify(tok: &mut TokenizerCache) -> Option<Self>
+	fn classify(tok: &TokenizerCache) -> Option<Self>
 	{
-		match tok.next().kind
+		match tok.current().kind
 		{
 			TokenKind::Keyword(_, Keyword::Add) => Some(BlendOp::Add),
 			TokenKind::Keyword(_, Keyword::Sub) => Some(BlendOp::Sub),
-			_ => { tok.unshift(); None }
+			_ => None
 		}
 	}
 }
 impl<'s> Parser<'s> for BlendFactor
 {
 	type ResultTy = Self;
-	fn parse<'t>(stream: &mut TokenizerCache<'s, 't>) -> Result<Self, ParseError<'t>> where 's: 't
+	fn parse<'t>(stream: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, Self> where 's: 't
 	{
 		let inv = TMatch!(Optional: stream; TokenKind::Operator(Source { slice: "~", .. }));
 		match stream.next().kind
 		{
-			TokenKind::Keyword(_, Keyword::SrcColor)  => Ok(BlendFactor::SrcColor(inv)),
-			TokenKind::Keyword(_, Keyword::SrcAlpha)  => Ok(BlendFactor::SrcAlpha(inv)),
-			TokenKind::Keyword(_, Keyword::DestColor) => Ok(BlendFactor::DestColor(inv)),
-			TokenKind::Keyword(_, Keyword::DestAlpha) => Ok(BlendFactor::DestAlpha(inv)),
+			TokenKind::Keyword(_, Keyword::SrcColor)  => Success(BlendFactor::SrcColor(inv)),
+			TokenKind::Keyword(_, Keyword::SrcAlpha)  => Success(BlendFactor::SrcAlpha(inv)),
+			TokenKind::Keyword(_, Keyword::DestColor) => Success(BlendFactor::DestColor(inv)),
+			TokenKind::Keyword(_, Keyword::DestAlpha) => Success(BlendFactor::DestAlpha(inv)),
 			ref n@TokenKind::Numeric(_, _) | ref n@TokenKind::NumericF(_, _) =>
-				if n.match1() { Ok(if inv { BlendFactor::Zero } else { BlendFactor::One }) }
-				else if n.match0() { Ok(if inv { BlendFactor::One } else { BlendFactor::Zero }) }
-				else { Err(ParseError::BlendFactorRestriction(n.position())) },
-			ref e => Err(ParseError::Expecting(ExpectingKind::BlendFactors, e.position()))
+				if n.match1() { Success(if inv { BlendFactor::Zero } else { BlendFactor::One }) }
+				else if n.match0() { Success(if inv { BlendFactor::One } else { BlendFactor::Zero }) }
+				else if inv { Failed(ParseError::BlendFactorRestriction(n.position())) }
+				else { NotConsumed },
+			ref e if inv => Failed(ParseError::Expecting(ExpectingKind::BlendFactors, e.position())),
+			_ => NotConsumed
 		}
 	}
 }
@@ -528,26 +532,26 @@ pub struct ShaderStageDefinition<'s>
 ///   ], outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new()
 /// });
 /// ```
-pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<(ShaderStage, ShaderStageDefinition<'s>), Vec<ParseError<'t>>>
+pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> ParseResultM<'t, (ShaderStage, ShaderStageDefinition<'s>)>
 {
-	let (location, stage) = match tok.next().kind
+	let (location, stage) = match tok.current().kind
 	{
 		TokenKind::Keyword(ref pos, Keyword::VertexShader) => (pos, ShaderStage::Vertex),
 		TokenKind::Keyword(ref pos, Keyword::FragmentShader) => (pos, ShaderStage::Fragment),
 		TokenKind::Keyword(ref pos, Keyword::GeometryShader) => (pos, ShaderStage::Geometry),
 		TokenKind::Keyword(ref pos, Keyword::HullShader) => (pos, ShaderStage::Hull),
 		TokenKind::Keyword(ref pos, Keyword::DomainShader) => (pos, ShaderStage::Domain),
-		ref e => { tok.unshift(); return Err(vec![ParseError::Expecting(ExpectingKind::ShaderStage, e.position())]) }
-	};
+		_ => return NotConsumedM
+	}; tok.shift();
 	TMatch!(tok; TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese), |p| vec![ParseError::ExpectingOpen(EnclosureKind::Parenthese, p)]);
 	let inputs = if !tok.current().is_end_enclosure_of(EnclosureKind::Parenthese)
 	{
-		let mut inputs = vec![semantic_input(tok).map_err(|v| vec![v])?];
+		let mut inputs = vec![semantic_input(tok)?];
 		while let TokenKind::ListDelimiter(_) = tok.current().kind
 		{
 			while let TokenKind::ListDelimiter(_) = tok.current().kind { tok.shift(); }
 			if tok.current().is_end_enclosure_of(EnclosureKind::Parenthese) { break; }
-			inputs.place_back() <- semantic_input(tok).map_err(|v| vec![v])?;
+			inputs.place_back() <- semantic_input(tok)?;
 		}
 		inputs
 	}
@@ -556,7 +560,7 @@ pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> 
 	match tok.current().kind
 	{
 		TokenKind::ItemDescriptorDelimiter(_) | TokenKind::Keyword(_, Keyword::Where) => { tok.shift(); }
-		ref e => return Err(vec![ParseError::Expecting(ExpectingKind::ShaderBlock, e.position())])
+		ref e => return FailedM(vec![ParseError::Expecting(ExpectingKind::ShaderBlock, e.position())])
 	}
 	let block_start = take_current_block_begin(tok);
 	let (mut outputs, mut uniforms, mut constants, mut values) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -569,58 +573,56 @@ pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> 
 			TokenKind::EOF(_) => break,
 			TokenKind::Keyword(_, Keyword::Uniform) => match uniform_decl(tok, defblock_begin)
 			{
-				Ok(v) => { uniforms.push(v); },
-				Err(e) =>
+				Success(v) => { uniforms.push(v); },
+				Failed(e) =>
 				{
 					errors.push(e); tok.drop_line();
 					while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
-				}
+				},
+				_ => unreachable!()
 			},
 			TokenKind::Keyword(_, Keyword::Constant) => match constant_decl(tok, defblock_begin)
 			{
-				Ok(v) => { constants.push(v); },
-				Err(e) =>
+				Success(v) => { constants.push(v); },
+				Failed(e) =>
 				{
 					errors.push(e); tok.drop_line();
 					while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
-				}
+				},
+				_ => unreachable!()
 			},
 			TokenKind::Keyword(_, Keyword::Out) => match semantic_output(tok, defblock_begin)
 			{
-				Ok(v) => { outputs.push(v); },
-				Err(e) =>
+				Success(v) => { outputs.push(v); },
+				Failed(e) =>
 				{
 					errors.push(e); tok.drop_line();
 					while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
-				}
+				},
+				_ => unreachable!()
 			},
 			TokenKind::Keyword(_, Keyword::Let) =>
 			{
 				tok.shift();
-				match value_decl(tok, defblock_begin)
+				match value_decl(tok, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, tok.current().position()))
 				{
 					Ok(v) => values.push(v),
 					Err(e) => { errors.push(e); tok.drop_line(); while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); } }
 				}
 			},
-			TokenKind::Identifier(_) | TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) => match value_decl(tok, defblock_begin)
+			_ => match value_decl(tok, defblock_begin).into_result(|| ParseError::Unexpected(tok.current().position()))
 			{
 				Ok(v) => values.push(v),
 				Err(e) => { errors.push(e); tok.drop_line(); while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); } }
-			},
-			ref e =>
-			{
-				errors.push(ParseError::Unexpected(e.position())); tok.drop_line();
-				while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
 			}
 		}
 	}
-	if errors.is_empty() { Ok((stage, ShaderStageDefinition { location: location.clone(), inputs, outputs, uniforms, constants, values })) }
-	else { Err(errors) }
+	if errors.is_empty() { SuccessM((stage, ShaderStageDefinition { location: location.clone(), inputs, outputs, uniforms, constants, values })) }
+	else { FailedM(errors) }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValueDeclaration<'s> { pub location: Location, pub pat: Expression<'s>, pub _type: Option<Type<'s>>, pub value: FullExpression<'s> }
+pub struct ValueDeclaration<'s> { pub pat: Expression<'s>, pub _type: Option<Type<'s>>, pub value: FullExpression<'s> }
 /// Parse a value declaration
 /// # Example
 /// 
@@ -635,10 +637,9 @@ pub struct ValueDeclaration<'s> { pub location: Location, pub pat: Expression<'s
 /// assert_eq!(vd._type.as_ref().unwrap()[0].basic_type(), Some(BType::Int));
 /// assert_eq!(vd._type.as_ref().unwrap()[1].text(), Some("->")); assert!(vd._type.as_ref().unwrap()[2].is_placeholder());
 /// ```
-pub fn value_decl<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize) -> Result<ValueDeclaration<'s>, ParseError<'t>>
+pub fn value_decl<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, ValueDeclaration<'s>>
 {
-	let location = stream.current().position();
-	let pat = expr::expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
+	let pat = BreakParsing!(expr::expression(stream, leftmost, None));
 	let _type = if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().is_item_delimiter()
 	{
 		stream.shift(); Some(types::user_type(stream, leftmost, false)?)
@@ -646,11 +647,11 @@ pub fn value_decl<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usi
 	else { None };
 	if !Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) || !stream.current().is_equal()
 	{
-		return Err(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
+		return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
 	}
-	stream.shift(); CheckLayout!(Leftmost::Exclusive(leftmost) => stream, R);
+	stream.shift(); CheckLayout!(Leftmost::Exclusive(leftmost) => stream);
 	let value = expr::full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
-	Ok(ValueDeclaration { location: location.clone(), pat, _type, value })
+	Success(ValueDeclaration { pat, _type, value })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -669,14 +670,14 @@ pub struct ConstantDeclaration<'s> { pub location: Location, pub name: Option<&'
 /// assert_eq!(ud, UniformDeclaration { location: Location::default(), name: Some("test"),
 ///     _type: Type(vec![TypeFragment::BasicType(Location { line: 1, column: 15 }, BType::FMat(4, 4))]) });
 /// ```
-pub fn uniform_decl<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, leftmost: usize) -> Result<UniformDeclaration<'s>, ParseError<'t>>
+pub fn uniform_decl<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, UniformDeclaration<'s>>
 {
-	let location = TMatch!(tok; TokenKind::Keyword(ref loc, Keyword::Uniform) => loc.clone(), |p| ParseError::Expecting(ExpectingKind::UniformDef, p));
-	CheckLayout!(Leftmost::Exclusive(leftmost) => tok, R);
+	let location = TMatchFirst!(tok; TokenKind::Keyword(ref loc, Keyword::Uniform) => loc.clone());
+	CheckLayout!(Leftmost::Exclusive(leftmost) => tok);
 	let (_, name) = name(tok, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
 	TMatch!(Leftmost::Exclusive(leftmost) => tok; TokenKind::ItemDescriptorDelimiter(_), |p| ParseError::Expecting(ExpectingKind::ItemDelimiter, p));
 	let _type = types::user_type(tok, leftmost, false)?;
-	Ok(UniformDeclaration { location, name, _type })
+	Success(UniformDeclaration { location, name, _type })
 }
 /// Parse a constant declaration
 /// # Example
@@ -691,9 +692,9 @@ pub fn uniform_decl<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, leftmost: usiz
 /// assert_eq!(cd._type, Some(Type(vec![TypeFragment::BasicType(Location { line: 1, column: 16 }, BType::FVec(2))])));
 /// assert!(cd.value.is_some());
 /// ```
-pub fn constant_decl<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, leftmost: usize) -> Result<ConstantDeclaration<'s>, ParseError<'t>>
+pub fn constant_decl<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, ConstantDeclaration<'s>>
 {
-	let location = TMatch!(tok; TokenKind::Keyword(ref loc, Keyword::Constant) => loc, |p| ParseError::Expecting(ExpectingKind::ConstantDef, p));
+	let location = TMatchFirst!(tok; TokenKind::Keyword(ref loc, Keyword::Constant) => loc);
 	let (_, name) = name(tok, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
 	let _type = if Leftmost::Exclusive(leftmost).satisfy(tok.current(), false) && tok.current().is_item_delimiter()
 	{
@@ -706,7 +707,7 @@ pub fn constant_decl<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, leftmost: usi
 		expr::full_expression(tok, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, tok.current().position())).map(Some)?
 	}
 	else { None };
-	Ok(ConstantDeclaration { location: location.clone(), name, _type, value })
+	Success(ConstantDeclaration { location: location.clone(), name, _type, value })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -723,10 +724,10 @@ pub struct SemanticOutput<'s> { pub location: Location, pub name: Option<&'s str
 /// assert_eq!(so.location, Location::default());
 /// assert_eq!(so.name, None); assert_eq!(so.semantics, Semantics::SVPosition); assert_eq!(so._type, None);
 /// ```
-pub fn semantic_output<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, leftmost: usize) -> Result<SemanticOutput<'s>, ParseError<'t>>
+pub fn semantic_output<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, leftmost: usize) -> ParseResult<'t, SemanticOutput<'s>>
 {
-	let location = TMatch!(tok; TokenKind::Keyword(ref loc, Keyword::Out) => loc, |p| ParseError::Expecting(ExpectingKind::OutDef, p));
-	CheckLayout!(Leftmost::Exclusive(leftmost) => tok, R);
+	let location = TMatchFirst!(tok; TokenKind::Keyword(ref loc, Keyword::Out) => loc);
+	CheckLayout!(Leftmost::Exclusive(leftmost) => tok);
 	let (_, name) = name(tok, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
 	TMatch!(Leftmost::Exclusive(leftmost) => tok; TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese),
 		|p| ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, p));
@@ -734,17 +735,17 @@ pub fn semantic_output<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>, leftmost: u
 	TMatch!(Leftmost::Exclusive(leftmost) => tok; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
 	let _type = if Leftmost::Exclusive(leftmost).satisfy(tok.current(), false) && tok.current().is_item_delimiter()
 	{
-		tok.shift(); CheckLayout!(Leftmost::Exclusive(leftmost) => tok, R);
+		tok.shift(); CheckLayout!(Leftmost::Exclusive(leftmost) => tok);
 		match tok.next().kind
 		{
 			TokenKind::BasicType(_, t) => Some(t), TokenKind::Placeholder(_) => None,
-			ref e => return Err(ParseError::Expecting(ExpectingKind::Type, e.position()))
+			ref e => return Failed(ParseError::Expecting(ExpectingKind::Type, e.position()))
 		}
 	}
 	else { None };
 	TMatch!(Leftmost::Exclusive(leftmost) => tok; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::ConcreteExpression, p));
 	let expr = expr::full_expression(tok, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, tok.current().position()))?;
-	Ok(SemanticOutput { location: location.clone(), name, semantics, _type, expr })
+	Success(SemanticOutput { location: location.clone(), name, semantics, _type, expr })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -764,14 +765,15 @@ pub struct SemanticInput<'s> { pub location: Location, pub name: Option<&'s str>
 /// let mut tokcache = TokenizerCache::new(&v, &s);
 /// assert_eq!(semantic_input(&mut tokcache), Ok(SemanticInput { location: Location::default(), name: Some("pos"), semantics: Semantics::Position(0), _type: BType::FVec(4) }));
 /// ```
-pub fn semantic_input<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<SemanticInput<'s>, ParseError<'t>>
+pub fn semantic_input<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, SemanticInput<'s>>
 {
 	let location1 = TMatch!(Optional: tok; TokenKind::Keyword(ref loc, Keyword::In) => loc);
 	let (location, name) = match tok.next().kind
 	{
 		TokenKind::Identifier(Source { slice, ref pos, .. }) => (location1.unwrap_or(pos), Some(slice)),
 		TokenKind::Placeholder(ref pos) => (location1.unwrap_or(pos), None),
-		ref e => return Err(ParseError::Expecting(ExpectingKind::Ident, e.position()))
+		_ if location1.is_none() => return NotConsumed,
+		ref e => return Failed(ParseError::Expecting(ExpectingKind::Ident, e.position()))
 	};
 	TMatch!(tok; TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, p));
 	let semantics = TMatch!(tok; TokenKind::Semantics(_, sem) => sem, |p| ParseError::Expecting(ExpectingKind::Semantics, p));
@@ -779,7 +781,7 @@ pub fn semantic_input<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> Result<Se
 	TMatch!(tok; TokenKind::ItemDescriptorDelimiter(_), |p| ParseError::Expecting(ExpectingKind::ItemDelimiter, p));
 	match tok.next().kind
 	{
-		TokenKind::BasicType(_, _type) => Ok(SemanticInput { location: location.clone(), name, semantics, _type }),
-		ref e => Err(ParseError::Expecting(ExpectingKind::Type, e.position()))
+		TokenKind::BasicType(_, _type) => Success(SemanticInput { location: location.clone(), name, semantics, _type }),
+		ref e => Failed(ParseError::Expecting(ExpectingKind::Type, e.position()))
 	}
 }

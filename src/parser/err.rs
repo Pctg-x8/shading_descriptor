@@ -147,6 +147,7 @@ impl<'t, T> From<Result<T, Vec<ParseError<'t>>>> for ParseResultM<'t, T>
 {
 	fn from(r: Result<T, Vec<ParseError<'t>>>) -> Self { match r { Ok(v) => SuccessM(v), Err(e) => FailedM(e) } }
 }
+impl<'t> From<ParseError<'t>> for Vec<ParseError<'t>> { fn from(v: ParseError<'t>) -> Self { vec![v] } }
 impl<'t, T> Try for ParseResult<'t, T>
 {
 	type Ok = T; type Error = ParseError<'t>;
@@ -185,4 +186,11 @@ impl<'t, T> ParseResult<'t, T>
             ParseResult::Failed(f) => ParseResult::Failed(f), ParseResult::NotConsumed => ParseResult::NotConsumed
         }
     }
+	pub fn or_else<F>(self, alter: F) -> ParseResult<'t, T> where F: FnOnce() -> ParseResult<'t, T>
+	{
+		match self
+		{
+			Failed(_) => alter(), Success(s) => Success(s), NotConsumed => NotConsumed
+		}
+	}
 }

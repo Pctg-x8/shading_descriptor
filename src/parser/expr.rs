@@ -1,7 +1,7 @@
 //! Expression Parser
 
 use tokparse::{Location, Source, TokenKind, Keyword, TokenizerCache, NumericTy, EnclosureKind};
-use super::err::*; use super::err::ParseResult::*;
+use super::err::*;
 use parser::{ExpectingKind, Leftmost, take_current_block_begin, get_definition_leftmost};
 use std::ops::Deref;
 

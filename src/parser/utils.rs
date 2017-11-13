@@ -6,11 +6,7 @@ macro_rules! CheckLayout
 {
 	($leftmost: expr => $stream: expr) =>
 	{
-		if !$leftmost.satisfy($stream.current(), true) { return Failed(ParseError::LayoutViolation($stream.current().position())); }
-	};
-	($leftmost: expr => $stream: expr, R) =>
-	{
-		if !$leftmost.satisfy($stream.current(), true) { return Err(ParseError::LayoutViolation($stream.current().position())); }
+		if !$leftmost.satisfy($stream.current(), true) { return Err(ParseError::LayoutViolation($stream.current().position())).into(); }
 	};
 	($leftmost: expr => $stream: expr, NC) =>
 	{
@@ -22,28 +18,28 @@ macro_rules! TMatch
 {
 	($leftmost: expr => $stream: expr; $pat: pat => $extract: expr, $err: expr) =>
 	{{
-		CheckLayout!($leftmost => $stream, R);
+		CheckLayout!($leftmost => $stream);
 		match $stream.current().kind { $pat => { $stream.shift(); $extract }, ref e => return Err($err(e.position())) }
 	}};
 	($leftmost: expr => $stream: expr; $pat: pat, $err: expr) =>
 	{{
-		CheckLayout!($leftmost => $stream, R);
-		match $stream.current().kind { $pat => { $stream.shift(); }, ref e => return Err($err(e.position())) }
+		CheckLayout!($leftmost => $stream);
+		match $stream.current().kind { $pat => { $stream.shift(); }, ref e => return Err($err(e.position())).into() }
 	}};
 	($stream: expr; $pat: pat => $extract: expr, $err: expr) =>
 	{
-		match $stream.current().kind { $pat => { $stream.shift(); $extract }, ref e => return Err($err(e.position())) }
+		match $stream.current().kind { $pat => { $stream.shift(); $extract }, ref e => return Err($err(e.position())).into() }
 	};
 	($stream: expr; $pat: pat, $err: expr) =>
 	{
-		match $stream.current().kind { $pat => { $stream.shift(); }, ref e => return Err($err(e.position())) }
+		match $stream.current().kind { $pat => { $stream.shift(); }, ref e => return Err($err(e.position())).into() }
 	};
 	(Numeric: $stream: expr; $err: expr) =>
 	{
 		match $stream.current().kind
 		{
 			ref t@TokenKind::Numeric(_, _) | ref t@TokenKind::NumericF(_, _) => { $stream.shift(); t },
-			ref e => return Err($err(e.position()))
+			ref e => return Err($err(e.position())).into()
 		}
 	};
 	(Optional: $stream: expr; $pat: pat => $act: expr) =>
@@ -61,7 +57,8 @@ macro_rules! TMatchFirst
 	($stream: expr; $pat: pat => $extract: expr) =>
 	{
 		if let $pat = $stream.current().kind { $stream.shift(); $extract } else { return NotConsumed; }
-	}
+	};
+	($stream: expr; $pat: pat) => { if let $pat = $stream.current().kind { $stream.shift(); } else { return NotConsumed; } }
 }
 /// FailedまたはNotConsumedで抜ける
 macro_rules! BreakParsing
