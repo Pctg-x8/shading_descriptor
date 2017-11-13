@@ -96,7 +96,9 @@ impl<'t> Error for ParseError<'t>
 }
 
 pub enum ParseResult<'t, T> { NotConsumed, Success(T), Failed(ParseError<'t>) }
-use self::ParseResult::{NotConsumed, Success, Failed};
+pub enum ParseResultM<'t, T> { NotConsumed, Success(T), Failed(Vec<ParseError<'t>>) }
+pub use self::ParseResult::{NotConsumed, Success, Failed};
+pub use self::ParseResultM::{NotConsumed as NotConsumedM, Success as SuccessM, Failed as FailedM};
 impl<'t, T> ParseResult<'t, T>
 {
 	pub fn into_result<Fe: FnOnce() -> ParseError<'t>>(self, not_consumed_err: Fe) -> Result<T, ParseError<'t>>
@@ -115,9 +117,35 @@ impl<'t, T> ParseResult<'t, T>
 		}
 	}
 }
+impl<'t, T> ParseResultM<'t, T>
+{
+	pub fn into_result_err<Fe: FnOnce() -> ParseError<'t>>(self, not_consumed_err: Fe) -> Result<T, Vec<ParseError<'t>>>
+	{
+		match self
+		{
+			NotConsumedM => Err(vec![not_consumed_err()]),
+			SuccessM(t) => Ok(t), FailedM(e) => Err(e)
+		}
+	}
+	pub fn into_result_opt(self) -> Result<Option<T>, Vec<ParseError<'t>>>
+	{
+		match self
+		{
+			NotConsumedM => Ok(None), SuccessM(t) => Ok(Some(t)), FailedM(e) => Err(e)
+		}
+	}
+}
 impl<'t, T> From<Result<T, ParseError<'t>>> for ParseResult<'t, T>
 {
 	fn from(r: Result<T, ParseError<'t>>) -> Self { match r { Ok(v) => Success(v), Err(e) => Failed(e) } }
+}
+impl<'t, T> From<Result<T, ParseError<'t>>> for ParseResultM<'t, T>
+{
+	fn from(r: Result<T, ParseError<'t>>) -> Self { match r { Ok(v) => SuccessM(v), Err(e) => FailedM(vec![e]) } }
+}
+impl<'t, T> From<Result<T, Vec<ParseError<'t>>>> for ParseResultM<'t, T>
+{
+	fn from(r: Result<T, Vec<ParseError<'t>>>) -> Self { match r { Ok(v) => SuccessM(v), Err(e) => FailedM(e) } }
 }
 impl<'t, T> Try for ParseResult<'t, T>
 {
@@ -126,6 +154,15 @@ impl<'t, T> Try for ParseResult<'t, T>
 	fn into_result(self) -> Result<Self::Ok, Self::Error>
 	{
 		match self { NotConsumed => panic!("Cannot throw a NotConsumed via std::ops::Try"), Success(v) => Ok(v), Failed(v) => Err(v) }
+	}
+}
+impl<'t, T> Try for ParseResultM<'t, T>
+{
+	type Ok = T; type Error = Vec<ParseError<'t>>;
+	fn from_ok(v: T) -> Self { SuccessM(v) } fn from_error(e: Self::Error) -> Self { FailedM(e) }
+	fn into_result(self) -> Result<Self::Ok, Self::Error>
+	{
+		match self { NotConsumedM => panic!("Cannot throw a NotConsumed via std::ops::Try"), SuccessM(v) => Ok(v), FailedM(v) => Err(v) }
 	}
 }
 
