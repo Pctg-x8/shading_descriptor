@@ -1,7 +1,7 @@
 //! Parsing Error Handlings
 
 use tokparse::{Location, EnclosureKind, Keyword};
-use std::fmt::{Formatter, Display, Result as FmtResult};
+use std::fmt::{Formatter, Display, Debug, Result as FmtResult};
 use std::error::Error;
 use std::ops::Try;
 
@@ -166,6 +166,13 @@ impl<'t, T> Try for ParseResultM<'t, T>
 		match self { NotConsumedM => panic!("Cannot throw a NotConsumed via std::ops::Try"), SuccessM(v) => Ok(v), FailedM(v) => Err(v) }
 	}
 }
+impl<'t, T: Debug> Debug for ParseResult<'t, T>
+{
+	fn fmt(&self, fmt: &mut Formatter) -> FmtResult
+	{
+		match *self { Success(ref v) => write!(fmt, "Success({:?})", v), Failed(ref e) => write!(fmt, "Failed({:?})", e), NotConsumed => write!(fmt, "NotConsumed") }
+	}
+}
 
 /// Continuous computations
 impl<'t, T> ParseResult<'t, T>
@@ -192,5 +199,13 @@ impl<'t, T> ParseResult<'t, T>
 		{
 			Failed(_) => alter(), Success(s) => Success(s), NotConsumed => NotConsumed
 		}
+	}
+}
+/// Panicking
+impl<'t, T> ParseResult<'t, T>
+{
+	pub fn unwrap(self) -> T
+	{
+		match self { Success(e) => e, Failed(e) => panic!("{:?}", e), NotConsumed => panic!("NotConsumed") }
 	}
 }

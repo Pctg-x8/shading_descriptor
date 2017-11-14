@@ -9,9 +9,8 @@ mod parser;
 
 pub use tokparse::{Location, Source, Token, TokenKind, NumericTy, EnclosureKind, TokenizerCache, Semantics, Keyword, BType};
 // pub use layout::{LexemeInsertions, LexemeIndentInsertions, LayoutFreeTokenStream};
-pub use parser::{SemanticInput, SemanticOutput, semantic_input, semantic_output};
-pub use parser::{UniformDeclaration, ConstantDeclaration, uniform_decl, constant_decl};
-pub use parser::{ValueDeclaration, value_decl};
+pub use parser::{Success, Failed, NotConsumed, Parser, ParserWithIndent};
+pub use parser::{SemanticInput, SemanticOutput, UniformDeclaration, ConstantDeclaration, ValueDeclaration};
 pub use parser::{ShaderStage, ShaderStageDefinition, shader_stage_definition};
 pub use parser::{ShadingState, ShadingStates, CompareOp, StencilOp, StencilTestConfig};
 pub use parser::{ShadingPipeline, shading_pipeline};

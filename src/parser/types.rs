@@ -2,7 +2,7 @@
 
 use tokparse::{Location, Source, TokenKind, TokenizerCache, BType, EnclosureKind};
 use super::expr::{Expression, expression};
-use super::err::*; use super::err::ParseResult::*;
+use super::err::*;
 use super::utils::Leftmost;
 use std::ops::Deref;
 use std::mem::discriminant;
