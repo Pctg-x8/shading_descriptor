@@ -173,6 +173,18 @@ impl<'t, T: Debug> Debug for ParseResult<'t, T>
 		match *self { Success(ref v) => write!(fmt, "Success({:?})", v), Failed(ref e) => write!(fmt, "Failed({:?})", e), NotConsumed => write!(fmt, "NotConsumed") }
 	}
 }
+impl<'t, T: PartialEq> PartialEq for ParseResult<'t, T>
+{
+	fn eq(&self, other: &Self) -> bool
+	{
+		match *self
+		{
+			Success(ref v) => match *other { Success(ref vo) => v == vo, _ => false },
+			Failed (ref v) => match *other { Failed (ref vo) => v == vo, _ => false },
+			NotConsumed => match *other { NotConsumed => true, _ => false }
+		}
+	}
+}
 
 /// Continuous computations
 impl<'t, T> ParseResult<'t, T>
