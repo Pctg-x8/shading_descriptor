@@ -16,7 +16,6 @@ impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
     /// let (s, v) = (RefCell::new(Source::new("succ x: int -> _ = x + 1").into()), RefCell::new(Vec::new()));
     /// let mut tokcache = TokenizerCache::new(&v, &s);
     /// let vd = ValueDeclaration::parse(&mut tokcache, 0).unwrap();
-    /// assert_eq!(vd.location, Location::default());
     /// assert_eq!(vd.pat[0].text(), Some("succ")); assert_eq!(vd.pat[1].text(), Some("x"));
     /// assert_eq!(vd._type.as_ref().unwrap()[0].basic_type(), Some(BType::Int));
     /// assert_eq!(vd._type.as_ref().unwrap()[1].text(), Some("->")); assert!(vd._type.as_ref().unwrap()[2].is_placeholder());

@@ -221,3 +221,11 @@ impl<'t, T> ParseResult<'t, T>
 		match self { Success(e) => e, Failed(e) => panic!("{:?}", e), NotConsumed => panic!("NotConsumed") }
 	}
 }
+/// Panicking
+impl<'t, T> ParseResultM<'t, T>
+{
+	pub fn unwrap(self) -> T
+	{
+		match self { SuccessM(e) => e, FailedM(e) => panic!("{:?}", e), NotConsumedM => panic!("NotConsumed") }
+	}
+}
