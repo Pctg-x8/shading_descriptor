@@ -11,3 +11,6 @@ notifications:
     template: "%{repository},%{commit},%{message},%{foo},%{build_url}"
     on_success: always
     on_failure: always
+script:
+- cargo test --verbose
+- cargo run --bin main -- sample.psh
