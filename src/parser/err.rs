@@ -11,7 +11,7 @@ pub enum ExpectingKind
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl, Constructor,
 	ConcreteExpression, Expression, ConcreteType, Pattern, Numeric, Operator, PrefixDeclarator, Argument, ShaderBlock,
 	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, LetIn, TypePattern, ExpressionPattern, ConditionExpr,
-	Keyword(Keyword)
+	AssocPriority, Infix, Keyword(Keyword)
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -20,11 +20,19 @@ pub enum ParseError<'t>
 	ExpectingListDelimiterOrParentheseClosing(&'t Location),
 	ExpectingEnclosed(ExpectingKind, EnclosureKind, &'t Location), ExpectingOpen(EnclosureKind, &'t Location), ExpectingClose(EnclosureKind, &'t Location),
 	UnexpectedClose(EnclosureKind, &'t Location), Unexpected(&'t Location), InvalidExpressionFragment(&'t Location),
-	PartialDisabling(Keyword, &'t Location), BlendFactorRestriction(&'t Location), LayoutViolation(&'t Location)
+	PartialDisabling(Keyword, &'t Location), BlendFactorRestriction(&'t Location), LayoutViolation(&'t Location),
+	DuplicatePrecedences(Location, &'t Location)
 }
 impl<'t> Display for ParseError<'t>
 {
-	fn fmt(&self, fmt: &mut Formatter) -> FmtResult { write!(fmt, "{} at {}", self.description(), self.position()) }
+	fn fmt(&self, fmt: &mut Formatter) -> FmtResult
+	{
+		write!(fmt, "{} at {}", match self
+		{
+			&ParseError::DuplicatePrecedences(ref prev, _) => ::std::borrow::Cow::Owned(format!("Duplicated precedence declaration. First declaration was at {}", prev)),
+			e => ::std::borrow::Cow::Borrowed(e.description())
+		}, self.position())
+	}
 }
 impl<'t> ParseError<'t>
 {
@@ -35,7 +43,7 @@ impl<'t> ParseError<'t>
 		{
 			ExpectingIdentNextIn(p) | ExpectingIdentOrIn(p) | Expecting(_, p)  | ExpectingEnclosed(_, _, p) | ExpectingClose(_, p) | Unexpected(p)
 			| ExpectingListDelimiterOrParentheseClosing(p) | ExpectingOpen(_, p) | UnexpectedClose(_, p) | InvalidExpressionFragment(p)
-			| PartialDisabling(_, p) | BlendFactorRestriction(p) | LayoutViolation(p) => p
+			| PartialDisabling(_, p) | BlendFactorRestriction(p) | LayoutViolation(p) | DuplicatePrecedences(_, p) => p
 		}
 	}
 }
@@ -73,6 +81,8 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::ShaderBlock, _) => "Expecting a shader block(following `where` or `:`)",
             ParseError::Expecting(ExpectingKind::LetIn, _) => "Expecting `let .. in ..`, maybe missing `in`",
 			ParseError::Expecting(ExpectingKind::ConditionExpr, _) => "Expecting an expression for a condition",
+			ParseError::Expecting(ExpectingKind::AssocPriority, _) => "Expecting a priority of associativity",
+			ParseError::Expecting(ExpectingKind::Infix, _) => "Expecting an infix declaration",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Blend), _) => "Expecting `Blend`",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Type), _) => "Expecting `type`",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), _) => "Expecting `data`",

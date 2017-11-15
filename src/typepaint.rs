@@ -4,14 +4,44 @@ use std::collections::{HashMap, HashSet};
 use typeparser::{TypeFragment, Type};
 use std::rc::{Rc, Weak};
 
+/// 結合方向と強度
+pub enum Associativity { Left(usize), Right(usize), None(usize) }
+/// ローカル優先結合指定
+pub struct AssociativityEnv<'s>
+{
+    pub ops: HashMap<&'s str, Associativity>,
+    pub children: Vec<AssociativityEnv<'s>>
+}
+pub trait AssociativityCollector<'s>
+{
+    fn collect_assoc(&self, scope: &mut AssociativityEnv<'s>);
+}
+
+/*
 pub struct TyConstructorEnv<'s>
 {
-    pub constructors: HashSet<&'s str>, pub children: Vec<TyConstructorEnv<'s>>
+    /// Type constructor(A in `type A b`, D in `data D a = ...`)
+    pub tycons: HashSet<&'s str>,
+    /// Data constructors(map of (constructor_ident, generated_tycons_candidates))
+    pub datacons: HashMap<&'s str, Vec<&'s str>>,
+    /// Children scope
+    pub children: Vec<TyConstructorEnv<'s>>
 }
-impl<'s> TyConstructorEnv<'s>
+pub trait TyConstructorCollectable<'s>
 {
-    pub fn collect(syn: &Type<'s>, )
+    fn collect(&self, scope: &mut TyConstructorEnv<'s>);
 }
+impl<'s> TyConstructorCollectable<'s> for TypeDeclaration<'s>
+{
+    fn collect(&self, scope: &mut TyConstructorEnv<'s>)
+    {
+        for (tycons, datacons_list) in self.defs.iter()
+        {
+            scope.tycons.insert(tycons);
+        }
+    }
+}
+*/
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TyKind { Seed, Arrow(Box<TyKind>, Box<TyKind>), Prior(Box<TyKind>) }
@@ -74,4 +104,4 @@ impl<'s> PaintedType<'s>
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PaintedTypeString<'s>(Vec<PaintedType<'s>>)
+pub struct PaintedTypeString<'s>(Vec<PaintedType<'s>>);

@@ -81,6 +81,7 @@ impl<'s> Token<'s>
     }
     pub fn keyword(&self)  -> Option<Keyword>     { match self.kind { TokenKind::Keyword(_, k)   => Some(k), _ => None } }
     pub fn operator(&self) -> Option<&Source<'s>> { match self.kind { TokenKind::Operator(ref s) => Some(s), _ => None } }
+    pub fn infix_assoc(&self) -> bool { match self.keyword() { Some(Keyword::Infix) | Some(Keyword::Infixl) | Some(Keyword::Infixr) => true, _ => false } }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
@@ -91,7 +92,7 @@ pub enum Keyword
 {
     Let, In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
     DepthTest, DepthWrite, DepthBounds, StencilTest, StencilOps, StencilCompare, StencilWriteMask, Blend, Type, Data,
-    If, Then, Else, Unless,
+    If, Then, Else, Unless, Infixl, Infixr, Infix,
     // reserved but not used //
     Where, Do, Case, Of,
     // blend ops //
@@ -337,6 +338,9 @@ impl<'s> Source<'s>
                 "constant" => Some(TokenKind::Keyword(s.pos, Keyword::Constant)),
                 "type" => Some(TokenKind::Keyword(s.pos, Keyword::Type)),
                 "data" => Some(TokenKind::Keyword(s.pos, Keyword::Data)),
+                "infix" => Some(TokenKind::Keyword(s.pos, Keyword::Infix)),
+                "infixl" => Some(TokenKind::Keyword(s.pos, Keyword::Infixl)),
+                "infixr" => Some(TokenKind::Keyword(s.pos, Keyword::Infixr)),
                 "VertexShader" => Some(TokenKind::Keyword(s.pos, Keyword::VertexShader)),
                 "FragmentShader" => Some(TokenKind::Keyword(s.pos, Keyword::FragmentShader)),
                 "GeometryShader" => Some(TokenKind::Keyword(s.pos, Keyword::GeometryShader)),
@@ -588,6 +592,14 @@ impl<'s> Source<'s>
 impl<'s> TokenKind<'s>
 {
     pub fn as_f32(&self) -> f32
+    {
+        match *self
+        {
+            TokenKind::Numeric(Source { slice, .. }, _) | TokenKind::NumericF(Source { slice, .. }, _) => slice.parse().unwrap(),
+            _ => unreachable!()
+        }
+    }
+    pub fn as_usize(&self) -> usize
     {
         match *self
         {

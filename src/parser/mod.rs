@@ -2,14 +2,19 @@
 
 #[macro_use] pub mod utils;
 pub mod err;
+mod assoc;
 mod expr; mod types; mod decls;
 pub use self::err::{Success, SuccessM, Failed, FailedM, NotConsumed, NotConsumedM};
 pub use self::expr::{FullExpression, Expression, ExpressionFragment, expression, full_expression, expr_lettings};
 pub use self::types::{Type, TypeFragment, user_type};
 pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
-use self::utils::*;
-use self::err::*;
+pub use self::assoc::{Associativity, AssociativityEnv};
+use self::utils::*; use self::err::*;
 use tokparse::*;
+use std::rc::Rc; use std::cell::RefCell;
+
+type RcMut<T> = Rc<RefCell<T>>;
+fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 
 /// シェーディングパイプライン(コンパイル単位)
 #[derive(Debug, Clone)]
@@ -19,43 +24,65 @@ pub struct ShadingPipeline<'s>
 	vsh: Option<ShaderStageDefinition<'s>>,
 	hsh: Option<ShaderStageDefinition<'s>>, dsh: Option<ShaderStageDefinition<'s>>,
 	gsh: Option<ShaderStageDefinition<'s>>, fsh: Option<ShaderStageDefinition<'s>>,
-	values: Vec<ValueDeclaration<'s>>
+	values: Vec<ValueDeclaration<'s>>, assoc: Rc<RefCell<AssociativityEnv<'s>>>
 }
 pub fn shading_pipeline<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>
 {
-	let mut sp = ShadingPipeline { state: Default::default(), vsh: None, hsh: None, dsh: None, gsh: None, fsh: None, values: Vec::new() };
+	let mut sp = ShadingPipeline
+	{
+		state: Default::default(), vsh: None, hsh: None, dsh: None, gsh: None, fsh: None,
+		values: Vec::new(), assoc: Rc::new(RefCell::new(AssociativityEnv::new(None)))
+	};
 	let mut errors = Vec::new();
 
 	loop
 	{
 		let leftmost = get_definition_leftmost(Leftmost::Inclusive(1), stream);
-		let (mut errors_t, mut has_error) = (Vec::new(), false);
+		let mut errors_t = Vec::new();
 		let inst = stream.save();
-		// println!("dbg: head : {:?}", stream.current());
-		match shader_stage_definition(stream)
+		let has_error = if stream.current().infix_assoc()
 		{
-			SuccessM((ShaderStage::Vertex, v))   => { sp.vsh = Some(v); continue; }
-			SuccessM((ShaderStage::Hull, v))     => { sp.hsh = Some(v); continue; }
-			SuccessM((ShaderStage::Domain, v))   => { sp.dsh = Some(v); continue; }
-			SuccessM((ShaderStage::Geometry, v)) => { sp.gsh = Some(v); continue; }
-			SuccessM((ShaderStage::Fragment, v)) => { sp.fsh = Some(v); continue; }
-			FailedM(mut e) => { errors_t.append(&mut e); has_error = true; }, _ => ()
+			match Associativity::parse(stream).into_result(|| ParseError::Expecting(ExpectingKind::Infix, stream.current().position()))
+			{
+				Ok((v, a)) => for op in v
+				{
+					match sp.assoc.borrow_mut().register(op.slice, op.pos, a)
+					{
+						Some(p) => { errors.place_back() <- ParseError::DuplicatePrecedences(p.clone(), stream.current().position()); },
+						None => ()
+					}
+				},
+				Err(e) => { errors.push(e); }
+			}
+			true
 		}
-		match BlendingStateConfig::switched_parse(stream.restore(inst))
+		else
 		{
-			Success(bs) => { sp.state.blending = bs; continue; }
-			Failed(e) => { errors_t.push(e); has_error = true; }, _ => ()
-		}
-		match depth_state(stream.restore(inst), &mut sp.state)
-		{
-			Failed(e) => { errors_t.push(e); has_error = true; },
-			Success(_) => continue, _ => ()
-		}
-		match ValueDeclaration::parse(stream.restore(inst), leftmost)
-		{
-			Failed(e) => { errors_t.push(e); has_error = true; },
-			Success(v) => { sp.values.push(v); continue; }, _ => ()
-		}
+			let mut b = match shader_stage_definition(stream)
+			{
+				SuccessM((ShaderStage::Vertex, v))   => { sp.vsh = Some(v); continue; }
+				SuccessM((ShaderStage::Hull, v))     => { sp.hsh = Some(v); continue; }
+				SuccessM((ShaderStage::Domain, v))   => { sp.dsh = Some(v); continue; }
+				SuccessM((ShaderStage::Geometry, v)) => { sp.gsh = Some(v); continue; }
+				SuccessM((ShaderStage::Fragment, v)) => { sp.fsh = Some(v); continue; }
+				FailedM(mut e) => { errors_t.append(&mut e); true }, _ => false
+			};
+			b |= match BlendingStateConfig::switched_parse(stream.restore(inst))
+			{
+				Success(bs) => { sp.state.blending = bs; continue; }
+				Failed(e) => { errors_t.push(e); true }, _ => false
+			};
+			b |= match depth_state(stream.restore(inst), &mut sp.state)
+			{
+				Failed(e) => { errors_t.push(e); true },
+				Success(_) => continue, _ => false
+			};
+			b | match ValueDeclaration::parse(stream.restore(inst), leftmost)
+			{
+				Failed(e) => { errors_t.push(e); true },
+				Success(v) => { sp.values.push(v); continue; }, _ => false
+			}
+		};
 		errors.append(&mut errors_t);
 		if has_error
 		{
@@ -514,13 +541,13 @@ impl<'s> Parser<'s> for BlendFactor
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShaderStage { Vertex, Fragment, Geometry, Hull, Domain }
 /// シェーダステージ定義
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ShaderStageDefinition<'s>
 {
 	pub location: Location,
 	pub inputs: Vec<SemanticInput<'s>>, pub outputs: Vec<SemanticOutput<'s>>,
 	pub uniforms: Vec<UniformDeclaration<'s>>, pub constants: Vec<ConstantDeclaration<'s>>,
-	pub values: Vec<ValueDeclaration<'s>>
+	pub values: Vec<ValueDeclaration<'s>>, pub assoc: RcMut<AssociativityEnv<'s>>
 }
 /// Parse an shader stage definition
 /// # Example
@@ -532,12 +559,9 @@ pub struct ShaderStageDefinition<'s>
 /// let mut tokcache = TokenizerCache::new(&v, &s);
 /// let (stg, def) = shader_stage_definition(&mut tokcache).unwrap();
 /// assert_eq!(stg, ShaderStage::Fragment);
-/// assert_eq!(def, ShaderStageDefinition
-/// {
-///   location: Location::default(), inputs: vec![
-///     SemanticInput { location: Location { line: 1, column: 16 }, name: Some("uv"), semantics: Semantics::Texcoord(0), _type: BType::FVec(2) },
-///   ], outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new()
-/// });
+/// assert_eq!(def.location, Location::default());
+/// assert_eq!(def.inputs, vec![SemanticInput { location: Location { line: 1, column: 16 }, name: Some("uv"), semantics: Semantics::Texcoord(0), _type: BType::FVec(2) }]);
+/// assert!(def.outputs.is_empty()); assert!(def.uniforms.is_empty()); assert!(def.constants.is_empty()); assert!(def.values.is_empty());
 /// ```
 pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> ParseResultM<'t, (ShaderStage, ShaderStageDefinition<'s>)>
 {
@@ -564,66 +588,92 @@ pub fn shader_stage_definition<'s: 't, 't>(tok: &mut TokenizerCache<'s, 't>) -> 
 	}
 	else { Vec::new() };
 	TMatch!(tok; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| vec![ParseError::ExpectingClose(EnclosureKind::Parenthese, p)]);
-	match tok.current().kind
+	let block_start_opt = match tok.current().kind
 	{
-		TokenKind::ItemDescriptorDelimiter(_) | TokenKind::Keyword(_, Keyword::Where) => { tok.shift(); }
-		ref e => return FailedM(vec![ParseError::Expecting(ExpectingKind::ShaderBlock, e.position())])
-	}
-	let block_start = take_current_block_begin(tok);
-	let (mut outputs, mut uniforms, mut constants, mut values) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-	let mut errors = Vec::new();
-	while block_start.satisfy(tok.current(), true)
+		TokenKind::ItemDescriptorDelimiter(_) | TokenKind::Keyword(_, Keyword::Where) => { Some(take_current_block_begin(tok.shift())) }
+		_ => None
+	};
+	if let Some(block_start) = block_start_opt
 	{
-		let defblock_begin = get_definition_leftmost(block_start, tok);
-		match tok.current().kind
+		let (mut outputs, mut uniforms, mut constants, mut values) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+		let assoc = new_rcmut(AssociativityEnv::new(None));
+		let mut errors = Vec::new();
+		while block_start.satisfy(tok.current(), true)
 		{
-			TokenKind::EOF(_) => break,
-			TokenKind::Keyword(_, Keyword::Uniform) => match UniformDeclaration::parse(tok, defblock_begin)
+			let defblock_begin = get_definition_leftmost(block_start, tok);
+			match tok.current().kind
 			{
-				Success(v) => { uniforms.push(v); },
-				Failed(e) =>
+				TokenKind::EOF(_) => break,
+				TokenKind::Keyword(_, Keyword::Infix) => match Associativity::parse(tok).into_result(|| ParseError::Expecting(ExpectingKind::Infix, tok.current().position()))
 				{
-					errors.push(e); tok.drop_line();
-					while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+					Ok((ops, a)) => for op in ops
+					{
+						if let Some(p) = assoc.borrow_mut().register(op.slice, op.pos, a)
+						{
+							errors.place_back() <- ParseError::DuplicatePrecedences(p.clone(), tok.current().position());
+						}
+					},
+					Err(e) =>
+					{
+						errors.push(e); tok.drop_line();
+						while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+					}
 				},
-				_ => unreachable!()
-			},
-			TokenKind::Keyword(_, Keyword::Constant) => match ConstantDeclaration::parse(tok, defblock_begin)
-			{
-				Success(v) => { constants.push(v); },
-				Failed(e) =>
+				TokenKind::Keyword(_, Keyword::Uniform) => match UniformDeclaration::parse(tok, defblock_begin)
 				{
-					errors.push(e); tok.drop_line();
-					while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+					Success(v) => { uniforms.push(v); },
+					Failed(e) =>
+					{
+						errors.push(e); tok.drop_line();
+						while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+					},
+					_ => unreachable!()
 				},
-				_ => unreachable!()
-			},
-			TokenKind::Keyword(_, Keyword::Out) => match SemanticOutput::parse(tok, defblock_begin)
-			{
-				Success(v) => { outputs.push(v); },
-				Failed(e) =>
+				TokenKind::Keyword(_, Keyword::Constant) => match ConstantDeclaration::parse(tok, defblock_begin)
 				{
-					errors.push(e); tok.drop_line();
-					while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+					Success(v) => { constants.push(v); },
+					Failed(e) =>
+					{
+						errors.push(e); tok.drop_line();
+						while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+					},
+					_ => unreachable!()
 				},
-				_ => unreachable!()
-			},
-			TokenKind::Keyword(_, Keyword::Let) =>
-			{
-				tok.shift();
-				match ValueDeclaration::parse(tok, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, tok.current().position()))
+				TokenKind::Keyword(_, Keyword::Out) => match SemanticOutput::parse(tok, defblock_begin)
+				{
+					Success(v) => { outputs.push(v); },
+					Failed(e) =>
+					{
+						errors.push(e); tok.drop_line();
+						while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+					},
+					_ => unreachable!()
+				},
+				TokenKind::Keyword(_, Keyword::Let) =>
+				{
+					tok.shift();
+					match ValueDeclaration::parse(tok, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, tok.current().position()))
+					{
+						Ok(v) => values.push(v),
+						Err(e) => { errors.push(e); tok.drop_line(); while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); } }
+					}
+				},
+				_ => match ValueDeclaration::parse(tok, defblock_begin).into_result(|| ParseError::Unexpected(tok.current().position()))
 				{
 					Ok(v) => values.push(v),
 					Err(e) => { errors.push(e); tok.drop_line(); while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); } }
 				}
-			},
-			_ => match ValueDeclaration::parse(tok, defblock_begin).into_result(|| ParseError::Unexpected(tok.current().position()))
-			{
-				Ok(v) => values.push(v),
-				Err(e) => { errors.push(e); tok.drop_line(); while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); } }
 			}
 		}
+		if errors.is_empty() { SuccessM((stage, ShaderStageDefinition { location: location.clone(), inputs, outputs, uniforms, constants, values, assoc })) }
+		else { FailedM(errors) }
 	}
-	if errors.is_empty() { SuccessM((stage, ShaderStageDefinition { location: location.clone(), inputs, outputs, uniforms, constants, values })) }
-	else { FailedM(errors) }
+	else
+	{
+		SuccessM((stage, ShaderStageDefinition
+		{
+			location: location.clone(), inputs: Vec::new(), outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new(),
+			assoc: new_rcmut(AssociativityEnv::new(None))
+		}))
+	}
 }
