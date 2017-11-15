@@ -7,6 +7,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::cell::RefCell;
 use std;
 use std::mem::discriminant;
+use std::cmp::min;
 
 use regex::Regex;
 
@@ -82,6 +83,11 @@ impl<'s> Token<'s>
     pub fn keyword(&self)  -> Option<Keyword>     { match self.kind { TokenKind::Keyword(_, k)   => Some(k), _ => None } }
     pub fn operator(&self) -> Option<&Source<'s>> { match self.kind { TokenKind::Operator(ref s) => Some(s), _ => None } }
     pub fn infix_assoc(&self) -> bool { match self.keyword() { Some(Keyword::Infix) | Some(Keyword::Infixl) | Some(Keyword::Infixr) => true, _ => false } }
+    pub fn is_list_delimiter(&self) -> bool { match self.kind { TokenKind::ListDelimiter(_) => true, _ => false } }
+    pub fn is_item_delimiter(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::ItemDescriptorDelimiter(Location::default())) }
+    pub fn is_basic_type(&self) -> bool { match self.kind { TokenKind::BasicType(_, _) => true, _ => false } }
+    pub fn is_eof(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::EOF(Location::default())) }
+    pub fn is_equal(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::Equal(Location::default())) }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
@@ -116,15 +122,73 @@ pub enum BType
     Sampler(u8), Texture(u8)
 }
 
+/// The Token object must have an individual lifetime <'t> from self's lifetime
+/// and required to have fixed address(e.g. boxed or immutable vector)
+pub trait TokenStream<'s: 't, 't>
+{
+    /// get nth token(minimum impl)
+    fn nth_token(&self, count: usize) -> &'t Token<'s>;
+    /// get current token
+    fn current_token(&self) -> &'t Token<'s> { self.nth_token(0) }
+    /// get nth token kind
+    fn nth(&self, count: usize) -> &'t TokenKind<'s> { &self.nth_token(count).kind }
+    /// get current token kind
+    fn current(&self) -> &'t TokenKind<'s> { self.nth(0) }
+    /// whether the nth token is head of line
+    fn nth_is_linehead(&self, count: usize) -> bool { self.nth_token(count).line_head }
+    /// whether the current token is head of line
+    fn on_linehead(&self) -> bool { self.nth_is_linehead(0) }
+    /// shift n tokens(minimum impl)
+    fn shift_n(&mut self, count: usize) -> &mut Self;
+    /// shift a token
+    fn shift(&mut self) -> &mut Self { self.shift_n(1) }
+    /// unshift a token(minimum impl)
+    fn unshift(&mut self) -> &mut Self;
+
+    /// drop tokens until satisfying a predicate
+    fn drop_until<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
+    {
+        while !predicate(self.current_token()) { self.shift(); } self
+    }
+    /// drop tokens on same line
+    fn drop_line(&mut self) -> &mut Self
+    {
+        let inl = self.current().position().line;
+        self.drop_until(|t| t.position().line != inl)
+    }
+
+    /// Low-cost stream state
+    type State;
+    /// save the current stream state
+    fn save(&self) -> Self::State;
+    /// restore this stream state
+    fn restore(&mut self, state: Self::State) -> &mut Self;
+}
 pub struct TokenizerCache<'s: 't, 't> { counter: usize, cache: &'t RefCell<Vec<Box<Token<'s>>>>, source: &'t RefCell<TokenizerState<'s>> }
+impl<'s: 't, 't> TokenStream<'s, 't> for TokenizerCache<'s, 't>
+{
+    fn nth_token(&self, count: usize) -> &'t Token<'s>
+    {
+        self.fill(self.counter + count);
+        unsafe
+        {
+            let v = std::mem::transmute::<_, &'t Vec<Box<_>>>(&*self.cache.borrow());
+            &*v[self.counter + count]
+        }
+    }
+    fn shift_n(&mut self, count: usize) -> &mut Self { self.counter += count; self }
+    fn unshift(&mut self) -> &mut Self { self.counter = self.counter.saturating_sub(1); self }
+
+    type State = usize;
+    fn save(&self) -> usize { self.counter }
+    fn restore(&mut self, state: usize) -> &mut Self { self.counter = state; self }
+}
 impl<'s: 't, 't> TokenizerCache<'s, 't>
 {
     pub fn new(cache: &'t RefCell<Vec<Box<Token<'s>>>>, source: &'t RefCell<TokenizerState<'s>>) -> Self
     {
         TokenizerCache { counter: 0, cache, source }
     }
-    pub fn save(&self) -> usize { self.counter }
-    pub fn restore(&mut self, state: usize) -> &mut Self { self.counter = state; self }
     fn fill(&self, to: usize)
     {
         while to >= self.cache.borrow().len()
@@ -133,43 +197,21 @@ impl<'s: 't, 't> TokenizerCache<'s, 't>
             b.place_back() <- box self.source.borrow_mut().next();
         }
     }
-    pub fn current(&self) -> &'t Token<'s> { self.nth(0) }
-    pub fn nth(&self, adv: usize) -> &'t Token<'s>
-    {
-        self.fill(self.counter + adv);
-        unsafe
-        {
-            let v = std::mem::transmute::<_, &'t Vec<Box<_>>>(&*self.cache.borrow());
-            &*v[self.counter + adv]
-        }
-    }
-    pub fn shift_n(&mut self, count: usize) -> &mut Self { self.counter += count; self }
-    pub fn shift(&mut self) -> &mut Self { self.shift_n(1) }
-    pub fn unshift(&mut self) -> &mut Self { self.counter = self.counter.saturating_sub(1); self }
-    
-    pub fn next(&mut self) -> &'t Token<'s>
-    {
-        let t = self.current(); self.shift(); t
-    }
-    pub fn prev(&mut self) -> &'t Token<'s> { self.unshift(); self.current() }
-
-    pub fn drop_until<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
-    {
-        while !predicate(self.current()) { self.shift(); } self
-    }
-    pub fn drop_line(&mut self) -> &mut Self
-    {
-        let inl = self.current().position().line;
-        self.drop_until(|t| t.position().line != inl)
-    }
 }
-impl<'s> Token<'s>
+pub struct PreanalyzedTokenStream<'s: 't, 't>(usize, &'t [Token<'s>]);
+impl<'s: 't, 't> TokenStream<'s, 't> for PreanalyzedTokenStream<'s, 't>
 {
-    pub fn is_list_delimiter(&self) -> bool { match self.kind { TokenKind::ListDelimiter(_) => true, _ => false } }
-    pub fn is_item_delimiter(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::ItemDescriptorDelimiter(Location::default())) }
-    pub fn is_basic_type(&self) -> bool { match self.kind { TokenKind::BasicType(_, _) => true, _ => false } }
-    pub fn is_eof(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::EOF(Location::default())) }
-    pub fn is_equal(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::Equal(Location::default())) }
+    fn nth_token(&self, count: usize) -> &'t Token<'s> { &self.1[min(self.0 + count, self.1.len() - 1)] }
+    fn shift_n(&mut self, count: usize) -> &mut Self { self.0 = min(self.0 + count, self.1.len() - 1); self }
+    fn unshift(&mut self) -> &mut Self { self.0 = self.0.saturating_sub(1); self }
+
+    type State = usize;
+    fn save(&self) -> usize { self.0 }
+    fn restore(&mut self, state: usize) -> &mut Self { self.0 = state; self }
+}
+impl<'s: 't, 't> From<&'t [Token<'s>]> for PreanalyzedTokenStream<'s, 't>
+{
+    fn from(tokens: &'t [Token<'s>]) -> Self { PreanalyzedTokenStream(0, tokens) }
 }
 
 const OPCLASS: &'static [char] = &['<', '＜', '>', '＞', '=', '＝', '!', '！', '$', '＄', '%', '％', '&', '＆', '~', '～', '^', '＾', '-', 'ー',
@@ -191,6 +233,15 @@ impl<'s> TokenizerState<'s>
             let line_head = tk.position().line != self.last_line;
             self.last_line = tk.position().line;
             Token { line_head, kind: tk }
+        }
+    }
+    pub fn all(mut self) -> Vec<Token<'s>>
+    {
+        let mut v = Vec::new();
+        loop
+        {
+            v.place_back() <- self.next();
+            if v.last().unwrap().is_eof() { return v; }
         }
     }
 }
