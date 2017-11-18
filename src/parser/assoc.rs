@@ -40,7 +40,7 @@ impl<'s> super::Parser<'s> for Associativity
     /// let (src, tvec) = (RefCell::new(Source::new("infixl 3 +").into()), RefCell::new(Vec::new()));
     /// let mut cache = TokenizerCache::new(&tvec, &src);
     /// let (ops, assoc) = Associativity::parse(&mut cache).expect("in case 1");
-    /// assert_eq!(ops, vec![Source { slice: "+", pos: Location { line: 1, column: 9 } }]);
+    /// assert_eq!(ops, vec![Source { slice: "+", pos: Location { line: 1, column: 10 } }]);
     /// assert_eq!(assoc, Associativity::Left(3));
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't
