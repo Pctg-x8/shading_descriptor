@@ -3,7 +3,7 @@
 use super::err::*;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
-use tokparse::{TokenizerCache, TokenKind, Keyword, Source, Location};
+use tokparse::{TokenStream, TokenKind, Keyword, Source, Location};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Associativity { Left(usize), Right(usize), None(usize) }
@@ -43,9 +43,9 @@ impl<'s> super::Parser<'s> for Associativity
     /// assert_eq!(ops, vec![Source { slice: "+", pos: Location { line: 1, column: 9 } }]);
     /// assert_eq!(assoc, Associativity::Left(3));
     /// ```
-    fn parse<'t>(stream: &mut TokenizerCache<'s, 't>) -> ParseResult<'t, Self::ResultTy> where 's: 't
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't
     {
-        let assoc = match stream.current().kind
+        let assoc = match *stream.current()
         {
             TokenKind::Keyword(_, Keyword::Infix) =>
             {

@@ -1,6 +1,6 @@
 //! Complex type parser
 
-use tokparse::{Location, Source, TokenKind, TokenizerCache, BType, EnclosureKind};
+use tokparse::{Location, Source, TokenKind, TokenStream, BType, EnclosureKind};
 use super::expr::{Expression, expression};
 use super::err::*;
 use super::utils::Leftmost;
@@ -68,46 +68,47 @@ impl<'s> Deref for Type<'s> { type Target = [TypeFragment<'s>]; fn deref(&self) 
 /// assert!   (uty[0].children().unwrap()[2].is_placeholder());
 /// assert_eq!(uty[1].inner_expr().unwrap()[0].text(), Some("2"));
 /// ```
-pub fn user_type<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize, in_prior: bool) -> ParseResult<'t, Type<'s>>
+pub fn user_type<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize, in_prior: bool) -> ParseResult<'t, Type<'s>>
 {
     enum ConvResult<'s: 't, 't> { Fragment(TypeFragment<'s>), EnterPrior(&'t Location), LeavePrior, Term, Failed(ParseError<'t>) }
-    fn conv_type_fragment<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>, leftmost: usize, in_prior: bool) -> ConvResult<'s, 't>
+    fn conv_type_fragment<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize, in_prior: bool) -> ConvResult<'s, 't>
     {
-        match stream.next().kind
+        match *stream.current()
         {
-            TokenKind::EOF(ref p) => if in_prior { stream.unshift(); ConvResult::Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, p)) } else { ConvResult::Term },
-            TokenKind::BeginEnclosure(ref p, EnclosureKind::Parenthese) => ConvResult::EnterPrior(p),
-            TokenKind::BeginEnclosure(ref p, EnclosureKind::Bracket) =>
+            TokenKind::BeginEnclosure(ref p, EnclosureKind::Parenthese) => { stream.shift(); ConvResult::EnterPrior(p) },
+            TokenKind::BeginEnclosure(ref p, EnclosureKind::Bracket) => if stream.shift().current().is_placeholder()
             {
-                if !Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) { return ConvResult::Failed(ParseError::LayoutViolation(stream.current().position())); }
-                if let TokenKind::Placeholder(_) = stream.current().kind
+                if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) { stream.shift(); }
+                else { return ConvResult::Failed(ParseError::LayoutViolation(stream.current().position())); }
+                match *stream.current()
                 {
-                    stream.shift();
-                    if !Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) { return ConvResult::Failed(ParseError::LayoutViolation(stream.current().position())); }
-                    match stream.current().kind
+                    TokenKind::EndEnclosure(_, EnclosureKind::Bracket) =>
                     {
-                        TokenKind::EndEnclosure(_, EnclosureKind::Bracket) => { stream.shift(); ConvResult::Fragment(TypeFragment::ArrayDim(p.clone(), None)) }
-                        ref e => { stream.unshift(); ConvResult::Failed(ParseError::ExpectingClose(EnclosureKind::Bracket, e.position())) }
+                        if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) { stream.shift(); }
+                        else { return ConvResult::Failed(ParseError::LayoutViolation(stream.current().position())); }
+                        ConvResult::Fragment(TypeFragment::ArrayDim(p.clone(), None))
                     }
+                    ref e => ConvResult::Failed(ParseError::ExpectingClose(EnclosureKind::Bracket, e.position()))
                 }
-                else
+            }
+            else
+            {
+                match expression(stream, leftmost, Some(EnclosureKind::Bracket))
                 {
-                    match expression(stream, leftmost, Some(EnclosureKind::Bracket))
-                    {
-                        Success(e) => ConvResult::Fragment(TypeFragment::ArrayDim(p.clone(), Some(e))),
-                        Failed(e) => ConvResult::Failed(e), _ => unreachable!()
-                    }
+                    Success(e) => ConvResult::Fragment(TypeFragment::ArrayDim(p.clone(), Some(e))),
+                    Failed(e) => ConvResult::Failed(e), _ => unreachable!()
                 }
             },
-            TokenKind::EndEnclosure(ref p, EnclosureKind::Parenthese) => if in_prior { ConvResult::LeavePrior }
-            else { stream.unshift(); ConvResult::Failed(ParseError::UnexpectedClose(EnclosureKind::Parenthese, p)) },
-            TokenKind::Placeholder(ref p) => ConvResult::Fragment(TypeFragment::Placeholder(p.clone())),
-            TokenKind::BasicType(ref p, t) => ConvResult::Fragment(TypeFragment::BasicType(p.clone(), t)),
-            TokenKind::Identifier(ref s) => ConvResult::Fragment(TypeFragment::UserType(s.clone())),
-            TokenKind::TyArrow(ref p) => ConvResult::Fragment(TypeFragment::OpArrow(p.clone())),
-            TokenKind::Arrow(ref p) => ConvResult::Fragment(TypeFragment::OpConstraint(p.clone())),
-            TokenKind::Operator(ref s) => ConvResult::Fragment(TypeFragment::Operator(s.clone())),
-            _ => { stream.unshift(); ConvResult::Term }
+            TokenKind::EndEnclosure(_, EnclosureKind::Parenthese) if in_prior => { stream.shift(); ConvResult::LeavePrior },
+            TokenKind::Placeholder(ref p)  => { stream.shift(); ConvResult::Fragment(TypeFragment::Placeholder(p.clone())) },
+            TokenKind::BasicType(ref p, t) => { stream.shift(); ConvResult::Fragment(TypeFragment::BasicType(p.clone(), t)) },
+            TokenKind::Identifier(ref s)   => { stream.shift(); ConvResult::Fragment(TypeFragment::UserType(s.clone())) },
+            TokenKind::TyArrow(ref p)      => { stream.shift(); ConvResult::Fragment(TypeFragment::OpArrow(p.clone())) },
+            TokenKind::Arrow(ref p)        => { stream.shift(); ConvResult::Fragment(TypeFragment::OpConstraint(p.clone())) },
+            TokenKind::Operator(ref s)     => { stream.shift(); ConvResult::Fragment(TypeFragment::Operator(s.clone())) },
+            TokenKind::EOF(ref p) if in_prior => ConvResult::Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, p)),
+            TokenKind::EndEnclosure(ref p, EnclosureKind::Parenthese) => ConvResult::Failed(ParseError::UnexpectedClose(EnclosureKind::Parenthese, p)),
+            _ => ConvResult::Term
         }
     }
     let mut v = Vec::new();

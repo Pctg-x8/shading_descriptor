@@ -1,6 +1,6 @@
 //! Parser utils
 
-use tokparse::{TokenizerCache, Token, TokenKind, EnclosureKind};
+use tokparse::{TokenStream, TokenKind, EnclosureKind, Source, Location};
 
 macro_rules! CheckLayout
 {
@@ -24,19 +24,29 @@ macro_rules! TMatch
 	($leftmost: expr => $stream: expr; $pat: pat, $err: expr) =>
 	{{
 		CheckLayout!($leftmost => $stream);
-		match $stream.current().kind { $pat => { $stream.shift(); }, ref e => return Err($err(e.position())).into() }
+		match *$stream.current() { $pat => { $stream.shift(); }, ref e => return Err($err(e.position())).into() }
 	}};
 	($stream: expr; $pat: pat => $extract: expr, $err: expr) =>
 	{
-		match $stream.current().kind { $pat => { $stream.shift(); $extract }, ref e => return Err($err(e.position())).into() }
+		match *$stream.current() { $pat => { $stream.shift(); $extract }, ref e => return Err($err(e.position())).into() }
+	};
+	(IndentedKw; $leftmost: expr => $stream: expr; $kw: expr) =>
+	{
+		if $leftmost.satisfy($stream.current(), true) && $stream.current().keyword() == Some($kw) { $stream.shift(); }
+		else { return Failed(ParseError::Expecting(ExpectingKind::Keyword($kw), $stream.current().position())); }
+	};
+	(IndentedKw; $leftmost: expr => $stream: expr; $kw: expr, $expecting: expr) =>
+	{
+		if $leftmost.satisfy($stream.current(), true) && $stream.current().keyword() == Some($kw) { $stream.shift(); }
+		else { return Failed(ParseError::Expecting($expecting, $stream.current().position())); }
 	};
 	($stream: expr; $pat: pat, $err: expr) =>
 	{
-		match $stream.current().kind { $pat => { $stream.shift(); }, ref e => return Err($err(e.position())).into() }
+		match *$stream.current() { $pat => { $stream.shift(); }, ref e => return Err($err(e.position())).into() }
 	};
 	(Numeric: $stream: expr; $err: expr) =>
 	{
-		match $stream.current().kind
+		match *$stream.current()
 		{
 			ref t@TokenKind::Numeric(_, _) | ref t@TokenKind::NumericF(_, _) => { $stream.shift(); t },
 			ref e => return Err($err(e.position())).into()
@@ -44,11 +54,11 @@ macro_rules! TMatch
 	};
 	(Optional: $stream: expr; $pat: pat => $act: expr) =>
 	{
-		if let $pat = $stream.current().kind { $stream.shift(); Some($act) } else { None }
+		if let $pat = *$stream.current() { $stream.shift(); Some($act) } else { None }
 	};
 	(Optional: $stream: expr; $pat: pat) =>
 	{
-		if let $pat = $stream.current().kind { $stream.shift(); true } else { false }
+		if let $pat = *$stream.current() { $stream.shift(); true } else { false }
 	}
 }
 /// パース頭向けマッチングマクロ(ない場合はNotConsumedを返してくれる)
@@ -56,9 +66,17 @@ macro_rules! TMatchFirst
 {
 	($stream: expr; $pat: pat => $extract: expr) =>
 	{
-		if let $pat = $stream.current().kind { $stream.shift(); $extract } else { return NotConsumed; }
+		if let $pat = *$stream.current() { $stream.shift(); $extract } else { return NotConsumed; }
 	};
-	($stream: expr; $pat: pat) => { if let $pat = $stream.current().kind { $stream.shift(); } else { return NotConsumed; } }
+	($stream: expr; $pat: pat) => { if let $pat = *$stream.current() { $stream.shift(); } else { return NotConsumed; } };
+	($leftmost: expr => $stream: expr; $pat: pat) =>
+	{
+		if let $pat = *$stream.current()
+		{
+			if $leftmost.satisfy($stream.current(), true) { $stream.shift(); } else { return NotConsumed; }
+		}
+		else { return NotConsumed; }
+	}
 }
 /// FailedまたはNotConsumedで抜ける
 macro_rules! BreakParsing
@@ -71,7 +89,7 @@ macro_rules! BreakParsing
 pub enum Leftmost { Nothing, Inclusive(usize), Exclusive(usize) }
 impl Leftmost
 {
-	pub fn satisfy(&self, tok: &Token, always_satisfy_on_nothing: bool) -> bool
+	pub fn satisfy(&self, tok: &TokenKind, always_satisfy_on_nothing: bool) -> bool
 	{
 		match *self
 		{
@@ -93,17 +111,36 @@ impl Leftmost
 	pub fn is_explicit(&self) -> bool { self.is_nothing() }
 }
 
-pub fn take_current_block_begin<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Leftmost
+pub fn take_current_block_begin<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Leftmost
 {
-	match stream.current().kind
+	match *stream.current()
 	{
 		TokenKind::BeginEnclosure(_, EnclosureKind::Brace) => { stream.shift(); Leftmost::Nothing },
 		TokenKind::EOF(_) => Leftmost::Inclusive(0),
 		ref t => Leftmost::Inclusive(t.position().column)
 	}
 }
-pub fn get_definition_leftmost<'s: 't, 't>(block_leftmost: Leftmost, stream: &TokenizerCache<'s, 't>) -> usize
+pub fn get_definition_leftmost<'s: 't, 't, S: TokenStream<'s, 't>>(block_leftmost: Leftmost, stream: &S) -> usize
 {
-	if stream.current().line_head { stream.current().position().column }
+	if stream.on_linehead() { stream.current().position().column }
 	else { block_leftmost.num().unwrap_or(stream.current().position().column) }
+}
+
+// minimal/useful parsers //
+pub fn take_operator<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<&'t Source<'s>, &'t Location>
+{
+	match *stream.current() { TokenKind::Operator(ref s) => { stream.shift(); Ok(s) }, ref e => Err(e.position()) }
+}
+pub fn name<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost, allow_placeholder: bool) -> Result<(&'t Location, Option<&'s str>), &'t Location>
+{
+	if !leftmost.satisfy(stream.current(), true) { Err(stream.current().position()) }
+	else
+	{
+		match *stream.current()
+		{
+			TokenKind::Placeholder(ref p) if allow_placeholder => { stream.shift(); Ok((p, None)) },
+			TokenKind::Identifier(Source { slice, ref pos, .. }) => { stream.shift(); Ok((pos, Some(slice))) },
+			ref e => Err(e.position())
+		}
+	}
 }

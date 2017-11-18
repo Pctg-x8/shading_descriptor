@@ -68,26 +68,23 @@ impl<'s> TokenKind<'s>
             | Placeholder(ref pos) | Keyword(ref pos, _) | Semantics(ref pos, _) | BasicType(ref pos, _) => pos
         }
     }
-}
-impl<'s> Token<'s>
-{
-    pub fn position(&self) -> &Location { self.kind.position() }
     pub fn is_begin_enclosure_of(&self, kind: EnclosureKind) -> bool
     {
-        match self.kind { TokenKind::BeginEnclosure(_, k) => k == kind, _ => false }
+        match *self { TokenKind::BeginEnclosure(_, k) => k == kind, _ => false }
     }
     pub fn is_end_enclosure_of(&self, kind: EnclosureKind) -> bool
     {
-        match self.kind { TokenKind::EndEnclosure(_, k) => k == kind, _ => false }
+        match *self { TokenKind::EndEnclosure(_, k) => k == kind, _ => false }
     }
-    pub fn keyword(&self)  -> Option<Keyword>     { match self.kind { TokenKind::Keyword(_, k)   => Some(k), _ => None } }
-    pub fn operator(&self) -> Option<&Source<'s>> { match self.kind { TokenKind::Operator(ref s) => Some(s), _ => None } }
+    pub fn keyword(&self)  -> Option<Keyword>     { match *self { TokenKind::Keyword(_, k)   => Some(k), _ => None } }
+    pub fn operator(&self) -> Option<&Source<'s>> { match *self { TokenKind::Operator(ref s) => Some(s), _ => None } }
     pub fn infix_assoc(&self) -> bool { match self.keyword() { Some(Keyword::Infix) | Some(Keyword::Infixl) | Some(Keyword::Infixr) => true, _ => false } }
-    pub fn is_list_delimiter(&self) -> bool { match self.kind { TokenKind::ListDelimiter(_) => true, _ => false } }
-    pub fn is_item_delimiter(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::ItemDescriptorDelimiter(Location::default())) }
-    pub fn is_basic_type(&self) -> bool { match self.kind { TokenKind::BasicType(_, _) => true, _ => false } }
-    pub fn is_eof(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::EOF(Location::default())) }
-    pub fn is_equal(&self) -> bool { discriminant(&self.kind) == discriminant(&TokenKind::Equal(Location::default())) }
+    pub fn is_list_delimiter(&self) -> bool { match *self { TokenKind::ListDelimiter(_) => true, _ => false } }
+    pub fn is_item_delimiter(&self) -> bool { discriminant(self) == discriminant(&TokenKind::ItemDescriptorDelimiter(Location::default())) }
+    pub fn is_basic_type(&self) -> bool { match *self { TokenKind::BasicType(_, _) => true, _ => false } }
+    pub fn is_eof(&self) -> bool { discriminant(self) == discriminant(&TokenKind::EOF(Location::default())) }
+    pub fn is_equal(&self) -> bool { discriminant(self) == discriminant(&TokenKind::Equal(Location::default())) }
+    pub fn is_placeholder(&self) -> bool { discriminant(self) == discriminant(&TokenKind::Placeholder(Location::default())) }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
@@ -150,11 +147,16 @@ pub trait TokenStream<'s: 't, 't>
     {
         while !predicate(self.current_token()) { self.shift(); } self
     }
+    /// shift tokens while satisfying a predicate
+    fn shift_while<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
+    {
+        while predicate(self.current_token()) { self.shift(); } self
+    }
     /// drop tokens on same line
     fn drop_line(&mut self) -> &mut Self
     {
         let inl = self.current().position().line;
-        self.drop_until(|t| t.position().line != inl)
+        self.drop_until(|t| t.kind.position().line != inl)
     }
 
     /// Low-cost stream state
@@ -241,7 +243,7 @@ impl<'s> TokenizerState<'s>
         loop
         {
             v.place_back() <- self.next();
-            if v.last().unwrap().is_eof() { return v; }
+            if v.last().unwrap().kind.is_eof() { return v; }
         }
     }
 }
