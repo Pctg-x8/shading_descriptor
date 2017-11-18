@@ -174,7 +174,7 @@ fn type_note<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftm
     if !leftmost.satisfy(stream.current(), true) { return Failed(ParseError::Expecting(ExpectingKind::Type, stream.current().position())); }
     match *stream.current()
     {
-        TokenKind::BasicType(_, t) => Success(Some(t)), TokenKind::Placeholder(_) if allow_placeholder => Success(None),
+        TokenKind::BasicType(_, t) => { stream.shift(); Success(Some(t)) }, TokenKind::Placeholder(_) if allow_placeholder => { stream.shift(); Success(None) },
         ref e => Failed(ParseError::Expecting(ExpectingKind::Type, e.position()))
     }
 }
