@@ -160,7 +160,7 @@ pub trait TokenStream<'s: 't, 't>
     }
 
     /// Low-cost stream state
-    type State;
+    type State: Copy;
     /// save the current stream state
     fn save(&self) -> Self::State;
     /// restore this stream state

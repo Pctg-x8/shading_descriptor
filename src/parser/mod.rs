@@ -26,7 +26,7 @@ pub struct ShadingPipeline<'s>
 	gsh: Option<ShaderStageDefinition<'s>>, fsh: Option<ShaderStageDefinition<'s>>,
 	values: Vec<ValueDeclaration<'s>>, assoc: Rc<RefCell<AssociativityEnv<'s>>>
 }
-pub fn shading_pipeline<'s: 't, 't>(stream: &mut TokenizerCache<'s, 't>) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>
+pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>
 {
 	let mut sp = ShadingPipeline
 	{
