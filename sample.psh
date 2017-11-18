@@ -20,8 +20,11 @@ FragmentShader(uv(TEXCOORD0): f2) where
   constant multiply: f4
   out _(SV_Target) = let mf f = if f > 1 then do f else 1 in texture.sample(uv) * mf multiply
   
-workout t = if t == 0
+data WorkoutResult a b = Ok a | Err b
+type c \/ d = WorkoutResult c d
+infixl 5 \/
+workout t: a -> a \/ Int = if t == 0
   then do
     let v2 = cos 30 + 2
     workout $ 2 * v2
-  else error
+  else Err t
