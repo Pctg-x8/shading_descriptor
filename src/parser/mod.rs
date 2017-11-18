@@ -82,18 +82,15 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 			};
 			b |= match BlendingStateConfig::switched_parse(stream.restore(inst))
 			{
-				Success(bs) => { sp.state.blending = bs; continue; }
-				Failed(e) => { errors_t.push(e); true }, _ => false
+				Success(bs) => { sp.state.blending = bs; continue; }, Failed(e) => { errors_t.push(e); true }, _ => false
 			};
 			b |= match depth_state(stream.restore(inst), &mut sp.state)
 			{
-				Failed(e) => { errors_t.push(e); true },
-				Success(_) => continue, _ => false
+				Failed(e) => { errors_t.push(e); true }, Success(_) => continue, _ => false
 			};
 			b | match ValueDeclaration::parse(stream.restore(inst), leftmost)
 			{
-				Failed(e) => { errors_t.push(e); true },
-				Success(v) => { sp.values.push(v); continue; }, _ => false
+				Failed(e) => { errors_t.push(e); true }, Success(v) => { sp.values.push(v); continue; }, _ => false
 			}
 		};
 		errors.append(&mut errors_t);
