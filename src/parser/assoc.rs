@@ -3,6 +3,7 @@
 use super::err::*;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
+use std::cell::RefCell;
 use tokparse::{TokenStream, TokenKind, Keyword, Source, Location};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,11 +11,11 @@ pub enum Associativity { Left(usize), Right(usize), None(usize) }
 #[derive(Debug, Clone)]
 pub struct AssociativityEnv<'s>
 {
-    pub ops: HashMap<&'s str, (Location, Associativity)>, pub parent: Option<Weak<AssociativityEnv<'s>>>
+    pub ops: HashMap<&'s str, (Location, Associativity)>, pub parent: Option<Weak<RefCell<AssociativityEnv<'s>>>>
 }
 impl<'s> AssociativityEnv<'s>
 {
-    pub fn new(parent: Option<&Rc<AssociativityEnv<'s>>>) -> Self
+    pub fn new(parent: Option<&Rc<RefCell<AssociativityEnv<'s>>>>) -> Self
     {
         AssociativityEnv { ops: HashMap::new(), parent: parent.map(Rc::downgrade) }
     }

@@ -21,11 +21,11 @@ fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 pub struct ShadingPipeline<'s>
 {
 	state: ShadingStates,
-	vsh: Option<ShaderStageDefinition<'s>>,
-	hsh: Option<ShaderStageDefinition<'s>>, dsh: Option<ShaderStageDefinition<'s>>,
-	gsh: Option<ShaderStageDefinition<'s>>, fsh: Option<ShaderStageDefinition<'s>>,
+	pub vsh: Option<ShaderStageDefinition<'s>>,
+	pub hsh: Option<ShaderStageDefinition<'s>>, pub dsh: Option<ShaderStageDefinition<'s>>,
+	pub gsh: Option<ShaderStageDefinition<'s>>, pub fsh: Option<ShaderStageDefinition<'s>>,
 	values: Vec<ValueDeclaration<'s>>, types: Vec<TypeDeclaration<'s>>, type_fns: Vec<TypeFn<'s>>,
-	assoc: RcMut<AssociativityEnv<'s>>
+	pub assoc: RcMut<AssociativityEnv<'s>>
 }
 pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>
 {
@@ -73,11 +73,11 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 			};
 			b |= match shader_stage_definition(stream)
 			{
-				SuccessM((ShaderStage::Vertex, v))   => { sp.vsh = Some(v); continue; }
-				SuccessM((ShaderStage::Hull, v))     => { sp.hsh = Some(v); continue; }
-				SuccessM((ShaderStage::Domain, v))   => { sp.dsh = Some(v); continue; }
-				SuccessM((ShaderStage::Geometry, v)) => { sp.gsh = Some(v); continue; }
-				SuccessM((ShaderStage::Fragment, v)) => { sp.fsh = Some(v); continue; }
+				SuccessM((ShaderStage::Vertex, v))   => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.vsh = Some(v); continue; }
+				SuccessM((ShaderStage::Hull, v))     => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.hsh = Some(v); continue; }
+				SuccessM((ShaderStage::Domain, v))   => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.dsh = Some(v); continue; }
+				SuccessM((ShaderStage::Geometry, v)) => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.gsh = Some(v); continue; }
+				SuccessM((ShaderStage::Fragment, v)) => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.fsh = Some(v); continue; }
 				FailedM(mut e) => { errors_t.append(&mut e); true }, _ => false
 			};
 			b |= match BlendingStateConfig::switched_parse(stream.restore(inst))

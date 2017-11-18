@@ -9,12 +9,14 @@ fn main()
         .and_then(|mut fp| { let mut s = String::new(); fp.read_to_string(&mut s).map(move |_| s) }).unwrap();
     let toks = TokenizerState::from(Source::new(&fcontent)).all();
     let mut cache = PreanalyzedTokenStream::from(&toks[..]);
-    match shading_pipeline(&mut cache)
+    let p = match shading_pipeline(&mut cache)
     {
-        Ok(p) => println!("{:?}", p),
-        Err(ve) => { for e in ve { println!("Error: {}", e); } }
-    }
+        Ok(p) => p, Err(ve) => { for e in ve { println!("Error: {}", e); } return; }
+    };
     if !cache.current().is_eof() { println!("Error: Compilation was not completed, remaining since {}", cache.current().position()); }
+    println!("ast: {:?}", p);
+    println!("assocs: ");
+    p.dbg_print_assoc(1);
     /*loop
     {
         let t = cache.next();

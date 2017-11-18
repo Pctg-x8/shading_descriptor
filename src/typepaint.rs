@@ -1,20 +1,31 @@
 //! Type Painter
 
 use std::collections::{HashMap, HashSet};
-use typeparser::{TypeFragment, Type};
+use {TypeFragment, Type};
 use std::rc::{Rc, Weak};
 
-/// 結合方向と強度
-pub enum Associativity { Left(usize), Right(usize), None(usize) }
-/// ローカル優先結合指定
-pub struct AssociativityEnv<'s>
+pub trait AssociativityDebugPrinter
 {
-    pub ops: HashMap<&'s str, Associativity>,
-    pub children: Vec<AssociativityEnv<'s>>
+    fn dbg_print_assoc(&self, indent: usize);
 }
-pub trait AssociativityCollector<'s>
+impl<'s> AssociativityDebugPrinter for ::ShadingPipeline<'s>
 {
-    fn collect_assoc(&self, scope: &mut AssociativityEnv<'s>);
+    fn dbg_print_assoc(&self, indent: usize)
+    {
+        println!("{}Assoc in ShadingPipeline: {:?}", " ".repeat(indent), self.assoc.borrow().ops);
+        if let Some(ref p) = self.vsh { p.dbg_print_assoc(indent + 1); }
+        if let Some(ref p) = self.hsh { p.dbg_print_assoc(indent + 1); }
+        if let Some(ref p) = self.dsh { p.dbg_print_assoc(indent + 1); }
+        if let Some(ref p) = self.gsh { p.dbg_print_assoc(indent + 1); }
+        if let Some(ref p) = self.fsh { p.dbg_print_assoc(indent + 1); }
+    }
+}
+impl<'s> AssociativityDebugPrinter for ::ShaderStageDefinition<'s>
+{
+    fn dbg_print_assoc(&self, indent: usize)
+    {
+        println!("{}Assoc in ShaderStageDef: {:?}", " ".repeat(indent), self.assoc.borrow().ops);
+    }
 }
 
 /*
@@ -42,7 +53,7 @@ impl<'s> TyConstructorCollectable<'s> for TypeDeclaration<'s>
     }
 }
 */
-
+/*
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TyKind { Seed, Arrow(Box<TyKind>, Box<TyKind>), Prior(Box<TyKind>) }
 pub type TySymbolKey<'s> = &'s str;
@@ -104,4 +115,4 @@ impl<'s> PaintedType<'s>
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PaintedTypeString<'s>(Vec<PaintedType<'s>>);
+pub struct PaintedTypeString<'s>(Vec<PaintedType<'s>>);*/
