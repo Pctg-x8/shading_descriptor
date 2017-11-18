@@ -24,14 +24,15 @@ pub struct ShadingPipeline<'s>
 	vsh: Option<ShaderStageDefinition<'s>>,
 	hsh: Option<ShaderStageDefinition<'s>>, dsh: Option<ShaderStageDefinition<'s>>,
 	gsh: Option<ShaderStageDefinition<'s>>, fsh: Option<ShaderStageDefinition<'s>>,
-	values: Vec<ValueDeclaration<'s>>, assoc: Rc<RefCell<AssociativityEnv<'s>>>
+	values: Vec<ValueDeclaration<'s>>, types: Vec<TypeDeclaration<'s>>, type_fns: Vec<TypeFn<'s>>,
+	assoc: RcMut<AssociativityEnv<'s>>
 }
 pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>
 {
 	let mut sp = ShadingPipeline
 	{
 		state: Default::default(), vsh: None, hsh: None, dsh: None, gsh: None, fsh: None,
-		values: Vec::new(), assoc: Rc::new(RefCell::new(AssociativityEnv::new(None)))
+		values: Vec::new(), types: Vec::new(), type_fns: Vec::new(), assoc: new_rcmut(AssociativityEnv::new(None))
 	};
 	let mut errors = Vec::new();
 
@@ -58,7 +59,19 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 		}
 		else
 		{
-			let mut b = match shader_stage_definition(stream)
+			let mut b = match *stream.current()
+			{
+				TokenKind::Keyword(_, Keyword::Type) => match type_fn(stream.restore(inst))
+				{
+					Err(e) => { errors_t.push(e); true }, Ok(tf) => { sp.type_fns.push(tf); continue; }
+				},
+				TokenKind::Keyword(_, Keyword::Data) => match type_decl(stream.restore(inst))
+				{
+					Err(e) => { errors_t.push(e); true }, Ok(td) => { sp.types.push(td); continue; }
+				},
+				_ => false
+			};
+			b |= match shader_stage_definition(stream)
 			{
 				SuccessM((ShaderStage::Vertex, v))   => { sp.vsh = Some(v); continue; }
 				SuccessM((ShaderStage::Hull, v))     => { sp.hsh = Some(v); continue; }
