@@ -7,6 +7,7 @@ extern crate regex;
 mod tokparse;
 mod parser;
 
+pub use tokparse::TokenStream;
 pub use tokparse::{Location, Source, Token, TokenKind, NumericTy, EnclosureKind, TokenizerCache, Semantics, Keyword, BType, TokenizerState, PreanalyzedTokenStream};
 pub use parser::{Success, Failed, NotConsumed, Parser, ParserWithIndent};
 pub use parser::{Associativity, AssociativityEnv};
