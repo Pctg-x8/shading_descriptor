@@ -179,6 +179,7 @@ pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Par
 /// ```
 pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize, corresponding_closing: Option<EnclosureKind>) -> ParseResult<'t, Expression<'s>>
 {
+    #[derive(Debug)]
     enum ConvResult<'s: 't, 't> { Fragment(ExpressionFragment<'s>), Enter(&'t Location, EnclosureKind), Leave, Term, Failed(ParseError<'t>) }
     fn conv_fragment<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, corresponding_closing: Option<EnclosureKind>) -> ConvResult<'s, 't>
     {

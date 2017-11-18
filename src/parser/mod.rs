@@ -190,10 +190,8 @@ pub fn type_decl<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<T
 		let (mut constructors, mut correct_brk) = (Vec::new(), false);
 		while block_start.into_exclusive().satisfy(stream.current(), true)
 		{
-			let prefix_constructor = if stream.current().is_begin_enclosure_of(EnclosureKind::Parenthese) { true }
-				else if let TokenKind::Operator(_) = *stream.nth(1) { false }
-				else { true };
-			let dc = if prefix_constructor { prefix(stream, defblock_begin) } else { infix(stream, defblock_begin) }.into_result_opt()?;
+			println!("dbg: taking constructor...");
+			let dc = prefix(stream, defblock_begin).or_else(|| infix(stream, defblock_begin)).into_result_opt()?;
 			if let Some(p) = dc { constructors.push(p); } else { break; }
 
 			if let TokenKind::Operator(Source { slice: "|", .. }) = *stream.current() { stream.shift(); }

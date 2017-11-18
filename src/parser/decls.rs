@@ -23,11 +23,7 @@ impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
     {
         let pat = BreakParsing!(expr::expression(stream, leftmost, None));
-        let _type = if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().is_item_delimiter()
-        {
-            stream.shift(); Some(types::user_type(stream, leftmost, false)?)
-        }
-        else { None };
+        let _type = type_hint(stream, Leftmost::Exclusive(leftmost)).into_result_opt()?;
         if !Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) || !stream.current().is_equal()
         {
             return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
