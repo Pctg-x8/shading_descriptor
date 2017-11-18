@@ -230,6 +230,10 @@ impl<'t, T> ParseResult<'t, T>
 	{
 		match self { Success(e) => e, Failed(e) => panic!("{:?}", e), NotConsumed => panic!("NotConsumed") }
 	}
+	pub fn expect(self, message: &str) -> T
+	{
+		match self { Success(e) => e, Failed(e) => panic!("{}: {:?}", message, e), NotConsumed => panic!("{}: NotConsumed", message) }
+	}
 }
 /// Panicking
 impl<'t, T> ParseResultM<'t, T>
@@ -237,5 +241,9 @@ impl<'t, T> ParseResultM<'t, T>
 	pub fn unwrap(self) -> T
 	{
 		match self { SuccessM(e) => e, FailedM(e) => panic!("{:?}", e), NotConsumedM => panic!("NotConsumed") }
+	}
+	pub fn expect(self, message: &str) -> T
+	{
+		match self { SuccessM(e) => e, FailedM(e) => panic!("{}: {:?}", message, e), NotConsumedM => panic!("{}: NotConsumed", message) }
 	}
 }

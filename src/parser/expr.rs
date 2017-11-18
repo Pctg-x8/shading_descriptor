@@ -175,7 +175,7 @@ pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Par
 /// else { unreachable!() }
 /// assert_eq!(expr[4], ExpressionFragment::ObjectDescender(Location { line: 1, column: 19 }));
 /// assert_eq!(expr[5].text(), Some("x"));
-/// assert_eq!(tokcache.current().kind, TokenKind::Numeric(Source { pos: Location { line: 2, column: 1 }, slice: "4" }, None));
+/// assert_eq!(tokcache.current(), TokenKind::Numeric(Source { pos: Location { line: 2, column: 1 }, slice: "4" }, None));
 /// ```
 pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize, corresponding_closing: Option<EnclosureKind>) -> ParseResult<'t, Expression<'s>>
 {
