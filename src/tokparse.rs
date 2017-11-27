@@ -223,12 +223,12 @@ impl<'s> TokenizerState<'s>
 {
     pub fn next(&mut self) -> Token<'s>
     {
-        self.src.drop_ignores();
+        let visual_separated = self.src.drop_ignores();
         
         if self.src.slice.is_empty() { Token { kind: TokenKind::EOF(self.src.pos.clone()), line_head: self.src.pos.line != self.last_line } }
         else
         {
-            let tk = self.src.list_delimiter().or_else(|| self.src.stmt_delimiter()).or_else(|| self.src.item_desc_delimiter()).or_else(|| self.src.object_descender())
+            let tk = self.src.list_delimiter().or_else(|| self.src.stmt_delimiter()).or_else(|| self.src.item_desc_delimiter()).or_else(|| self.src.object_descender(visual_separated))
                 .or_else(|| self.src.begin_enclosure()).or_else(|| self.src.end_enclosure())
                 .or_else(|| self.src.numeric()).or_else(|| self.src.operator()).or_else(|| self.src.identifier())
                 .unwrap_or(TokenKind::UnknownChar(self.src.pos.clone()));
@@ -257,6 +257,8 @@ impl<'s> Source<'s>
     }
 
     /// Drops ignored characters and comments
+    /// ## Returns
+    /// true if spaces are found
     /// # Example
     ///
     /// ```
@@ -266,30 +268,31 @@ impl<'s> Source<'s>
     /// s.drop_ignores();
     /// assert_eq!(s, Source { pos: Location { line: 2, column: 3 }, slice: "8" });
     /// ```
-    pub fn drop_ignores(&mut self)
+    pub fn drop_ignores(&mut self) -> bool
     {
         if self.slice.starts_with("\n")
         {
-            self.slice = &self.slice['\n'.len_utf8()..]; self.pos.advance_line(); self.drop_ignores();
+            self.slice = &self.slice['\n'.len_utf8()..]; self.pos.advance_line(); self.drop_ignores(); true
         }
         else if self.slice.starts_with("\t")
         {
-            self.slice = &self.slice['\t'.len_utf8()..]; self.pos.advance_tab(); self.drop_ignores();
+            self.slice = &self.slice['\t'.len_utf8()..]; self.pos.advance_tab(); self.drop_ignores(); true
         }
         else if self.slice.starts_with(char::is_whitespace)
         {
             self.slice = &self.slice[self.slice.chars().next().unwrap().len_utf8()..];
-            self.pos += 1; self.drop_ignores();
+            self.pos += 1; self.drop_ignores(); true
         }
-        else if self.slice.starts_with("#") { self.drop_line_comment(); self.drop_ignores(); }
+        else if self.slice.starts_with("#") { self.drop_line_comment(); self.drop_ignores() }
         else if Self::bc_start(self.slice)
         {
             if let Err(pb) = self.drop_blocked_comment()
             {
                 writeln!(stderr(), "Warning: A blocked comment beginning at {} is not closed", pb).unwrap();
             }
-            self.drop_ignores();
+            self.drop_ignores()
         }
+        else { false }
     }
     /// Drops a line comment
     /// # Example
@@ -631,11 +634,11 @@ impl<'s> Source<'s>
         }
     }
     /// Strips a period
-    pub fn object_descender(&mut self) -> Option<TokenKind<'s>>
+    pub fn object_descender(&mut self, vsep: bool) -> Option<TokenKind<'s>>
     {
         match self.slice.chars().next()
         {
-            Some(c@'.') | Some(c@'．') => Some(TokenKind::ObjectDescender(self.split(c.len_utf8(), 1).pos)),
+            Some(c@'.') | Some(c@'．') => Some(if vsep { TokenKind::Operator(self.split(c.len_utf8(), 1)) } else { TokenKind::ObjectDescender(self.split(c.len_utf8(), 1).pos) }),
             _ => None
         }
     }

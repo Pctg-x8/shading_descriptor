@@ -9,7 +9,7 @@ use std::ops::Deref;
 pub enum ExpressionFragment<'s>
 {
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>), Operator(Source<'s>),
-    Primary(Location, FullExpression<'s>), ArrayRef(Location, FullExpression<'s>), ObjectDescender(Location), ListDelimiter(Location)
+    Primary(Location, FullExpression<'s>), Bracketed(Location, Vec<FullExpression<'s>>), ObjectDescender(Location)
 }
 impl<'s> ExpressionFragment<'s>
 {
@@ -18,22 +18,22 @@ impl<'s> ExpressionFragment<'s>
         match *self
         {
             ExpressionFragment::Identifier(ref s) | ExpressionFragment::Numeric(ref s, _) | ExpressionFragment::NumericF(ref s, _) | ExpressionFragment::Operator(ref s) => Some(s.slice),
-            ExpressionFragment::ObjectDescender(_) => Some("."), ExpressionFragment::ListDelimiter(_) => Some(","),
+            ExpressionFragment::ObjectDescender(_) => Some("."),
             _ => None
         }
     }
-    pub fn children(&self) -> Option<&FullExpression<'s>>
+    /// A child expression
+    pub fn child(&self) -> Option<&FullExpression<'s>>
     {
-        match *self
-        {
-            ExpressionFragment::Primary(_, ref x) => Some(x), _ => None
-        }
+        match self { &ExpressionFragment::Primary(_, ref x) => Some(x), _ => None }
+    }
+    /// Children expression
+    pub fn children(&self) -> Option<&Vec<FullExpression<'s>>>
+    {
+        match self { &ExpressionFragment::Bracketed(_, ref v) => Some(v), _ => None }
     }
 }
-impl<'s> Into<Expression<'s>> for ExpressionFragment<'s>
-{
-    fn into(self) -> Expression<'s> { Expression(vec![self]) }
-}
+impl<'s> Into<Expression<'s>> for ExpressionFragment<'s> { fn into(self) -> Expression<'s> { Expression(vec![self]) } }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expression<'s>(Vec<ExpressionFragment<'s>>);
 impl<'s> Deref for Expression<'s>
@@ -68,6 +68,24 @@ pub fn full_expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftm
         TokenKind::Keyword(_, Keyword::Do) => block_content(stream),
         _ => expression(stream, leftmost, enclosure).map(Into::into)
     }
+}
+pub fn full_expressions<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize, enclosure: Option<EnclosureKind>) -> ParseResult<'t, Vec<FullExpression<'s>>>
+{
+    let mut v = vec![BreakParsing!(full_expression(stream, leftmost, None))];
+    loop
+    {
+        match stream.current()
+        {
+            k if k.is_list_delimiter() =>
+            {
+                v.place_back() <- full_expression(stream.shift(), leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+            },
+            &TokenKind::EndEnclosure(_, k) if Some(k) == enclosure => break,
+            &TokenKind::EndEnclosure(ref p, k) => return Failed(ParseError::UnexpectedClose(k, p)),
+            k => return Failed(ParseError::Unexpected(k.position()))
+        }
+    }
+    Success(v)
 }
 pub fn expr_lettings<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
@@ -193,7 +211,6 @@ pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
             TokenKind::NumericF(ref s, t) => { stream.shift(); ConvResult::Fragment(ExpressionFragment::NumericF(s.clone(), t)) },
             TokenKind::Operator(ref s)    => { stream.shift(); ConvResult::Fragment(ExpressionFragment::Operator(s.clone())) },
             TokenKind::ObjectDescender(ref p) => { stream.shift(); ConvResult::Fragment(ExpressionFragment::ObjectDescender(p.clone())) },
-            TokenKind::ListDelimiter(ref p)   => { stream.shift(); ConvResult::Fragment(ExpressionFragment::ListDelimiter(p.clone())) },
             TokenKind::EndEnclosure(ref p, k) => ConvResult::Failed(ParseError::UnexpectedClose(k, p)),
             _ => ConvResult::Term
         }
@@ -203,7 +220,7 @@ pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
     {
         ConvResult::Fragment(f) => v.push(f),
         ConvResult::Enter(p, EnclosureKind::Parenthese) => { v.place_back() <- ExpressionFragment::Primary(p.clone(), full_expression(stream, leftmost, Some(EnclosureKind::Parenthese))?); },
-        ConvResult::Enter(p, EnclosureKind::Bracket) => { v.place_back() <- ExpressionFragment::ArrayRef(p.clone(), full_expression(stream, leftmost, Some(EnclosureKind::Bracket))?); },
+        ConvResult::Enter(p, EnclosureKind::Bracket) => { v.place_back() <- ExpressionFragment::Bracketed(p.clone(), full_expressions(stream, leftmost, Some(EnclosureKind::Bracket))?); },
         ConvResult::Enter(_, _) => unreachable!(),
         ConvResult::Leave => return Success(Expression(v)),
         ConvResult::Term => return NotConsumed,
@@ -215,13 +232,73 @@ pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
         {
             ConvResult::Fragment(f) => v.push(f),
             ConvResult::Enter(p, EnclosureKind::Parenthese) => { v.place_back() <- ExpressionFragment::Primary(p.clone(), full_expression(stream, leftmost, Some(EnclosureKind::Parenthese))?); },
-            ConvResult::Enter(p, EnclosureKind::Bracket) => { v.place_back() <- ExpressionFragment::ArrayRef(p.clone(), full_expression(stream, leftmost, Some(EnclosureKind::Bracket))?); },
+            ConvResult::Enter(p, EnclosureKind::Bracket) => { v.place_back() <- ExpressionFragment::Bracketed(p.clone(), full_expressions(stream, leftmost, Some(EnclosureKind::Bracket))?); },
             ConvResult::Enter(_, _) => unreachable!(),
             ConvResult::Leave | ConvResult::Term => break,
             ConvResult::Failed(f) => return Failed(f)
         }
     }
     Success(Expression(v))
+}
+
+pub enum DeformedExpression<'s>
+{
+    Prefix(Vec<DeformedExpression<'s>>), Infix { lhs: Box<DeformedExpression<'s>>, mods: Vec<(Source<'s>, DeformedExpression<'s>)> },
+    ReferencePath(Box<DeformedExpression<'s>>, Vec<Source<'s>>), Reference(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>)
+}
+pub fn deform1<'s>(x: &mut &[ExpressionFragment<'s>]) -> Option<DeformedExpression<'s>>
+{
+    match *x
+    {
+        &[ExpressionFragment::Identifier(ref s), ref xs..] => { *x = xs; Some(DeformedExpression::Reference(s.clone())) }
+        &[ExpressionFragment::Numeric (ref s, nty), ref xs..] => { *x = xs; Some(DeformedExpression::Numeric (s.clone(), nty)) }
+        &[ExpressionFragment::NumericF(ref s, nty), ref xs..] => { *x = xs; Some(DeformedExpression::NumericF(s.clone(), nty)) }
+        _ => None
+    }
+}
+pub fn aggregate_prefix<'s>(x: &mut &[ExpressionFragment<'s>]) -> DeformedExpression<'s>
+{
+    let mut v = Vec::new();
+    loop
+    {
+        if let Some(b) = deform1(x)
+        {
+            v.place_back() <- match x.first()
+            {
+                Some(&ExpressionFragment::ObjectDescender(_)) => aggregate_refpath(b, x),
+                _ => b
+            };
+        }
+        else { break; }
+    }
+    DeformedExpression::Prefix(v)
+}
+pub fn aggregate_refpath<'s>(refbase: DeformedExpression<'s>, x: &mut &[ExpressionFragment<'s>]) -> DeformedExpression<'s>
+{
+    let mut v = Vec::new();
+    loop
+    {
+        match *x
+        {
+            &[ExpressionFragment::ObjectDescender(_), ExpressionFragment::Identifier(ref s), ref xs..] => { v.place_back() <- s.clone(); *x = xs; },
+            _ => break
+        }
+    }
+    assert!(!v.is_empty());
+    DeformedExpression::ReferencePath(box refbase, v)
+}
+pub fn aggregate_infix<'s>(lhs: DeformedExpression<'s>, x: &mut &[ExpressionFragment<'s>]) -> DeformedExpression<'s>
+{
+    let mut mods = Vec::new();
+    loop
+    {
+        match *x
+        {
+            &[ExpressionFragment::Operator(ref ops), ref xs..] => { *x = xs; mods.place_back() <- (ops.clone(), aggregate_prefix(x)); }
+            _ => break
+        }
+    }
+    assert!(mods.is_empty()); DeformedExpression::Infix { lhs: box lhs, mods }
 }
 
 /*
