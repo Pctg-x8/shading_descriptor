@@ -121,7 +121,7 @@ pub fn full_type<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: u
     let mut quantified = Vec::new();
     while stream.shift_keyword(Keyword::Forall).is_ok()
     {
-        while let &TokenKind::Identifier(ref s) = stream.current() { quantified.place_back() <- s.clone(); }
+        while let &TokenKind::Identifier(ref s) = stream.current() { stream.shift(); quantified.place_back() <- s.clone(); }
         if !stream.current().is_text_period() { return Failed(ParseError::Expecting(ExpectingKind::Period, stream.current().position())); }
         stream.shift();
     }
