@@ -9,7 +9,7 @@ use std::ops::Deref;
 {
     SymReference(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>), ArrayLiteral(Location, Vec<FullExpression<'s>>),
     RefPath(Box<FullExpression<'s>>, Vec<Source<'s>>), ArrayRef(Box<FullExpression<'s>>, Box<FullExpression<'s>>),
-    Prefix(Vec<FullExpression<'s>>), Infix { lhs: Box<FullExpression<'s>>, mods: Vec<(Source<'s>, FullExpression<'s>)> }
+    Prefix(Vec<FullExpression<'s>>), Infix { lhs: Box<FullExpression<'s>>, mods: Vec<(Source<'s>, FullExpression<'s>)> }, Tuple(Vec<FullExpression<'s>>)
 }
 
 /// Infix <- Prefix ((op/infixident) Prefix)*
@@ -66,7 +66,7 @@ pub fn term_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: u
     }
     Success(lhs.into())
 }
-/// Factor <- ident / numeric / numericf / [ (FullEx (, FullEx)*)? ] / ( FullEx )
+/// Factor <- ident / numeric / numericf / [ (FullEx (, FullEx)*)? ] / ( FullEx (, FullEx)* )
 pub fn factor_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
     match stream.current()
@@ -87,9 +87,13 @@ pub fn factor_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost:
         },
         &TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) =>
         {
-            let e = full_expression(stream.shift(), leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+            let mut e = vec![full_expression(stream.shift(), leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?];
+            while stream.shift_list_delimiter().is_ok()
+            {
+                e.place_back() <- full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+            }
             TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
-            Success(e)
+            Success(if e.len() == 1 { e.pop().unwrap() } else { ExpressionSynTree::Tuple(e).into() })
         },
         _ => NotConsumed
     }
@@ -275,50 +279,6 @@ pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Par
 pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
     infix_expr(stream, leftmost)
-    /*
-    #[derive(Debug)]
-    enum ConvResult<'s: 't, 't> { Fragment(ExpressionFragment<'s>), Enter(&'t Location, EnclosureKind), Leave, Term, Failed(ParseError<'t>) }
-    fn conv_fragment<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, corresponding_closing: Option<EnclosureKind>) -> ConvResult<'s, 't>
-    {
-        match *stream.current()
-        {
-            TokenKind::EOF(ref p) => if let Some(k) = corresponding_closing { ConvResult::Failed(ParseError::ExpectingClose(k, p)) } else { ConvResult::Term },
-            TokenKind::BeginEnclosure(ref p, k@EnclosureKind::Parenthese) | TokenKind::BeginEnclosure(ref p, k@EnclosureKind::Bracket) => { stream.shift(); ConvResult::Enter(p, k) },
-            TokenKind::EndEnclosure(_, k) if Some(k) == corresponding_closing => { stream.shift(); ConvResult::Leave },
-            TokenKind::Identifier(ref s)  => { stream.shift(); ConvResult::Fragment(ExpressionFragment::Identifier(s.clone())) },
-            TokenKind::Numeric(ref s, t)  => { stream.shift(); ConvResult::Fragment(ExpressionFragment::Numeric(s.clone(), t)) },
-            TokenKind::NumericF(ref s, t) => { stream.shift(); ConvResult::Fragment(ExpressionFragment::NumericF(s.clone(), t)) },
-            TokenKind::Operator(ref s)    => { stream.shift(); ConvResult::Fragment(ExpressionFragment::Operator(s.clone())) },
-            TokenKind::ObjectDescender(ref p) => { stream.shift(); ConvResult::Fragment(ExpressionFragment::ObjectDescender(p.clone())) },
-            TokenKind::EndEnclosure(ref p, k) => ConvResult::Failed(ParseError::UnexpectedClose(k, p)),
-            _ => ConvResult::Term
-        }
-    }
-    let mut v = Vec::new();
-    match conv_fragment(stream, corresponding_closing)
-    {
-        ConvResult::Fragment(f) => v.push(f),
-        ConvResult::Enter(p, EnclosureKind::Parenthese) => { v.place_back() <- ExpressionFragment::Primary(p.clone(), full_expression(stream, leftmost, Some(EnclosureKind::Parenthese))?); },
-        ConvResult::Enter(p, EnclosureKind::Bracket) => { v.place_back() <- ExpressionFragment::Bracketed(p.clone(), full_expressions(stream, leftmost, Some(EnclosureKind::Bracket))?); },
-        ConvResult::Enter(_, _) => unreachable!(),
-        ConvResult::Leave => return Success(Expression(v)),
-        ConvResult::Term => return NotConsumed,
-        ConvResult::Failed(f) => return Failed(f)
-    }
-    while Leftmost::Exclusive(leftmost).satisfy(stream.current(), false)
-    {
-        match conv_fragment(stream, corresponding_closing)
-        {
-            ConvResult::Fragment(f) => v.push(f),
-            ConvResult::Enter(p, EnclosureKind::Parenthese) => { v.place_back() <- ExpressionFragment::Primary(p.clone(), full_expression(stream, leftmost, Some(EnclosureKind::Parenthese))?); },
-            ConvResult::Enter(p, EnclosureKind::Bracket) => { v.place_back() <- ExpressionFragment::Bracketed(p.clone(), full_expressions(stream, leftmost, Some(EnclosureKind::Bracket))?); },
-            ConvResult::Enter(_, _) => unreachable!(),
-            ConvResult::Leave | ConvResult::Term => break,
-            ConvResult::Failed(f) => return Failed(f)
-        }
-    }
-    Success(Expression(v))
-    */
 }
 
 pub enum DeformedExpression<'s>

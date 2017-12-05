@@ -70,8 +70,7 @@ impl<'s> ParserWithIndent<'s> for ConstantDeclaration<'s>
     /// let (s, v) = (RefCell::new(Source::new("constant psh1 = (0, 0).yx").into()), RefCell::new(Vec::new()));
     /// let mut tokcache = TokenizerCache::new(&v, &s);
     /// let cd = ConstantDeclaration::parse(&mut tokcache, 0).unwrap();
-    /// assert_eq!(cd.name, Some("psh1")); assert!(cd._type.is_none());
-    /// assert!(cd.value.is_some());
+    /// assert_eq!(cd.name, Some("psh1")); assert!(cd._type.is_none()); assert!(cd.value.is_some());
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
     {
