@@ -281,66 +281,6 @@ pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
     infix_expr(stream, leftmost)
 }
 
-pub enum DeformedExpression<'s>
-{
-    Prefix(Vec<DeformedExpression<'s>>), Infix { lhs: Box<DeformedExpression<'s>>, mods: Vec<(Source<'s>, DeformedExpression<'s>)> },
-    ReferencePath(Box<DeformedExpression<'s>>, Vec<Source<'s>>), Reference(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>)
-}
-pub fn deform1<'s>(x: &mut &[ExpressionFragment<'s>]) -> Option<DeformedExpression<'s>>
-{
-    match *x
-    {
-        &[ExpressionFragment::Identifier(ref s), ref xs..] => { *x = xs; Some(DeformedExpression::Reference(s.clone())) }
-        &[ExpressionFragment::Numeric (ref s, nty), ref xs..] => { *x = xs; Some(DeformedExpression::Numeric (s.clone(), nty)) }
-        &[ExpressionFragment::NumericF(ref s, nty), ref xs..] => { *x = xs; Some(DeformedExpression::NumericF(s.clone(), nty)) }
-        _ => None
-    }
-}
-pub fn aggregate_prefix<'s>(x: &mut &[ExpressionFragment<'s>]) -> DeformedExpression<'s>
-{
-    let mut v = Vec::new();
-    loop
-    {
-        if let Some(b) = deform1(x)
-        {
-            v.place_back() <- match x.first()
-            {
-                Some(&ExpressionFragment::ObjectDescender(_)) => aggregate_refpath(b, x),
-                _ => b
-            };
-        }
-        else { break; }
-    }
-    DeformedExpression::Prefix(v)
-}
-pub fn aggregate_refpath<'s>(refbase: DeformedExpression<'s>, x: &mut &[ExpressionFragment<'s>]) -> DeformedExpression<'s>
-{
-    let mut v = Vec::new();
-    loop
-    {
-        match *x
-        {
-            &[ExpressionFragment::ObjectDescender(_), ExpressionFragment::Identifier(ref s), ref xs..] => { v.place_back() <- s.clone(); *x = xs; },
-            _ => break
-        }
-    }
-    assert!(!v.is_empty());
-    DeformedExpression::ReferencePath(box refbase, v)
-}
-pub fn aggregate_infix<'s>(lhs: DeformedExpression<'s>, x: &mut &[ExpressionFragment<'s>]) -> DeformedExpression<'s>
-{
-    let mut mods = Vec::new();
-    loop
-    {
-        match *x
-        {
-            &[ExpressionFragment::Operator(ref ops), ref xs..] => { *x = xs; mods.place_back() <- (ops.clone(), aggregate_prefix(x)); }
-            _ => break
-        }
-    }
-    assert!(mods.is_empty()); DeformedExpression::Infix { lhs: box lhs, mods }
-}
-
 /*
 /// ラムダ抽象
 #[derive(Debug, Clone, PartialEq, Eq)]

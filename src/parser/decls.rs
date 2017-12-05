@@ -20,7 +20,9 @@ impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
     {
+        println!("ValueDeclaration: pat");
         let pat = BreakParsing!(expression(stream, leftmost));
+        println!("ValueDeclaration: pat = {:?}", pat);
         let _type = type_hint(stream, Leftmost::Exclusive(leftmost)).into_result_opt()?;
         if !Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) || !stream.current().is_equal()
         {
@@ -172,6 +174,7 @@ fn type_note<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftm
 /// : type
 fn type_hint<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullTypeDesc<'s>>
 {
+    println!("type_hint: dbg");
     TMatchFirst!(leftmost => stream; TokenKind::ItemDescriptorDelimiter(_));
     if !leftmost.into_exclusive().satisfy(stream.current(), false) { return Failed(ParseError::Expecting(ExpectingKind::Type, stream.current().position())); }
     full_type(stream, leftmost.num().unwrap_or(0)).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position())).into()
