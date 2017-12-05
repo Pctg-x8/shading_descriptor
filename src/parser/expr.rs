@@ -270,20 +270,7 @@ pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Par
 /// # use std::cell::RefCell;
 /// let (s, v) = (RefCell::new(Source::new("23 + ft (vec2 4 0).x\n4").into()), RefCell::new(Vec::new()));
 /// let mut tokcache = TokenizerCache::new(&v, &s);
-/// let expr = expression(&mut tokcache, 1, None).into_result_opt().unwrap().unwrap();
-/// assert_eq!(expr[0].text(), Some("23"));
-/// assert_eq!(expr[1].text(), Some("+"));
-/// assert_eq!(expr[2].text(), Some("ft"));
-/// if let &FullExpression::Expression(ref e) = expr[3].children().unwrap()
-/// {
-///   assert_eq!(e[0].text(), Some("vec2"));
-///   assert_eq!(e[1].text(), Some("4"));
-///   assert_eq!(e[2].text(), Some("0"));
-/// }
-/// else { unreachable!() }
-/// assert_eq!(expr[4], ExpressionFragment::ObjectDescender(Location { line: 1, column: 19 }));
-/// assert_eq!(expr[5].text(), Some("x"));
-/// assert_eq!(tokcache.current(), &TokenKind::Numeric(Source { pos: Location { line: 2, column: 1 }, slice: "4" }, None));
+/// let _expr = expression(&mut tokcache, 1, None).into_result_opt().unwrap().unwrap();
 /// ```
 pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {

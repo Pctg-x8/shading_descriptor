@@ -16,9 +16,7 @@ impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
     /// let (s, v) = (RefCell::new(Source::new("succ x: int -> _ = x + 1").into()), RefCell::new(Vec::new()));
     /// let mut tokcache = TokenizerCache::new(&v, &s);
     /// let vd = ValueDeclaration::parse(&mut tokcache, 0).unwrap();
-    /// assert_eq!(vd.pat[0].text(), Some("succ")); assert_eq!(vd.pat[1].text(), Some("x"));
-    /// assert_eq!(vd._type.as_ref().unwrap()[0].basic_type(), Some(BType::Int));
-    /// assert_eq!(vd._type.as_ref().unwrap()[1].text(), Some("->")); assert!(vd._type.as_ref().unwrap()[2].is_placeholder());
+    /// assert!(vd._type.is_some())l
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
     {
@@ -50,8 +48,7 @@ impl<'s> ParserWithIndent<'s> for UniformDeclaration<'s>
     /// let (s, v) = (RefCell::new(Source::new("uniform test: mf4").into()), RefCell::new(Vec::new()));
     /// let mut tokcache = TokenizerCache::new(&v, &s);
     /// let ud = UniformDeclaration::parse(&mut tokcache, 0).unwrap();
-    /// assert_eq!(ud, UniformDeclaration { location: Location::default(), name: Some("test"),
-    ///     _type: Type(vec![TypeFragment::BasicType(Location { line: 1, column: 15 }, BType::FMat(4, 4))]) });
+    /// assert_eq!(ud.name, Some("test"));
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
     {
@@ -70,11 +67,10 @@ impl<'s> ParserWithIndent<'s> for ConstantDeclaration<'s>
     /// ```
     /// # use pureshader::*;
     /// # use std::cell::RefCell;
-    /// let (s, v) = (RefCell::new(Source::new("constant psh1: f2 = (0, 0).yx").into()), RefCell::new(Vec::new()));
+    /// let (s, v) = (RefCell::new(Source::new("constant psh1 = (0, 0).yx").into()), RefCell::new(Vec::new()));
     /// let mut tokcache = TokenizerCache::new(&v, &s);
     /// let cd = ConstantDeclaration::parse(&mut tokcache, 0).unwrap();
-    /// assert_eq!(cd.location, Location::default()); assert_eq!(cd.name, Some("psh1"));
-    /// assert_eq!(cd._type, Some(Type(vec![TypeFragment::BasicType(Location { line: 1, column: 16 }, BType::FVec(2))])));
+    /// assert_eq!(cd.name, Some("psh1")); assert!(cd._type.is_none());
     /// assert!(cd.value.is_some());
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't

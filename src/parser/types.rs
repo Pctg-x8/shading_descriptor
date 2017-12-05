@@ -114,7 +114,7 @@ pub struct FullTypeDesc<'s> { quantified: Vec<Source<'s>>, constraints: Vec<Type
 /// # use std::cell::RefCell;
 /// let (s, v) = (RefCell::new(Source::new("forall z. (Show z, Read z) => z -> (z, String)").into()), RefCell::new(Vec::new()));
 /// let mut tokcache = TokenizerCache::new(&v, &s);
-/// let _ty = full_type(&mut tokcache, 0).into_result_opt().unwrap();
+/// let _ty = full_type(&mut tokcache, 0).into_result_opt().unwrap().unwrap();
 /// ```
 pub fn full_type<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullTypeDesc<'s>>
 {
