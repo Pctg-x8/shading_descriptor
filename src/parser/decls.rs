@@ -20,7 +20,7 @@ impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
     {
-        println!("ValueDeclaration: pat");
+        println!("ValueDeclaration: pat {:?}", stream.current());
         let pat = BreakParsing!(expression(stream, leftmost));
         println!("ValueDeclaration: pat = {:?}", pat);
         let _type = type_hint(stream, Leftmost::Exclusive(leftmost)).into_result_opt()?;

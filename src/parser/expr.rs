@@ -17,7 +17,7 @@ pub fn infix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
 {
     let lhs = BreakParsing!(prefix_expr(stream, leftmost));
     let mut rhs = Vec::new();
-    loop
+    while Leftmost::Exclusive(leftmost).satisfy(stream.current(), false)
     {
         match stream.current()
         {
@@ -42,7 +42,7 @@ pub fn prefix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost:
 pub fn term_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
     let mut lhs = BreakParsing!(factor_expr(stream, leftmost));
-    loop
+    while Leftmost::Exclusive(leftmost).satisfy(stream.current(), false)
     {
         match stream.current()
         {
@@ -69,6 +69,7 @@ pub fn term_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: u
 /// Factor <- ident / numeric / numericf / [ (FullEx (, FullEx)*)? ] / ( FullEx (, FullEx)* )
 pub fn factor_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
+    if !Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) { return NotConsumed; }
     match stream.current()
     {
         &TokenKind::Identifier(ref s) | &TokenKind::WrappedOp(ref s) => { stream.shift(); Success(ExpressionSynTree::SymReference(s.clone()).into()) },
@@ -82,17 +83,14 @@ pub fn factor_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost:
                 full_expressions(stream, leftmost, Some(EnclosureKind::Bracket)).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?
             }
             else { Vec::new() };
-            TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Bracket), |p| ParseError::ExpectingClose(EnclosureKind::Bracket, p));
+            TMatch!(Leftmost::Exclusive(leftmost) => stream; TokenKind::EndEnclosure(_, EnclosureKind::Bracket), |p| ParseError::ExpectingClose(EnclosureKind::Bracket, p));
             Success(ExpressionSynTree::ArrayLiteral(p.clone(), es).into())
         },
         &TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) =>
         {
-            let mut e = vec![full_expression(stream.shift(), leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?];
-            while stream.shift_list_delimiter().is_ok()
-            {
-                e.place_back() <- full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
-            }
-            TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
+            let mut e = full_expressions(stream.shift(), leftmost, Some(EnclosureKind::Parenthese))
+                .into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+            TMatch!(Leftmost::Exclusive(leftmost) => stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
             Success(if e.len() == 1 { e.pop().unwrap() } else { ExpressionSynTree::Tuple(e).into() })
         },
         _ => NotConsumed

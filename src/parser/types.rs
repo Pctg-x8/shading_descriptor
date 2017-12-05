@@ -19,7 +19,7 @@ pub enum TypeSynTree<'s>
 pub fn arrow_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, TypeSynTree<'s>>
 {
     let mut lhs = BreakParsing!(infix_ty(stream, leftmost));
-    while stream.shift_arrow().is_ok()
+    while Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.shift_arrow().is_ok()
     {
         lhs = TypeSynTree::ArrowInfix
         {
@@ -34,7 +34,7 @@ pub fn infix_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: us
 {
     let lhs = BreakParsing!(prefix_ty(stream, leftmost));
     let mut mods = Vec::new();
-    while let Ok(op) = shift_infix_ops(stream)
+    while let Ok(op) = shift_infix_ops(stream, Leftmost::Exclusive(leftmost))
     {
         mods.place_back() <- (op.clone(), prefix_ty(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?);
     }
@@ -51,7 +51,7 @@ pub fn prefix_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: u
 pub fn term_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, TypeSynTree<'s>>
 {
     let mut e = BreakParsing!(factor_ty(stream, leftmost));
-    loop
+    while Leftmost::Exclusive(leftmost).satisfy(stream.current(), false)
     {
         match stream.current()
         {
@@ -84,6 +84,7 @@ pub fn term_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usi
 /// Factor <- ident / basic / ( Arrow (, Arrow)* )
 pub fn factor_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, TypeSynTree<'s>>
 {
+    if !Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) { return NotConsumed; }
     match stream.current()
     {
         &TokenKind::Identifier(ref s) => { stream.shift(); Success(TypeSynTree::SymReference(s.clone())) },
