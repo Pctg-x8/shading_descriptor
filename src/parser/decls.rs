@@ -16,7 +16,7 @@ impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
     /// let (s, v) = (RefCell::new(Source::new("succ x: int -> _ = x + 1").into()), RefCell::new(Vec::new()));
     /// let mut tokcache = TokenizerCache::new(&v, &s);
     /// let vd = ValueDeclaration::parse(&mut tokcache, 0).unwrap();
-    /// assert!(vd._type.is_some())l
+    /// assert!(vd._type.is_some());
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
     {

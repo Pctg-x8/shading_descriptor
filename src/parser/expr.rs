@@ -270,7 +270,7 @@ pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Par
 /// # use std::cell::RefCell;
 /// let (s, v) = (RefCell::new(Source::new("23 + ft (vec2 4 0).x\n4").into()), RefCell::new(Vec::new()));
 /// let mut tokcache = TokenizerCache::new(&v, &s);
-/// let _expr = expression(&mut tokcache, 1, None).into_result_opt().unwrap().unwrap();
+/// let _expr = expression(&mut tokcache, 1).into_result_opt().unwrap().unwrap();
 /// ```
 pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
