@@ -11,7 +11,7 @@ pub enum ExpectingKind
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl, Constructor,
 	ConcreteExpression, Expression, ConcreteType, Pattern, Numeric, Operator, PrefixDeclarator, Argument, ShaderBlock,
 	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, LetIn, TypePattern, ExpressionPattern, ConditionExpr,
-	AssocPriority, Infix, Keyword(Keyword)
+	AssocPriority, Infix, Keyword(Keyword), Period
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -83,6 +83,7 @@ impl<'t> Error for ParseError<'t>
 			ParseError::Expecting(ExpectingKind::ConditionExpr, _) => "Expecting an expression for a condition",
 			ParseError::Expecting(ExpectingKind::AssocPriority, _) => "Expecting a priority of associativity",
 			ParseError::Expecting(ExpectingKind::Infix, _) => "Expecting an infix declaration",
+			ParseError::Expecting(ExpectingKind::Period, _) => "Expecting `.`",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Blend), _) => "Expecting `Blend`",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Type), _) => "Expecting `type`",
 			ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), _) => "Expecting `data`",

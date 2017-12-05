@@ -144,3 +144,13 @@ pub fn name<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmo
 		}
 	}
 }
+
+/// op | infixindent
+pub fn shift_infix_ops<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<&'t Source<'s>, &'t Location>
+{
+    match stream.current()
+    {
+        &TokenKind::Operator(ref s) | &TokenKind::InfixIdent(ref s) => { stream.shift(); Ok(s) },
+        t => Err(t.position())
+    }
+}

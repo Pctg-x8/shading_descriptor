@@ -38,12 +38,6 @@ impl<'s> Source<'s>
     pub fn new(s: &'s str) -> Self { Source { pos: Location::default(), slice: s } }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TokenizerState<'s> { pub src: Source<'s>, pub last_line: usize }
-impl<'s> From<Source<'s>> for TokenizerState<'s>
-{
-    fn from(src: Source<'s>) -> Self { TokenizerState { src, last_line: 0 } }
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token<'s> { pub line_head: bool, pub kind: TokenKind<'s> }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind<'s>
@@ -51,8 +45,9 @@ pub enum TokenKind<'s>
     Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>),
     Operator(Source<'s>), Equal(Location), Arrow(Location), TyArrow(Location), BeginEnclosure(Location, EnclosureKind), EndEnclosure(Location, EnclosureKind),
     ListDelimiter(Location), StatementDelimiter(Location), ItemDescriptorDelimiter(Location), ObjectDescender(Location), EOF(Location), UnknownChar(Location), Placeholder(Location),
+    WrappedOp(Source<'s>), InfixIdent(Source<'s>),
 
-    Keyword(Location, Keyword), Semantics(Location, Semantics), BasicType(Location, BType)
+    Keyword(Location, Keyword), Semantics(Location, Semantics), BasicType(Location, BType), Backquote(Location)
 }
 impl<'s> TokenKind<'s>
 {
@@ -65,7 +60,8 @@ impl<'s> TokenKind<'s>
             Identifier(Source { ref pos, .. }) | Numeric(Source { ref pos, .. }, _) | NumericF(Source { ref pos, .. }, _) | Operator(Source { ref pos, .. })
             | Equal(ref pos) | Arrow(ref pos) | TyArrow(ref pos) | BeginEnclosure(ref pos, _) | EndEnclosure(ref pos, _)
             | ListDelimiter(ref pos) | StatementDelimiter(ref pos) | ItemDescriptorDelimiter(ref pos) | ObjectDescender(ref pos) | EOF(ref pos) | UnknownChar(ref pos)
-            | Placeholder(ref pos) | Keyword(ref pos, _) | Semantics(ref pos, _) | BasicType(ref pos, _) => pos
+            | Placeholder(ref pos) | Keyword(ref pos, _) | Semantics(ref pos, _) | BasicType(ref pos, _)
+            | WrappedOp(Source { ref pos, .. }) | InfixIdent(Source { ref pos, .. }) | Backquote(ref pos) => pos
         }
     }
     pub fn is_begin_enclosure_of(&self, kind: EnclosureKind) -> bool
@@ -85,6 +81,14 @@ impl<'s> TokenKind<'s>
     pub fn is_eof(&self) -> bool { discriminant(self) == discriminant(&TokenKind::EOF(Location::default())) }
     pub fn is_equal(&self) -> bool { discriminant(self) == discriminant(&TokenKind::Equal(Location::default())) }
     pub fn is_placeholder(&self) -> bool { discriminant(self) == discriminant(&TokenKind::Placeholder(Location::default())) }
+    pub fn is_text_period(&self) -> bool
+    {
+        match *self
+        {
+            TokenKind::ObjectDescender(_) | TokenKind::Operator(Source { slice: ".", .. }) | TokenKind::Operator(Source { slice: "．", .. }) => true,
+            _ => false
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
@@ -95,7 +99,7 @@ pub enum Keyword
 {
     Let, In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
     DepthTest, DepthWrite, DepthBounds, StencilTest, StencilOps, StencilCompare, StencilWriteMask, Blend, Type, Data,
-    If, Then, Else, Unless, Infixl, Infixr, Infix,
+    If, Then, Else, Unless, Infixl, Infixr, Infix, Forall,
     // reserved but not used //
     Where, Do, Case, Of,
     // blend ops //
@@ -119,6 +123,12 @@ pub enum BType
     Sampler(u8), Texture(u8)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenizerState<'s> { pub src: Source<'s>, pub last_line: usize, pub cache: Vec<Token<'s>> }
+impl<'s> From<Source<'s>> for TokenizerState<'s>
+{
+    fn from(src: Source<'s>) -> Self { TokenizerState { src, last_line: 0, cache: Vec::new() } }
+}
 /// The Token object must have an individual lifetime <'t> from self's lifetime
 /// and required to have fixed address(e.g. boxed or immutable vector)
 pub trait TokenStream<'s: 't, 't>
@@ -141,6 +151,39 @@ pub trait TokenStream<'s: 't, 't>
     fn shift(&mut self) -> &mut Self { self.shift_n(1) }
     /// unshift a token(minimum impl)
     fn unshift(&mut self) -> &mut Self;
+
+    // extra shifts
+    /// shift an object descender token, error if the next token is not ObjectDescender
+    fn shift_object_descender(&mut self) -> Result<(), &'t Location>
+    {
+        if let &TokenKind::ObjectDescender(_) = self.current() { self.shift(); Ok(()) }
+        else { Err(self.current().position()) }
+    }
+    /// shift an closing enclosure token, error if the next token is not EndEnclosure of specific kind
+    fn shift_end_enclosure_of(&mut self, k: EnclosureKind) -> Result<(), &'t Location>
+    {
+        match self.current() { &TokenKind::EndEnclosure(_, kk) if kk == k => { self.shift(); Ok(()) }, p => Err(p.position()) }
+    }
+    /// shift a keyword token, error if the next token is not Keyword of specific kind
+    fn shift_keyword(&mut self, k: Keyword) -> Result<(), &'t Location>
+    {
+        match self.current() { &TokenKind::Keyword(_, kk) if kk == k => { self.shift(); Ok(()) }, p => Err(p.position()) }
+    }
+    /// shift an arrow token, error if the next token is not Arrow
+    fn shift_arrow(&mut self) -> Result<(), &'t Location>
+    {
+        match self.current() { &TokenKind::TyArrow(_) => { self.shift(); Ok(()) }, p => Err(p.position()) }
+    }
+    /// shift a placeholder token, error if the next token is not Placeholder
+    fn shift_placeholder(&mut self) -> Result<&'t Location, &'t Location>
+    {
+        match self.current() { &TokenKind::Placeholder(ref p) => { self.shift(); Ok(p) }, p => Err(p.position()) }
+    }
+    /// shift a list delimiter token, error if the next token is not ListDelimiter
+    fn shift_list_delimiter(&mut self) -> Result<(), &'t Location>
+    {
+        match self.current() { &TokenKind::ListDelimiter(_) => { self.shift(); Ok(()) }, p => Err(p.position()) }
+    }
 
     /// drop tokens until satisfying a predicate
     fn drop_until<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
@@ -221,7 +264,7 @@ const OPCLASS: &'static [char] = &['<', '＜', '>', '＞', '=', '＝', '!', '！
 
 impl<'s> TokenizerState<'s>
 {
-    pub fn next(&mut self) -> Token<'s>
+    fn take_one(&mut self) -> Token<'s>
     {
         let visual_separated = self.src.drop_ignores();
         
@@ -229,12 +272,47 @@ impl<'s> TokenizerState<'s>
         else
         {
             let tk = self.src.list_delimiter().or_else(|| self.src.stmt_delimiter()).or_else(|| self.src.item_desc_delimiter()).or_else(|| self.src.object_descender(visual_separated))
-                .or_else(|| self.src.begin_enclosure()).or_else(|| self.src.end_enclosure())
+                .or_else(|| self.src.begin_enclosure()).or_else(|| self.src.end_enclosure()).or_else(|| self.src.backquote())
                 .or_else(|| self.src.numeric()).or_else(|| self.src.operator()).or_else(|| self.src.identifier())
                 .unwrap_or(TokenKind::UnknownChar(self.src.pos.clone()));
             let line_head = tk.position().line != self.last_line;
             self.last_line = tk.position().line;
             Token { line_head, kind: tk }
+        }
+    }
+    pub fn next(&mut self) -> Token<'s>
+    {
+        if let Some(t) = self.cache.pop() { t }
+        else
+        {
+            // Combine multiple tokens
+            let s1 = self.take_one();
+            match s1.kind
+            {
+                TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) =>
+                {
+                    let s2 = self.take_one();
+                    let s2op = if let TokenKind::Operator(ref s) = s2.kind { s.clone() } else { self.cache.push(s2); return s1; };
+                    let s3 = self.take_one();
+                    if let TokenKind::EndEnclosure(_, EnclosureKind::Parenthese) = s3.kind
+                    {
+                        Token { kind: TokenKind::WrappedOp(s2op), line_head: s1.line_head }
+                    }
+                    else { self.cache.push(s2); self.cache.push(s3); s1 }
+                },
+                TokenKind::Backquote(_) =>
+                {
+                    let s2 = self.take_one();
+                    let s2ident = if let TokenKind::Identifier(ref s) = s2.kind { s.clone() } else { self.cache.push(s2); return s1; };
+                    let s3 = self.take_one();
+                    if let &TokenKind::Backquote(_) = &s3.kind
+                    {
+                        Token { kind: TokenKind::InfixIdent(s2ident), line_head: s1.line_head }
+                    }
+                    else { self.cache.push(s2); self.cache.push(s3); s1 }
+                },
+                _ => s1
+            }
         }
     }
     pub fn all(mut self) -> Vec<Token<'s>>
@@ -397,6 +475,7 @@ impl<'s> Source<'s>
                 "infix" => Some(TokenKind::Keyword(s.pos, Keyword::Infix)),
                 "infixl" => Some(TokenKind::Keyword(s.pos, Keyword::Infixl)),
                 "infixr" => Some(TokenKind::Keyword(s.pos, Keyword::Infixr)),
+                "forall" => Some(TokenKind::Keyword(s.pos, Keyword::Forall)),
                 "VertexShader" => Some(TokenKind::Keyword(s.pos, Keyword::VertexShader)),
                 "FragmentShader" => Some(TokenKind::Keyword(s.pos, Keyword::FragmentShader)),
                 "GeometryShader" => Some(TokenKind::Keyword(s.pos, Keyword::GeometryShader)),
@@ -639,6 +718,15 @@ impl<'s> Source<'s>
         match self.slice.chars().next()
         {
             Some(c@'.') | Some(c@'．') => Some(if vsep { TokenKind::Operator(self.split(c.len_utf8(), 1)) } else { TokenKind::ObjectDescender(self.split(c.len_utf8(), 1).pos) }),
+            _ => None
+        }
+    }
+    /// Backquote(Infixing identifier)
+    pub fn backquote(&mut self) -> Option<TokenKind<'s>>
+    {
+        match self.slice.chars().next()
+        {
+            Some(c@'`') | Some(c@'‘') => Some(TokenKind::Backquote(self.split(c.len_utf8(), 1).pos)),
             _ => None
         }
     }

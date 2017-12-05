@@ -6,7 +6,7 @@ mod assoc;
 mod expr; mod types; mod decls;
 pub use self::err::{Success, SuccessM, Failed, FailedM, NotConsumed, NotConsumedM};
 pub use self::expr::{FullExpression, Expression, ExpressionFragment, expression, full_expression, expr_lettings};
-pub use self::types::{Type, TypeFragment, user_type};
+pub use self::types::{FullTypeDesc, TypeSynTree, full_type, infix_ty};
 pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
 pub use self::assoc::{Associativity, AssociativityEnv};
 use self::utils::*; use self::err::*;
@@ -105,11 +105,11 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 
 /// 型シノニム/データ定義
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypeFn<'s> { pub location: Location, pub defs: Vec<(Type<'s>, Type<'s>)> }
+pub struct TypeFn<'s> { pub location: Location, pub defs: Vec<(TypeSynTree<'s>, FullTypeDesc<'s>)> }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataConstructor<'s> { pub location: Location, pub name: &'s str, pub args: Vec<&'s str> }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypeDeclaration<'s> { pub location: Location, pub defs: Vec<(Type<'s>, Vec<DataConstructor<'s>>)> }
+pub struct TypeDeclaration<'s> { pub location: Location, pub defs: Vec<(TypeSynTree<'s>, Vec<DataConstructor<'s>>)> }
 /// Parse a type synonim declaration
 /// # Examples
 /// ```
@@ -132,13 +132,13 @@ pub fn type_fn<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<Typ
 	while block_start.satisfy(stream.current(), true)
 	{
 		let defblock_begin = get_definition_leftmost(block_start, stream);
-		let pat = types::user_type(stream, defblock_begin, false).into_result(|| ParseError::Expecting(ExpectingKind::TypePattern, stream.current().position()))?;
+		let pat = infix_ty(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::TypePattern, stream.current().position()))?;
 		if !Leftmost::Exclusive(defblock_begin).satisfy(stream.current(), true) || !stream.current().is_equal()
 		{
 			return Err(ParseError::Expecting(ExpectingKind::ConcreteType, stream.current().position()));
 		}
 		stream.shift(); CheckLayout!(Leftmost::Exclusive(defblock_begin) => stream);
-		let bound = types::user_type(stream, defblock_begin, false).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
+		let bound = full_type(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
 		defs.place_back() <- (pat, bound);
 
 		let delimitered = TMatch!(Optional: stream; TokenKind::StatementDelimiter(_));
@@ -194,7 +194,7 @@ pub fn type_decl<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<T
 	while block_start.satisfy(stream.current(), true)
 	{
 		let defblock_begin = get_definition_leftmost(block_start, stream);
-		let pat = types::user_type(stream, defblock_begin, false)?;
+		let pat = infix_ty(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
 		if block_start.satisfy(stream.current(), true) && stream.current().is_equal() { stream.shift(); }
 		else { return Err(ParseError::Expecting(ExpectingKind::Constructor, stream.current().position())); }
 		let (mut constructors, mut correct_brk) = (Vec::new(), false);

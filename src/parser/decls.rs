@@ -3,7 +3,7 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValueDeclaration<'s> { pub pat: Expression<'s>, pub _type: Option<Type<'s>>, pub value: FullExpression<'s> }
+pub struct ValueDeclaration<'s> { pub pat: FullExpression<'s>, pub _type: Option<FullTypeDesc<'s>>, pub value: FullExpression<'s> }
 impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
 {
     type ResultTy = Self;
@@ -22,22 +22,22 @@ impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
     {
-        let pat = BreakParsing!(expr::expression(stream, leftmost, None));
+        let pat = BreakParsing!(expression(stream, leftmost));
         let _type = type_hint(stream, Leftmost::Exclusive(leftmost)).into_result_opt()?;
         if !Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) || !stream.current().is_equal()
         {
             return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
         }
         stream.shift(); CheckLayout!(Leftmost::Exclusive(leftmost) => stream);
-        let value = expr::full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+        let value = full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(ValueDeclaration { pat, _type, value })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UniformDeclaration<'s> { pub location: Location, pub name: Option<&'s str>, pub _type: Type<'s> }
+pub struct UniformDeclaration<'s> { pub location: Location, pub name: Option<&'s str>, pub _type: FullTypeDesc<'s> }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConstantDeclaration<'s> { pub location: Location, pub name: Option<&'s str>, pub _type: Option<Type<'s>>, pub value: Option<FullExpression<'s>> }
+pub struct ConstantDeclaration<'s> { pub location: Location, pub name: Option<&'s str>, pub _type: Option<FullTypeDesc<'s>>, pub value: Option<FullExpression<'s>> }
 impl<'s> ParserWithIndent<'s> for UniformDeclaration<'s>
 {
     type ResultTy = Self;
@@ -85,7 +85,7 @@ impl<'s> ParserWithIndent<'s> for ConstantDeclaration<'s>
         let value = if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().is_equal()
         {
             stream.shift();
-            expr::full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position())).map(Some)?
+            full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position())).map(Some)?
         }
         else { None };
         Success(ConstantDeclaration { location: location.clone(), name, _type, value })
@@ -119,7 +119,7 @@ impl<'s> ParserWithIndent<'s> for SemanticOutput<'s>
         TMatch!(Leftmost::Exclusive(leftmost) => stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
         let _type = type_note(stream, Leftmost::Exclusive(leftmost), true).into_result_opt()?.and_then(|v| v);
         TMatch!(Leftmost::Exclusive(leftmost) => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::ConcreteExpression, p));
-        let expr = expr::full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+        let expr = full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(SemanticOutput { location: location.clone(), name, semantics, _type, expr })
     }
 }
@@ -175,9 +175,9 @@ fn type_note<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftm
     }
 }
 /// : type
-fn type_hint<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Type<'s>>
+fn type_hint<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullTypeDesc<'s>>
 {
     TMatchFirst!(leftmost => stream; TokenKind::ItemDescriptorDelimiter(_));
     if !leftmost.into_exclusive().satisfy(stream.current(), false) { return Failed(ParseError::Expecting(ExpectingKind::Type, stream.current().position())); }
-    user_type(stream, leftmost.num().unwrap_or(0), false).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position())).into()
+    full_type(stream, leftmost.num().unwrap_or(0)).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position())).into()
 }

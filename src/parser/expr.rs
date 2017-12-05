@@ -5,6 +5,96 @@ use super::err::*;
 use parser::{ExpectingKind, Leftmost, take_current_block_begin, get_definition_leftmost};
 use std::ops::Deref;
 
+#[derive(Debug, Clone, PartialEq, Eq)] pub enum ExpressionSynTree<'s>
+{
+    SymReference(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>), ArrayLiteral(Location, Vec<FullExpression<'s>>),
+    RefPath(Box<FullExpression<'s>>, Vec<Source<'s>>), ArrayRef(Box<FullExpression<'s>>, Box<FullExpression<'s>>),
+    Prefix(Vec<FullExpression<'s>>), Infix { lhs: Box<FullExpression<'s>>, mods: Vec<(Source<'s>, FullExpression<'s>)> }
+}
+
+/// Infix <- Prefix ((op/infixident) Prefix)*
+pub fn infix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
+{
+    let lhs = BreakParsing!(prefix_expr(stream, leftmost));
+    let mut rhs = Vec::new();
+    loop
+    {
+        match stream.current()
+        {
+            &TokenKind::Operator(ref s) | &TokenKind::InfixIdent(ref s) =>
+            {
+                let e = prefix_expr(stream.shift(), leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+                rhs.place_back() <- (s.clone(), e);
+            },
+            _ => break
+        }
+    }
+    Success(if rhs.is_empty() { lhs } else { ExpressionSynTree::Infix { lhs: box lhs, mods: rhs }.into() })
+}
+/// Prefix <- Term Term*
+pub fn prefix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
+{
+    let mut lhs = vec![BreakParsing!(term_expr(stream, leftmost))];
+    while let Some(rhs) = term_expr(stream, leftmost).into_result_opt()? { lhs.push(rhs); }
+    Success(if lhs.len() > 1 { ExpressionSynTree::Prefix(lhs).into() } else { lhs.pop().unwrap() })
+}
+/// Term <- Factor (. ident / [ FullEx ])*
+pub fn term_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
+{
+    let mut lhs = BreakParsing!(factor_expr(stream, leftmost));
+    loop
+    {
+        match stream.current()
+        {
+            &TokenKind::ObjectDescender(_) =>
+            {
+                let mut rhs = Vec::new();
+                while stream.shift_object_descender().is_ok()
+                {
+                    rhs.place_back() <- TMatch!(stream; TokenKind::Identifier(ref s) => s.clone(), |p| ParseError::Expecting(ExpectingKind::Ident, p));
+                }
+                lhs = ExpressionSynTree::RefPath(box lhs.into(), rhs).into();
+            },
+            &TokenKind::BeginEnclosure(_, EnclosureKind::Bracket) =>
+            {
+                let e = full_expression(stream.shift(), leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+                if let Err(p) = stream.shift_end_enclosure_of(EnclosureKind::Bracket) { return Failed(ParseError::ExpectingClose(EnclosureKind::Bracket, p)); }
+                lhs = ExpressionSynTree::ArrayRef(box lhs.into(), box e).into();
+            },
+            _ => break
+        }
+    }
+    Success(lhs.into())
+}
+/// Factor <- ident / numeric / numericf / [ (FullEx (, FullEx)*)? ] / ( FullEx )
+pub fn factor_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
+{
+    match stream.current()
+    {
+        &TokenKind::Identifier(ref s) | &TokenKind::WrappedOp(ref s) => { stream.shift(); Success(ExpressionSynTree::SymReference(s.clone()).into()) },
+        &TokenKind::Numeric (ref s, nt) => { stream.shift(); Success(ExpressionSynTree::Numeric (s.clone(), nt).into()) },
+        &TokenKind::NumericF(ref s, nt) => { stream.shift(); Success(ExpressionSynTree::NumericF(s.clone(), nt).into()) },
+        &TokenKind::BeginEnclosure(ref p, EnclosureKind::Bracket) =>
+        {
+            stream.shift();
+            let es = if !stream.current().is_end_enclosure_of(EnclosureKind::Bracket)
+            {
+                full_expressions(stream, leftmost, Some(EnclosureKind::Bracket)).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?
+            }
+            else { Vec::new() };
+            TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Bracket), |p| ParseError::ExpectingClose(EnclosureKind::Bracket, p));
+            Success(ExpressionSynTree::ArrayLiteral(p.clone(), es).into())
+        },
+        &TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) =>
+        {
+            let e = full_expression(stream.shift(), leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+            TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
+            Success(e)
+        },
+        _ => NotConsumed
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpressionFragment<'s>
 {
@@ -40,7 +130,7 @@ impl<'s> Deref for Expression<'s>
 {
     type Target = [ExpressionFragment<'s>]; fn deref(&self) -> &[ExpressionFragment<'s>] { &self.0 }
 }
-impl<'s> Into<FullExpression<'s>> for Expression<'s>
+impl<'s> Into<FullExpression<'s>> for ExpressionSynTree<'s>
 {
     fn into(self) -> FullExpression<'s> { FullExpression::Expression(self) }
 }
@@ -48,37 +138,37 @@ impl<'s> Into<FullExpression<'s>> for Expression<'s>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockContent<'s>
 {
-    BlockVars { location: Location, vals: Vec<(Expression<'s>, FullExpression<'s>)> },
+    BlockVars { location: Location, vals: Vec<(FullExpression<'s>, FullExpression<'s>)> },
     Expression(FullExpression<'s>)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FullExpression<'s>
 {
-    Lettings { location: Location, vals: Vec<(Expression<'s>, FullExpression<'s>)>, subexpr: Box<FullExpression<'s>> },
+    Lettings { location: Location, vals: Vec<(FullExpression<'s>, FullExpression<'s>)>, subexpr: Box<FullExpression<'s>> },
     Conditional { location: Location, inv: bool, cond: Box<FullExpression<'s>>, then: Box<FullExpression<'s>>, else_: Option<Box<FullExpression<'s>>> },
-    Block(Location, Vec<BlockContent<'s>>), Expression(Expression<'s>)
+    Block(Location, Vec<BlockContent<'s>>), Expression(ExpressionSynTree<'s>)
 }
-pub fn full_expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize, enclosure: Option<EnclosureKind>) -> ParseResult<'t, FullExpression<'s>>
+pub fn full_expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
     match *stream.current()
     {
         TokenKind::Keyword(_, Keyword::Let) => expr_lettings(stream, leftmost),
         TokenKind::Keyword(_, Keyword::If) | TokenKind::Keyword(_, Keyword::Unless) => expr_conditional(stream, leftmost),
         TokenKind::Keyword(_, Keyword::Do) => block_content(stream),
-        _ => expression(stream, leftmost, enclosure).map(Into::into)
+        _ => expression(stream, leftmost)
     }
 }
 pub fn full_expressions<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize, enclosure: Option<EnclosureKind>) -> ParseResult<'t, Vec<FullExpression<'s>>>
 {
-    let mut v = vec![BreakParsing!(full_expression(stream, leftmost, None))];
+    let mut v = vec![BreakParsing!(full_expression(stream, leftmost))];
     loop
     {
         match stream.current()
         {
             k if k.is_list_delimiter() =>
             {
-                v.place_back() <- full_expression(stream.shift(), leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+                v.place_back() <- full_expression(stream.shift(), leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
             },
             &TokenKind::EndEnclosure(_, k) if Some(k) == enclosure => break,
             &TokenKind::EndEnclosure(ref p, k) => return Failed(ParseError::UnexpectedClose(k, p)),
@@ -91,7 +181,7 @@ pub fn expr_lettings<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmos
 {
     let (location, vals) = BreakParsing!(letting_common(stream));
     TMatch!(IndentedKw; Leftmost::Exclusive(leftmost) => stream; Keyword::In, ExpectingKind::LetIn);
-    let subexpr = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+    let subexpr = box full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
     Success(FullExpression::Lettings { location: location.clone(), vals, subexpr })
 }
 pub fn expr_conditional<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
@@ -102,13 +192,13 @@ pub fn expr_conditional<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, left
         TokenKind::Keyword(ref p, Keyword::Unless) => { stream.shift(); (true, p) },
         _ => return NotConsumed
     };
-    let cond = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::ConditionExpr, stream.current().position()))?;
+    let cond = box full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::ConditionExpr, stream.current().position()))?;
     TMatch!(IndentedKw; Leftmost::Exclusive(leftmost) => stream; Keyword::Then);
-    let then = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+    let then = box full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
     let else_ = if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::Else)
     {
         stream.shift();
-        Some(box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?)
+        Some(box full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?)
     }
     else { None };
     Success(FullExpression::Conditional { location: location.clone(), cond, inv, then, else_ })
@@ -125,7 +215,7 @@ pub fn block_content<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Pars
         if stream.current().keyword() == Some(Keyword::Let) { s.place_back() <- blk_vars(stream, defbegin)?; }
         else
         {
-            match full_expression(stream, defbegin, None)
+            match full_expression(stream, defbegin)
             {
                 Success(x) => { s.place_back() <- BlockContent::Expression(x); },
                 Failed(f) => return Failed(f),
@@ -142,12 +232,12 @@ pub fn blk_vars<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: us
     if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().keyword() == Some(Keyword::In)
     {
         stream.shift();
-        let subexpr = box full_expression(stream, leftmost, None).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+        let subexpr = box full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(BlockContent::Expression(FullExpression::Lettings { location: location.clone(), vals, subexpr }))
     }
     else { Success(BlockContent::BlockVars { location: location.clone(), vals }) }
 }
-pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, (&'t Location, Vec<(Expression<'s>, FullExpression<'s>)>)>
+pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, (&'t Location, Vec<(FullExpression<'s>, FullExpression<'s>)>)>
 {
     // let 〜(decls) [in?]
     let location = TMatchFirst!(stream; TokenKind::Keyword(ref p, Keyword::Let) => p);
@@ -158,13 +248,13 @@ pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Par
         if stream.current().keyword() == Some(Keyword::In) { break; }
         if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
         let defbegin = get_definition_leftmost(block_start, stream);
-        let pat = expression(stream, defbegin, None).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
+        let pat = expression(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
         if !stream.current().is_equal() || !Leftmost::Exclusive(defbegin).satisfy(stream.current(), false)
         {
             return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
         }
         stream.shift(); CheckLayout!(Leftmost::Exclusive(defbegin) => stream);
-        let rhs = full_expression(stream, defbegin, None).into_result(|| ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()))?;
+        let rhs = full_expression(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()))?;
         vals.place_back() <- (pat, rhs);
         while TMatch!(Optional: stream; TokenKind::StatementDelimiter(_)) {  }
     }
@@ -195,8 +285,10 @@ pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Par
 /// assert_eq!(expr[5].text(), Some("x"));
 /// assert_eq!(tokcache.current(), &TokenKind::Numeric(Source { pos: Location { line: 2, column: 1 }, slice: "4" }, None));
 /// ```
-pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize, corresponding_closing: Option<EnclosureKind>) -> ParseResult<'t, Expression<'s>>
+pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
 {
+    infix_expr(stream, leftmost)
+    /*
     #[derive(Debug)]
     enum ConvResult<'s: 't, 't> { Fragment(ExpressionFragment<'s>), Enter(&'t Location, EnclosureKind), Leave, Term, Failed(ParseError<'t>) }
     fn conv_fragment<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, corresponding_closing: Option<EnclosureKind>) -> ConvResult<'s, 't>
@@ -239,6 +331,7 @@ pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
         }
     }
     Success(Expression(v))
+    */
 }
 
 pub enum DeformedExpression<'s>

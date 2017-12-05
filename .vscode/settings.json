@@ -1,0 +1,4 @@
+{
+    "rust.mode": "legacy",
+    "rust.actionOnSave": "check"
+}
