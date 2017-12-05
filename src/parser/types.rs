@@ -96,7 +96,7 @@ pub fn factor_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: u
             {
                 p.place_back() <- arrow_ty(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
             }
-            if let Err(p) = stream.shift_end_enclosure_of(EnclosureKind::Bracket) { return Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, p)); }
+            if let Err(p) = stream.shift_end_enclosure_of(EnclosureKind::Parenthese) { return Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, p)); }
             Success(if p.len() == 1 { p.pop().unwrap() } else { TypeSynTree::Tuple(p) })
         },
         _ => NotConsumed
