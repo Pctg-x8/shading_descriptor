@@ -131,13 +131,14 @@ pub fn type_fn<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<Typ
 	let mut defs = Vec::new();
 	while block_start.satisfy(stream.current(), true)
 	{
-		let defblock_begin = get_definition_leftmost(block_start, stream);
+		let defblock_begin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
 		let pat = infix_ty(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::TypePattern, stream.current().position()))?;
-		if !Leftmost::Exclusive(defblock_begin).satisfy(stream.current(), true) || !stream.current().is_equal()
+		let defblock_begin = defblock_begin.into_exclusive();
+		if !defblock_begin.satisfy(stream.current(), true) || !stream.current().is_equal()
 		{
 			return Err(ParseError::Expecting(ExpectingKind::ConcreteType, stream.current().position()));
 		}
-		stream.shift(); CheckLayout!(Leftmost::Exclusive(defblock_begin) => stream);
+		stream.shift(); CheckLayout!(defblock_begin => stream);
 		let bound = full_type(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
 		defs.place_back() <- (pat, bound);
 
@@ -153,13 +154,13 @@ pub fn type_fn<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<Typ
 }
 pub fn type_decl<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<TypeDeclaration<'s>, ParseError<'t>>
 {
-	fn prefix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, DataConstructor<'s>>
+	fn prefix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
 	{
-		let (location, name) = match prefix_declarator(stream, Leftmost::Inclusive(leftmost))
+		let (location, name) = match prefix_declarator(stream, leftmost)
 		{
 			Success(v) => v, Failed(e) => return Failed(e), NotConsumed => return NotConsumed
 		};
-		let leftmost = Leftmost::Exclusive(leftmost);
+		let leftmost = leftmost.into_exclusive();
 		let mut args = Vec::new();
 		while leftmost.satisfy(stream.current(), true)
 		{
@@ -171,11 +172,11 @@ pub fn type_decl<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<T
 		}
 		Success(DataConstructor { location: location.clone(), name, args })
 	}
-	fn infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, DataConstructor<'s>>
+	fn infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
 	{
-		if !Leftmost::Inclusive(leftmost).satisfy(stream.current(), false) { return NotConsumed; }
+		if !leftmost.satisfy(stream.current(), false) { return NotConsumed; }
 		let (location, arg1) = if let TokenKind::Identifier(ref s) = *stream.current() { stream.shift(); (&s.pos, s.slice) } else { return NotConsumed };
-		let leftmost = Leftmost::Exclusive(leftmost);
+		let leftmost = leftmost.into_exclusive();
 		CheckLayout!(leftmost => stream);
 		let name = take_operator(stream).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?.slice;
 		CheckLayout!(leftmost => stream);
@@ -193,14 +194,14 @@ pub fn type_decl<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<T
 	let mut defs = Vec::new();
 	while block_start.satisfy(stream.current(), true)
 	{
-		let defblock_begin = get_definition_leftmost(block_start, stream);
+		let defblock_begin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
 		let pat = infix_ty(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
-		if block_start.satisfy(stream.current(), true) && stream.current().is_equal() { stream.shift(); }
+		let defblock_begin = defblock_begin.into_exclusive();
+		if defblock_begin.satisfy(stream.current(), true) && stream.current().is_equal() { stream.shift(); }
 		else { return Err(ParseError::Expecting(ExpectingKind::Constructor, stream.current().position())); }
 		let (mut constructors, mut correct_brk) = (Vec::new(), false);
-		while block_start.into_exclusive().satisfy(stream.current(), true)
+		while defblock_begin.satisfy(stream.current(), true)
 		{
-			println!("dbg: taking constructor...");
 			let dc = prefix(stream, defblock_begin).or_else(|| infix(stream, defblock_begin)).into_result_opt()?;
 			if let Some(p) = dc { constructors.push(p); } else { break; }
 

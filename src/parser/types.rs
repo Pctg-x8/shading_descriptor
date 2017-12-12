@@ -16,10 +16,11 @@ pub enum TypeSynTree<'s>
 }
 #[derive(Debug, Clone, PartialEq, Eq)] pub enum InferredArrayDim<'s> { Unsized, Inferred(Location), Fixed(FullExpression<'s>) }
 /// Arrow <- Infix (-> Infix)*
-pub fn arrow_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, TypeSynTree<'s>>
+pub fn arrow_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
     let mut lhs = BreakParsing!(infix_ty(stream, leftmost));
-    while Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.shift_arrow().is_ok()
+    let leftmost = leftmost.into_exclusive();
+    while leftmost.satisfy(stream.current(), false) && stream.shift_arrow().is_ok()
     {
         lhs = TypeSynTree::ArrowInfix
         {
@@ -30,28 +31,31 @@ pub fn arrow_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: us
     Success(lhs)
 }
 /// Infix <- Prefix ((op|infixident) Prefix)*
-pub fn infix_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, TypeSynTree<'s>>
+pub fn infix_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
     let lhs = BreakParsing!(prefix_ty(stream, leftmost));
+    let leftmost = leftmost.into_exclusive();
     let mut mods = Vec::new();
-    while let Ok(op) = shift_infix_ops(stream, Leftmost::Exclusive(leftmost))
+    while let Ok(op) = shift_infix_ops(stream, leftmost)
     {
         mods.place_back() <- (op.clone(), prefix_ty(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?);
     }
     Success(if mods.is_empty() { lhs } else { TypeSynTree::Infix { lhs: box lhs, mods } })
 }
 /// Prefix <- Term Term*
-pub fn prefix_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, TypeSynTree<'s>>
+pub fn prefix_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
     let mut lhs = vec![BreakParsing!(term_ty(stream, leftmost))];
+    let leftmost = leftmost.into_exclusive();
     while let Some(p) = term_ty(stream, leftmost).into_result_opt()? { lhs.push(p); }
     Success(if lhs.len() == 1 { lhs.pop().unwrap() } else { TypeSynTree::Prefix(lhs) })
 }
 /// Term <- Factor (. ident / [ FullEx ])*
-pub fn term_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, TypeSynTree<'s>>
+pub fn term_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
     let mut e = BreakParsing!(factor_ty(stream, leftmost));
-    while Leftmost::Exclusive(leftmost).satisfy(stream.current(), false)
+    let leftmost = leftmost.into_exclusive();
+    while leftmost.satisfy(stream.current(), false)
     {
         match stream.current()
         {
@@ -71,7 +75,7 @@ pub fn term_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usi
                 let num = if let Ok(p) = stream.shift_placeholder() { InferredArrayDim::Inferred(p.clone()) }
                     else
                     {
-                        full_expression(stream, leftmost).into_result_opt()?.map_or(InferredArrayDim::Unsized, InferredArrayDim::Fixed)
+                        full_expression(stream, Leftmost::Nothing).into_result_opt()?.map_or(InferredArrayDim::Unsized, InferredArrayDim::Fixed)
                     };
                 if let Err(p) = stream.shift_end_enclosure_of(EnclosureKind::Bracket) { return Failed(ParseError::ExpectingClose(EnclosureKind::Bracket, p)); }
                 e = TypeSynTree::ArrayDim { lhs: box e, num };
@@ -82,9 +86,9 @@ pub fn term_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usi
     Success(e)
 }
 /// Factor <- ident / basic / ( Arrow (, Arrow)* )
-pub fn factor_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, TypeSynTree<'s>>
+pub fn factor_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
-    if !Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) { return NotConsumed; }
+    if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
     match stream.current()
     {
         &TokenKind::Identifier(ref s) => { stream.shift(); Success(TypeSynTree::SymReference(s.clone())) },
@@ -92,6 +96,7 @@ pub fn factor_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: u
         &TokenKind::Placeholder(ref p) => { stream.shift(); Success(TypeSynTree::Placeholder(p.clone())) },
         &TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) =>
         {
+            let leftmost = leftmost.into_exclusive();
             let mut p = vec![arrow_ty(stream.shift(), leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?];
             while stream.shift_list_delimiter().is_ok()
             {
@@ -117,11 +122,12 @@ pub struct FullTypeDesc<'s> { quantified: Vec<Source<'s>>, constraints: Vec<Type
 /// let mut tokcache = TokenizerCache::new(&v, &s);
 /// let _ty = full_type(&mut tokcache, 0).into_result_opt().unwrap().unwrap();
 /// ```
-pub fn full_type<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullTypeDesc<'s>>
+pub fn full_type<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, mut leftmost: Leftmost) -> ParseResult<'t, FullTypeDesc<'s>>
 {
     let mut quantified = Vec::new();
-    while stream.shift_keyword(Keyword::Forall).is_ok()
+    while leftmost.satisfy(stream.current(), true) && stream.shift_keyword(Keyword::Forall).is_ok()
     {
+        leftmost = leftmost.into_exclusive();
         while let &TokenKind::Identifier(ref s) = stream.current() { stream.shift(); quantified.place_back() <- s.clone(); }
         if !stream.current().is_text_period() { return Failed(ParseError::Expecting(ExpectingKind::Period, stream.current().position())); }
         stream.shift();
@@ -135,6 +141,7 @@ pub fn full_type<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: u
             NotConsumed => return Failed(ParseError::Expecting(ExpectingKind::Type, stream.current().position())),
             Failed(e) => return Failed(e), Success(s) => s
         };
+        leftmost = leftmost.into_exclusive();
         if let &TokenKind::Arrow(_) = stream.current()
         {
             // constraint

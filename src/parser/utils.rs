@@ -68,6 +68,11 @@ macro_rules! TMatchFirst
 	{
 		if let $pat = *$stream.current() { $stream.shift(); $extract } else { return NotConsumed; }
 	};
+	($leftmost: expr => $stream: expr; $pat: pat => $extract: expr) =>
+	{{
+		if !$leftmost.satisfy($stream.current(), true) { return NotConsumed; }
+		if let $pat = *$stream.current() { $stream.shift(); $extract } else { return NotConsumed; }
+	}};
 	($stream: expr; $pat: pat) => { if let $pat = *$stream.current() { $stream.shift(); } else { return NotConsumed; } };
 	($leftmost: expr => $stream: expr; $pat: pat) =>
 	{
