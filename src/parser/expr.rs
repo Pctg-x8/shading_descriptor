@@ -251,7 +251,7 @@ pub fn blk_vars<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Le
 }
 pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, (&'t Location, Vec<(FullExpression<'s>, FullExpression<'s>)>)>
 {
-    // let 〜(decls) [in?]
+    // let (decls) [in?]
     let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref p, Keyword::Let) => p);
     let block_start = take_current_block_begin(stream);
     let mut vals = Vec::new();
@@ -260,7 +260,7 @@ pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmo
         if stream.current().keyword() == Some(Keyword::In) { break; }
         if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
         let defbegin = get_definition_leftmost(block_start, stream);
-        let pat = expression(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
+        let pat = expression(stream, Leftmost::Inclusive(defbegin)).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
         let defbegin = Leftmost::Exclusive(defbegin);
         if !stream.current().is_equal() || !defbegin.satisfy(stream.current(), false)
         {
@@ -283,12 +283,9 @@ pub fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmo
 /// # use std::cell::RefCell;
 /// let (s, v) = (RefCell::new(Source::new("23 + ft (vec2 4 0).x\n4").into()), RefCell::new(Vec::new()));
 /// let mut tokcache = TokenizerCache::new(&v, &s);
-/// let _expr = expression(&mut tokcache, 1).into_result_opt().unwrap().unwrap();
+/// let _expr = expression(&mut tokcache, Leftmost::Nothing).into_result_opt().unwrap().unwrap();
 /// ```
-pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, FullExpression<'s>>
-{
-    infix_expr(stream, Leftmost::Inclusive(leftmost))
-}
+pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>> { infix_expr(stream, leftmost) }
 
 /*
 /// ラムダ抽象

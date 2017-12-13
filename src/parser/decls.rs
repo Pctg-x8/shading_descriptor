@@ -18,10 +18,9 @@ impl<'s> Parser<'s> for ValueDeclaration<'s>
     /// let vd = ValueDeclaration::parse(&mut tokcache, 0).unwrap();
     /// assert!(vd._type.is_some());
     /// ```
-    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
-        let pat = BreakParsing!(expression(stream, leftmost));
-        let leftmost = Leftmost::Exclusive(leftmost);
+        let pat = BreakParsing!(expression(stream, leftmost)); let leftmost = leftmost.into_exclusive();
         let _type = type_hint(stream, leftmost).into_result_opt()?;
         if !leftmost.satisfy(stream.current(), false) || !stream.current().is_equal()
         {
@@ -51,11 +50,12 @@ impl<'s> Parser<'s> for UniformDeclaration<'s>
     /// let ud = UniformDeclaration::parse(&mut tokcache, 0).unwrap();
     /// assert_eq!(ud.name, Some("test"));
     /// ```
-    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
-        let location = TMatchFirst!(stream; TokenKind::Keyword(ref loc, Keyword::Uniform) => loc.clone());
-        let (_, name) = name(stream, Leftmost::Exclusive(leftmost), true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
-        let _type = type_hint(stream, Leftmost::Exclusive(leftmost)).into_result(|| ParseError::Expecting(ExpectingKind::ItemDelimiter, stream.current().position()))?;
+        let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref loc, Keyword::Uniform) => loc.clone());
+        let leftmost = leftmost.into_exclusive();
+        let (_, name) = name(stream, leftmost, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
+        let _type = type_hint(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::ItemDelimiter, stream.current().position()))?;
         Success(UniformDeclaration { location, name, _type })
     }
 }
@@ -73,15 +73,16 @@ impl<'s> Parser<'s> for ConstantDeclaration<'s>
     /// let cd = ConstantDeclaration::parse(&mut tokcache, 0).unwrap();
     /// assert_eq!(cd.name, Some("psh1")); assert!(cd._type.is_none()); assert!(cd.value.is_some());
     /// ```
-    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
-        let location = TMatchFirst!(stream; TokenKind::Keyword(ref loc, Keyword::Constant) => loc);
-        let (_, name) = name(stream, Leftmost::Exclusive(leftmost), true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
-        let _type = type_hint(stream, Leftmost::Exclusive(leftmost)).into_result_opt()?;
-        let value = if Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) && stream.current().is_equal()
+        let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref loc, Keyword::Constant) => loc);
+        let leftmost = leftmost.into_exclusive();
+        let (_, name) = name(stream, leftmost, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
+        let _type = type_hint(stream, leftmost).into_result_opt()?;
+        let value = if leftmost.satisfy(stream.current(), false) && stream.current().is_equal()
         {
             stream.shift();
-            full_expression(stream, Leftmost::Exclusive(leftmost)).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position())).map(Some)?
+            full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position())).map(Some)?
         }
         else { None };
         Success(ConstantDeclaration { location: location.clone(), name, _type, value })
@@ -106,10 +107,9 @@ impl<'s> Parser<'s> for SemanticOutput<'s>
     /// assert_eq!(so.location, Location::default());
     /// assert_eq!(so.name, None); assert_eq!(so.semantics, Semantics::SVPosition); assert_eq!(so._type, None);
     /// ```
-    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: usize) -> ParseResult<'t, Self> where 's: 't
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
-        let location = TMatchFirst!(stream; TokenKind::Keyword(ref loc, Keyword::Out) => loc);
-        let leftmost = Leftmost::Exclusive(leftmost);
+        let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref loc, Keyword::Out) => loc); let leftmost = leftmost.into_exclusive();
         let (_, name) = name(stream, leftmost, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
         TMatch!(leftmost => stream; TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese),
             |p| ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, p));
@@ -177,5 +177,5 @@ fn type_hint<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftm
 {
     TMatchFirst!(leftmost => stream; TokenKind::ItemDescriptorDelimiter(_));
     if !leftmost.into_exclusive().satisfy(stream.current(), false) { return Failed(ParseError::Expecting(ExpectingKind::Type, stream.current().position())); }
-    full_type(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position())).into()
+    FullTypeDesc::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position())).into()
 }

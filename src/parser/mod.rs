@@ -6,7 +6,7 @@ mod assoc;
 mod expr; mod types; mod decls;
 pub use self::err::{Success, SuccessM, Failed, FailedM, NotConsumed, NotConsumedM};
 pub use self::expr::{FullExpression, Expression, ExpressionFragment, expression, full_expression, expr_lettings};
-pub use self::types::{FullTypeDesc, TypeSynTree, full_type, ty, TypeFn, TypeDeclaration, type_fn, type_decl};
+pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration};
 pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
 pub use self::assoc::{Associativity, AssociativityEnv};
 use self::utils::*; use self::err::*;
@@ -40,7 +40,7 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 
 	loop
 	{
-		let leftmost = get_definition_leftmost(Leftmost::Inclusive(1), stream);
+		let leftmost = Leftmost::Inclusive(get_definition_leftmost(Leftmost::Inclusive(1), stream));
 		let mut errors_t = Vec::new();
 		let inst = stream.save();
 		let has_error = if stream.current().infix_assoc()
@@ -63,13 +63,13 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 		{
 			let mut b = match *stream.current()
 			{
-				TokenKind::Keyword(_, Keyword::Type) => match type_fn(stream.restore(inst))
+				TokenKind::Keyword(_, Keyword::Type) => match TypeFn::parse(stream.restore(inst))
 				{
-					Err(e) => { errors_t.push(e); true }, Ok(tf) => { sp.type_fns.push(tf); continue; }
+					Failed(e) => { errors_t.push(e); true }, Success(tf) => { sp.type_fns.push(tf); continue; }, NotConsumed => unreachable!()
 				},
-				TokenKind::Keyword(_, Keyword::Data) => match type_decl(stream.restore(inst))
+				TokenKind::Keyword(_, Keyword::Data) => match TypeDeclaration::parse(stream.restore(inst))
 				{
-					Err(e) => { errors_t.push(e); true }, Ok(td) => { sp.types.push(td); continue; }
+					Failed(e) => { errors_t.push(e); true }, Success(td) => { sp.types.push(td); continue; }, NotConsumed => unreachable!()
 				},
 				_ => false
 			};
@@ -98,7 +98,7 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 		errors.append(&mut errors_t);
 		if has_error
 		{
-			stream.drop_line(); while Leftmost::Exclusive(leftmost).satisfy(stream.current(), false) { stream.drop_line(); }
+			stream.drop_line(); while leftmost.into_exclusive().satisfy(stream.current(), false) { stream.drop_line(); }
 		}
 		else { break; }
 	}
@@ -174,6 +174,23 @@ pub struct BlendingStateConfig
 	pub alpha_op: BlendOp, pub alpha_factor_src: BlendFactor, pub alpha_factor_dest: BlendFactor
 }
 
+/// Parses a depth state
+/// # Examples
+///
+/// ```
+/// # use pureshader::*;
+/// let mut ss = ShadingStates::default();
+/// let src = Source::new("!DepthTest").into().all();
+/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("!DepthTest");
+/// let src = Source::new("!DepthWrite").into().all();
+/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("!DepthWrite");
+/// let src = Source::new("DepthBounds 0.0 1.0").into().all();
+/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("DepthBounds");
+/// let src = Source::new("!StencilTest").into().all();
+/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("!StencilTest");
+/// let src = Source::new("StencilMask 128").into().all();
+/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("StencilMask");
+/// ```
 pub fn depth_state<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S, sink: &mut ShadingStates) -> ParseResult<'t, ()>
 {
 	let disabling = TMatch!(Optional: tok; TokenKind::Operator(Source { slice: "!", .. }));
@@ -257,7 +274,7 @@ pub trait BlockParser<'s>
 pub trait Parser<'s>
 {
 	type ResultTy: 's;
-	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S, leftmost: usize) -> ParseResult<'t, Self::ResultTy> where 's: 't;
+	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self::ResultTy> where 's: 't;
 }
 /// Parser of an indent independent element
 pub trait FreeParser<'s>
@@ -265,6 +282,7 @@ pub trait FreeParser<'s>
 	type ResultTy: 's;
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't;
 }
+/// Parser of a shading state, which can disable following "!"
 pub trait ShadingStateParser<'s> : FreeParser<'s>
 {
 	const HEADING_KEYWORD: Keyword;
@@ -282,6 +300,7 @@ pub trait ShadingStateParser<'s> : FreeParser<'s>
 		else { Self::parse(tok).map(ShadingState::Enable) }
 	}
 }
+/// "(" <inner> ")" / <inner>
 fn maybe_enclosed<'s: 't, 't, S: TokenStream<'s, 't>, F, R>(stream: &mut S, inner: F) -> Result<R, ParseError<'t>>
 	where F: FnOnce(&mut S) -> Result<R, ParseError<'t>>
 {
@@ -301,6 +320,14 @@ impl<'s> ShadingStateParser<'s> for BlendingStateConfig { const HEADING_KEYWORD:
 impl<'s> FreeParser<'s> for BlendingStateConfig
 {
 	type ResultTy = Self;
+	/// Parses a blending state
+	/// # Examples
+	///
+	/// ```
+	/// # use pureshader::*;
+	/// let src = Source::new("Blend (Add 1 ~SrcAlpha) (~DestAlpha + 1)").into().all();
+	/// BlendingStateConfig::parse(&mut PreanalyzedTokenStream::from(&src)).unwrap();
+	/// ```
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't
 	{
 		fn pat_poland<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, (BlendOp, BlendFactor, BlendFactor)>
@@ -420,14 +447,10 @@ pub struct ShaderStageDefinition<'s>
 /// 
 /// ```
 /// # use pureshader::*;
-/// # use std::cell::RefCell;
-/// let (s, v) = (RefCell::new(Source::new("FragmentShader(uv(TEXCOORD0): f2,):").into()), RefCell::new(Vec::new()));
-/// let mut tokcache = TokenizerCache::new(&v, &s);
-/// let (stg, def) = shader_stage_definition(&mut tokcache).unwrap();
+/// let s = Source::new("FragmentShader(uv(TEXCOORD0): f2,):").into().all();
+/// let (stg, def) = shader_stage_definition(&mut PreanalyzedTokenStream::from(&s)).unwrap();
 /// assert_eq!(stg, ShaderStage::Fragment);
-/// assert_eq!(def.location, Location::default());
-/// assert_eq!(def.inputs, vec![SemanticInput { location: Location { line: 1, column: 16 }, name: Some("uv"), semantics: Semantics::Texcoord(0), _type: BType::FVec(2) }]);
-/// assert!(def.outputs.is_empty()); assert!(def.uniforms.is_empty()); assert!(def.constants.is_empty()); assert!(def.values.is_empty());
+/// assert_eq!((def.inputs[0].name, def.inputs[0].semantics, def.inputs[0]._type), (Some("uv"), Semantics::Texcoord(0), BType::FVec(2)));
 /// ```
 pub fn shader_stage_definition<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResultM<'t, (ShaderStage, ShaderStageDefinition<'s>)>
 {
@@ -466,7 +489,7 @@ pub fn shader_stage_definition<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S) 
 		let mut errors = Vec::new();
 		while block_start.satisfy(tok.current(), true)
 		{
-			let defblock_begin = get_definition_leftmost(block_start, tok);
+			let defblock_begin = Leftmost::Inclusive(get_definition_leftmost(block_start, tok));
 			match *tok.current()
 			{
 				TokenKind::EOF(_) => break,
@@ -482,7 +505,7 @@ pub fn shader_stage_definition<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S) 
 					Err(e) =>
 					{
 						errors.push(e); tok.drop_line();
-						while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+						while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
 					}
 				},
 				TokenKind::Keyword(_, Keyword::Uniform) => match UniformDeclaration::parse(tok, defblock_begin)
@@ -491,7 +514,7 @@ pub fn shader_stage_definition<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S) 
 					Failed(e) =>
 					{
 						errors.push(e); tok.drop_line();
-						while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+						while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
 					},
 					_ => unreachable!()
 				},
@@ -501,7 +524,7 @@ pub fn shader_stage_definition<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S) 
 					Failed(e) =>
 					{
 						errors.push(e); tok.drop_line();
-						while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+						while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
 					},
 					_ => unreachable!()
 				},
@@ -511,7 +534,7 @@ pub fn shader_stage_definition<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S) 
 					Failed(e) =>
 					{
 						errors.push(e); tok.drop_line();
-						while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); }
+						while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
 					},
 					_ => unreachable!()
 				},
@@ -521,13 +544,13 @@ pub fn shader_stage_definition<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S) 
 					match ValueDeclaration::parse(tok, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, tok.current().position()))
 					{
 						Ok(v) => values.push(v),
-						Err(e) => { errors.push(e); tok.drop_line(); while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); } }
+						Err(e) => { errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); } }
 					}
 				},
 				_ => match ValueDeclaration::parse(tok, defblock_begin).into_result(|| ParseError::Unexpected(tok.current().position()))
 				{
 					Ok(v) => values.push(v),
-					Err(e) => { errors.push(e); tok.drop_line(); while Leftmost::Exclusive(defblock_begin).satisfy(tok.current(), false) { tok.drop_line(); } }
+					Err(e) => { errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); } }
 				}
 			}
 		}
