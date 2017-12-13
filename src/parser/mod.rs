@@ -6,7 +6,7 @@ mod assoc;
 mod expr; mod types; mod decls;
 pub use self::err::{Success, SuccessM, Failed, FailedM, NotConsumed, NotConsumedM};
 pub use self::expr::{FullExpression, Expression, ExpressionFragment, expression, full_expression, expr_lettings};
-pub use self::types::{FullTypeDesc, TypeSynTree, full_type, infix_ty};
+pub use self::types::{FullTypeDesc, TypeSynTree, full_type, ty, TypeFn, TypeDeclaration, type_fn, type_decl};
 pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
 pub use self::assoc::{Associativity, AssociativityEnv};
 use self::utils::*; use self::err::*;
@@ -15,6 +15,8 @@ use std::rc::Rc; use std::cell::RefCell;
 
 type RcMut<T> = Rc<RefCell<T>>;
 fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
+
+trait Positioned { fn position(&self) -> &Location; }
 
 /// シェーディングパイプライン(コンパイル単位)
 #[derive(Debug, Clone)]
@@ -101,143 +103,6 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 		else { break; }
 	}
 	if errors.is_empty() { Ok(sp) } else { Err(errors) }
-}
-
-/// 型シノニム/データ定義
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypeFn<'s> { pub location: Location, pub defs: Vec<(TypeSynTree<'s>, FullTypeDesc<'s>)> }
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DataConstructor<'s> { pub location: Location, pub name: &'s str, pub args: Vec<&'s str> }
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypeDeclaration<'s> { pub location: Location, pub defs: Vec<(TypeSynTree<'s>, Vec<DataConstructor<'s>>)> }
-/// Parse a type synonim declaration
-/// # Examples
-/// ```
-/// # use pureshader::*;
-/// # use std::cell::RefCell;
-///
-/// let (src, tvec) = (RefCell::new(Source::new("type Xnum = Int").into()), RefCell::new(Vec::new()));
-/// let mut cache = TokenizerCache::new(&tvec, &src);
-/// type_fn(&mut cache).expect("in case 1");
-/// // multiple definition
-/// let (src, tvec) = (RefCell::new(Source::new("type Xnum = int; Vec4 = f4").into()), RefCell::new(Vec::new()));
-/// let mut cache = TokenizerCache::new(&tvec, &src);
-/// type_fn(&mut cache).expect("in case 2");
-/// ```
-pub fn type_fn<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<TypeFn<'s>, ParseError<'t>>
-{
-	let location = TMatch!(stream; TokenKind::Keyword(ref p, Keyword::Type) => p, |p| ParseError::Expecting(ExpectingKind::Keyword(Keyword::Type), p));
-	let block_start = take_current_block_begin(stream);
-	let mut defs = Vec::new();
-	while block_start.satisfy(stream.current(), true)
-	{
-		let defblock_begin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
-		let pat = infix_ty(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::TypePattern, stream.current().position()))?;
-		let defblock_begin = defblock_begin.into_exclusive();
-		if !defblock_begin.satisfy(stream.current(), true) || !stream.current().is_equal()
-		{
-			return Err(ParseError::Expecting(ExpectingKind::ConcreteType, stream.current().position()));
-		}
-		stream.shift(); CheckLayout!(defblock_begin => stream);
-		let bound = full_type(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
-		defs.place_back() <- (pat, bound);
-
-		let delimitered = TMatch!(Optional: stream; TokenKind::StatementDelimiter(_));
-		if block_start.is_nothing() && TMatch!(Optional: stream; TokenKind::EndEnclosure(_, EnclosureKind::Brace))
-		{
-			return Ok(TypeFn { location: location.clone(), defs })
-		}
-		if !delimitered || (stream.on_linehead() && block_start.satisfy(stream.current(), false)) { break; }
-	}
-	if block_start.is_nothing() { TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Brace), |p| ParseError::ExpectingClose(EnclosureKind::Brace, p)); }
-	Ok(TypeFn { location: location.clone(), defs })
-}
-pub fn type_decl<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<TypeDeclaration<'s>, ParseError<'t>>
-{
-	fn prefix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
-	{
-		let (location, name) = match prefix_declarator(stream, leftmost)
-		{
-			Success(v) => v, Failed(e) => return Failed(e), NotConsumed => return NotConsumed
-		};
-		let leftmost = leftmost.into_exclusive();
-		let mut args = Vec::new();
-		while leftmost.satisfy(stream.current(), true)
-		{
-			match *stream.current()
-			{
-				TokenKind::Identifier(Source { slice, .. }) => { stream.shift(); args.push(slice) },
-				_ => break
-			}
-		}
-		Success(DataConstructor { location: location.clone(), name, args })
-	}
-	fn infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
-	{
-		if !leftmost.satisfy(stream.current(), false) { return NotConsumed; }
-		let (location, arg1) = if let TokenKind::Identifier(ref s) = *stream.current() { stream.shift(); (&s.pos, s.slice) } else { return NotConsumed };
-		let leftmost = leftmost.into_exclusive();
-		CheckLayout!(leftmost => stream);
-		let name = take_operator(stream).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?.slice;
-		CheckLayout!(leftmost => stream);
-		match *stream.current()
-		{
-			TokenKind::Identifier(Source { slice: arg2, .. }) =>
-			{
-				stream.shift(); Success(DataConstructor { location: location.clone(), name, args: vec![arg1, arg2] })
-			},
-			ref e => Failed(ParseError::Expecting(ExpectingKind::Argument, e.position()))
-		}
-	}
-	let location = TMatch!(stream; TokenKind::Keyword(ref p, Keyword::Data) => p, |p| ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), p));
-	let block_start = take_current_block_begin(stream);
-	let mut defs = Vec::new();
-	while block_start.satisfy(stream.current(), true)
-	{
-		let defblock_begin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
-		let pat = infix_ty(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
-		let defblock_begin = defblock_begin.into_exclusive();
-		if defblock_begin.satisfy(stream.current(), true) && stream.current().is_equal() { stream.shift(); }
-		else { return Err(ParseError::Expecting(ExpectingKind::Constructor, stream.current().position())); }
-		let (mut constructors, mut correct_brk) = (Vec::new(), false);
-		while defblock_begin.satisfy(stream.current(), true)
-		{
-			let dc = prefix(stream, defblock_begin).or_else(|| infix(stream, defblock_begin)).into_result_opt()?;
-			if let Some(p) = dc { constructors.push(p); } else { break; }
-
-			if let TokenKind::Operator(Source { slice: "|", .. }) = *stream.current() { stream.shift(); }
-			else { correct_brk = true; break; }
-		}
-		if !correct_brk { return Err(ParseError::Expecting(ExpectingKind::Constructor, stream.current().position())); }
-		defs.place_back() <- (pat, constructors);
-
-		let delimitered = TMatch!(Optional: stream; TokenKind::StatementDelimiter(_));
-		if block_start.is_nothing() && TMatch!(Optional: stream; TokenKind::EndEnclosure(_, EnclosureKind::Brace))
-		{
-			return Ok(TypeDeclaration { location: location.clone(), defs })
-		}
-		if !delimitered || (stream.on_linehead() && block_start.into_exclusive().satisfy(stream.current(), false)) { break; }
-	}
-	if block_start.is_nothing() { TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Brace), |p| ParseError::ExpectingClose(EnclosureKind::Brace, p)); }
-	Ok(TypeDeclaration { location: location.clone(), defs })
-}
-/// ident | ( operator )
-fn prefix_declarator<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, (&'t Location, &'s str)>
-{
-	let leftmost = leftmost.into_nothing_as(Leftmost::Inclusive(stream.current().position().column));
-	if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
-	match *stream.current()
-	{
-		TokenKind::Identifier(Source { slice, ref pos, .. }) => { stream.shift(); Success((pos, slice)) },
-		TokenKind::BeginEnclosure(ref p, EnclosureKind::Parenthese) =>
-		{
-			stream.shift();
-			let name = take_operator(stream).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?.slice;
-			if stream.current().is_end_enclosure_of(EnclosureKind::Parenthese) { stream.shift(); Success((p, name)) }
-			else { Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, stream.current().position())) }
-		},
-		_ => NotConsumed
-	}
 }
 
 /// シェーディングパイプラインステート
@@ -382,20 +247,28 @@ pub fn depth_state<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S, sink: &mut S
 		_ => NotConsumed
 	}
 }
-pub trait Parser<'s>
+/// Parser of a block
+pub trait BlockParser<'s>
 {
 	type ResultTy: 's;
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't;
 }
-pub trait ParserWithIndent<'s>
+/// Parser of an indented element
+pub trait Parser<'s>
 {
 	type ResultTy: 's;
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S, leftmost: usize) -> ParseResult<'t, Self::ResultTy> where 's: 't;
 }
-pub trait ShadingStateParser<'s> : Parser<'s>
+/// Parser of an indent independent element
+pub trait FreeParser<'s>
+{
+	type ResultTy: 's;
+	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't;
+}
+pub trait ShadingStateParser<'s> : FreeParser<'s>
 {
 	const HEADING_KEYWORD: Keyword;
-	fn switched_parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, ShadingState<<Self as Parser<'s>>::ResultTy>> where 's: 't
+	fn switched_parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, ShadingState<<Self as FreeParser<'s>>::ResultTy>> where 's: 't
 	{
 		if let TokenKind::Operator(Source { slice: "!", .. }) = *tok.current()
 		{
@@ -425,7 +298,7 @@ fn maybe_enclosed<'s: 't, 't, S: TokenStream<'s, 't>, F, R>(stream: &mut S, inne
 	else { Ok(r) }
 }
 impl<'s> ShadingStateParser<'s> for BlendingStateConfig { const HEADING_KEYWORD: Keyword = Keyword::Blend; }
-impl<'s> Parser<'s> for BlendingStateConfig
+impl<'s> FreeParser<'s> for BlendingStateConfig
 {
 	type ResultTy = Self;
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't
@@ -508,7 +381,7 @@ impl BlendOp
 		}
 	}
 }
-impl<'s> Parser<'s> for BlendFactor
+impl<'s> FreeParser<'s> for BlendFactor
 {
 	type ResultTy = Self;
 	fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Self> where 's: 't
