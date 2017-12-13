@@ -29,7 +29,7 @@ impl<'s> AssociativityEnv<'s>
     }
 }
 
-impl<'s> super::Parser<'s> for Associativity
+impl<'s> super::FreeParser<'s> for Associativity
 {
     type ResultTy = (Vec<Source<'s>>, Associativity);
     /// Parses an associativity declaration

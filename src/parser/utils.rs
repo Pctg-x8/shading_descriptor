@@ -1,6 +1,7 @@
 //! Parser utils
 
 use tokparse::{TokenStream, TokenKind, EnclosureKind, Source, Location};
+use parser::err::*;
 
 macro_rules! CheckLayout
 {
@@ -159,4 +160,22 @@ pub fn shift_infix_ops<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftm
         &TokenKind::Operator(ref s) | &TokenKind::InfixIdent(ref s) => { stream.shift(); Ok(s) },
         t => Err(t.position())
     }
+}
+/// ident | ( operator )
+pub fn shift_prefix_declarator<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, (&'t Location, &'s str)>
+{
+	let leftmost = leftmost.into_nothing_as(Leftmost::Inclusive(stream.current().position().column));
+	if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
+	match *stream.current()
+	{
+		TokenKind::Identifier(Source { slice, ref pos, .. }) => { stream.shift(); Success((pos, slice)) },
+		TokenKind::BeginEnclosure(ref p, EnclosureKind::Parenthese) =>
+		{
+			stream.shift();
+			let name = take_operator(stream).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?.slice;
+			if stream.current().is_end_enclosure_of(EnclosureKind::Parenthese) { stream.shift(); Success((p, name)) }
+			else { Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, stream.current().position())) }
+		},
+		_ => NotConsumed
+	}
 }

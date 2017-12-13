@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValueDeclaration<'s> { pub pat: FullExpression<'s>, pub _type: Option<FullTypeDesc<'s>>, pub value: FullExpression<'s> }
-impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
+impl<'s> Parser<'s> for ValueDeclaration<'s>
 {
     type ResultTy = Self;
     /// Parse a value declaration
@@ -37,7 +37,7 @@ impl<'s> ParserWithIndent<'s> for ValueDeclaration<'s>
 pub struct UniformDeclaration<'s> { pub location: Location, pub name: Option<&'s str>, pub _type: FullTypeDesc<'s> }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConstantDeclaration<'s> { pub location: Location, pub name: Option<&'s str>, pub _type: Option<FullTypeDesc<'s>>, pub value: Option<FullExpression<'s>> }
-impl<'s> ParserWithIndent<'s> for UniformDeclaration<'s>
+impl<'s> Parser<'s> for UniformDeclaration<'s>
 {
     type ResultTy = Self;
     /// Parse an uniform declaration
@@ -59,7 +59,7 @@ impl<'s> ParserWithIndent<'s> for UniformDeclaration<'s>
         Success(UniformDeclaration { location, name, _type })
     }
 }
-impl<'s> ParserWithIndent<'s> for ConstantDeclaration<'s>
+impl<'s> Parser<'s> for ConstantDeclaration<'s>
 {
     type ResultTy = Self;
     /// Parse a constant declaration
@@ -90,7 +90,7 @@ impl<'s> ParserWithIndent<'s> for ConstantDeclaration<'s>
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticOutput<'s> { pub location: Location, pub name: Option<&'s str>, pub semantics: Semantics, pub _type: Option<BType>, pub expr: FullExpression<'s> }
-impl<'s> ParserWithIndent<'s> for SemanticOutput<'s>
+impl<'s> Parser<'s> for SemanticOutput<'s>
 {
     type ResultTy = Self;
     /// Parse an output declaration from each shader stage  
@@ -124,7 +124,7 @@ impl<'s> ParserWithIndent<'s> for SemanticOutput<'s>
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticInput<'s> { pub location: Location, pub name: Option<&'s str>, pub semantics: Semantics, pub _type: BType }
-impl<'s> Parser<'s> for SemanticInput<'s>
+impl<'s> FreeParser<'s> for SemanticInput<'s>
 {
     type ResultTy = Self;
     /// Parse an input declaration each shader stage
