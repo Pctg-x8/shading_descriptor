@@ -5,7 +5,7 @@ pub mod err;
 mod assoc;
 mod expr; mod types; mod decls;
 pub use self::err::{Success, SuccessM, Failed, FailedM, NotConsumed, NotConsumedM};
-pub use self::expr::{FullExpression, Expression, ExpressionFragment, expression, full_expression, expr_lettings};
+pub use self::expr::{FullExpression, Expression, ExpressionFragment, expression};
 pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration};
 pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
 pub use self::assoc::{Associativity, AssociativityEnv};

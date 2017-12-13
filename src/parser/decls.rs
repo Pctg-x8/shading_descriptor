@@ -27,7 +27,7 @@ impl<'s> Parser<'s> for ValueDeclaration<'s>
             return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
         }
         stream.shift(); CheckLayout!(leftmost => stream);
-        let value = full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+        let value = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(ValueDeclaration { pat, _type, value })
     }
 }
@@ -82,7 +82,7 @@ impl<'s> Parser<'s> for ConstantDeclaration<'s>
         let value = if leftmost.satisfy(stream.current(), false) && stream.current().is_equal()
         {
             stream.shift();
-            full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position())).map(Some)?
+            FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position())).map(Some)?
         }
         else { None };
         Success(ConstantDeclaration { location: location.clone(), name, _type, value })
@@ -117,7 +117,7 @@ impl<'s> Parser<'s> for SemanticOutput<'s>
         TMatch!(leftmost => stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
         let _type = type_note(stream, leftmost, true).into_result_opt()?.and_then(|v| v);
         TMatch!(leftmost => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::ConcreteExpression, p));
-        let expr = full_expression(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+        let expr = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(SemanticOutput { location: location.clone(), name, semantics, _type, expr })
     }
 }

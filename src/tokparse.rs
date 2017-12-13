@@ -258,6 +258,11 @@ impl<'s: 't, 't> From<&'t [Token<'s>]> for PreanalyzedTokenStream<'s, 't>
 {
     fn from(tokens: &'t [Token<'s>]) -> Self { PreanalyzedTokenStream(0, tokens) }
 }
+impl<'s: 't, 't> PreanalyzedTokenStream<'s, 't>
+{
+    /// Whether all tokens are consumed
+    pub fn is_empty(&self) -> bool { self.0 >= self.1.len() }
+}
 
 const OPCLASS: &'static [char] = &['<', '＜', '>', '＞', '=', '＝', '!', '！', '$', '＄', '%', '％', '&', '＆', '~', '～', '^', '＾', '-', 'ー',
     '@', '＠', '+', '＋', '*', '＊', '/', '／', '・', '?', '？', '|', '｜', '∥', '―', '\\', '￥', '＼'];

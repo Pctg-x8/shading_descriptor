@@ -1,7 +1,7 @@
 //! Complex type parser
 
 use tokparse::{Location, Source, TokenKind, TokenStream, Keyword, BType, EnclosureKind};
-use super::expr::{FullExpression, full_expression};
+use super::expr::FullExpression;
 use super::err::*;
 use super::utils::*;
 use super::{Parser, BlockParser};
@@ -75,7 +75,7 @@ fn term_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmos
                 let num = if let Ok(p) = stream.shift_placeholder() { InferredArrayDim::Inferred(p.clone()) }
                     else
                     {
-                        full_expression(stream, Leftmost::Nothing).into_result_opt()?.map_or(InferredArrayDim::Unsized, InferredArrayDim::Fixed)
+                        FullExpression::parse(stream, Leftmost::Nothing).into_result_opt()?.map_or(InferredArrayDim::Unsized, InferredArrayDim::Fixed)
                     };
                 if let Err(p) = stream.shift_end_enclosure_of(EnclosureKind::Bracket) { return Failed(ParseError::ExpectingClose(EnclosureKind::Bracket, p)); }
                 e = TypeSynTree::ArrayDim { lhs: box e, num };
