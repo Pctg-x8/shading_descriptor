@@ -14,7 +14,7 @@ pub use parser::{Success, Failed, NotConsumed, Parser, FreeParser, BlockParser};
 pub use parser::{Associativity, AssociativityEnv};
 pub use parser::{SemanticInput, SemanticOutput, UniformDeclaration, ConstantDeclaration, ValueDeclaration};
 pub use parser::{ShaderStage, ShaderStageDefinition, shader_stage_definition};
-pub use parser::{ShadingState, ShadingStates, CompareOp, StencilOp, StencilTestConfig};
+pub use parser::{ShadingState, ShadingStates, CompareOp, StencilOp, StencilTestConfig, BlendingStateConfig};
 pub use parser::{ShadingPipeline, shading_pipeline};
 pub use parser::{ExpressionSynTree, FullExpression};
 pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration};
