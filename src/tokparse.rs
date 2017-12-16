@@ -129,6 +129,11 @@ impl<'s> From<Source<'s>> for TokenizerState<'s>
 {
     fn from(src: Source<'s>) -> Self { TokenizerState { src, last_line: 0, cache: Vec::new() } }
 }
+/// Source shorthand
+impl<'s> From<&'s str> for TokenizerState<'s>
+{
+    fn from(src: &'s str) -> Self { Self::from(Source::new(src)) }
+}
 /// The Token object must have an individual lifetime <'t> from self's lifetime
 /// and required to have fixed address(e.g. boxed or immutable vector)
 pub trait TokenStream<'s: 't, 't>
