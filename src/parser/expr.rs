@@ -3,7 +3,6 @@
 use tokparse::{Location, Source, TokenKind, Keyword, TokenStream, NumericTy, EnclosureKind};
 use super::err::*;
 use parser::{ExpectingKind, Leftmost, take_current_block_begin, get_definition_leftmost, Parser};
-use std::ops::Deref;
 
 #[derive(Debug, Clone, PartialEq, Eq)] pub enum ExpressionSynTree<'s>
 {
@@ -100,41 +99,20 @@ pub fn factor_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost:
         _ => NotConsumed
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExpressionFragment<'s>
+impl<'s> Parser<'s> for ExpressionSynTree<'s>
 {
-    Identifier(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>), Operator(Source<'s>),
-    Primary(Location, FullExpression<'s>), Bracketed(Location, Vec<FullExpression<'s>>), ObjectDescender(Location)
-}
-impl<'s> ExpressionFragment<'s>
-{
-    pub fn text(&self) -> Option<&'s str>
-    {
-        match *self
-        {
-            ExpressionFragment::Identifier(ref s) | ExpressionFragment::Numeric(ref s, _) | ExpressionFragment::NumericF(ref s, _) | ExpressionFragment::Operator(ref s) => Some(s.slice),
-            ExpressionFragment::ObjectDescender(_) => Some("."),
-            _ => None
-        }
-    }
-    /// A child expression
-    pub fn child(&self) -> Option<&FullExpression<'s>>
-    {
-        match self { &ExpressionFragment::Primary(_, ref x) => Some(x), _ => None }
-    }
-    /// Children expression
-    pub fn children(&self) -> Option<&Vec<FullExpression<'s>>>
-    {
-        match self { &ExpressionFragment::Bracketed(_, ref v) => Some(v), _ => None }
-    }
-}
-impl<'s> Into<Expression<'s>> for ExpressionFragment<'s> { fn into(self) -> Expression<'s> { Expression(vec![self]) } }
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Expression<'s>(Vec<ExpressionFragment<'s>>);
-impl<'s> Deref for Expression<'s>
-{
-    type Target = [ExpressionFragment<'s>]; fn deref(&self) -> &[ExpressionFragment<'s>] { &self.0 }
+    type ResultTy = FullExpression<'s>;
+    /// Parses an expression
+    /// # Example
+    ///
+    /// ```
+    /// # use pureshader::*;
+    /// let s = Source::new("23 + ft (vec2 4 0).x\n4").into().strip_all();
+    /// let mut st = PreanalyzedTokenStream::from(&s);
+    /// ExpressionSynTree::parse(&mut st, Leftmost::Nothing).unwrap();
+    /// assert!(!st.is_empty());
+    /// ```
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>> where 's: 't { infix_expr(stream, leftmost) }
 }
 impl<'s> Into<FullExpression<'s>> for ExpressionSynTree<'s>
 {
@@ -174,7 +152,7 @@ impl<'s> Parser<'s> for FullExpression<'s>
             TokenKind::Keyword(_, Keyword::Let) => expr_lettings(stream, leftmost),
             TokenKind::Keyword(_, Keyword::If) | TokenKind::Keyword(_, Keyword::Unless) => expr_conditional(stream, leftmost),
             TokenKind::Keyword(_, Keyword::Do) => block_content(stream),
-            _ => infix_expr(stream, leftmost)
+            _ => ExpressionSynTree::parse(stream, leftmost)
         }
     }
 }
@@ -275,7 +253,8 @@ fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
         if stream.current().keyword() == Some(Keyword::In) { break; }
         if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
         let defbegin = get_definition_leftmost(block_start, stream);
-        let pat = expression(stream, Leftmost::Inclusive(defbegin)).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
+        let pat = ExpressionSynTree::parse(stream, Leftmost::Inclusive(defbegin))
+            .into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
         let defbegin = Leftmost::Exclusive(defbegin);
         if !stream.current().is_equal() || !defbegin.satisfy(stream.current(), false)
         {
@@ -289,18 +268,6 @@ fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
     if block_start.is_explicit() && !stream.current().is_end_enclosure_of(EnclosureKind::Brace) { return Failed(ParseError::ExpectingClose(EnclosureKind::Brace, stream.current().position())); }
     Success((location, vals))
 }
-
-/// Parses an expression
-/// # Example
-///
-/// ```
-/// # use pureshader::*;
-/// let s = Source::new("23 + ft (vec2 4 0).x\n4").into().strip_all();
-/// let mut st = PreanalyzedTokenStream::from(&s);
-/// expression(&mut st, Leftmost::Nothing).unwrap();
-/// assert!(!st.is_empty());
-/// ```
-pub fn expression<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>> { infix_expr(stream, leftmost) }
 
 /*
 /// ラムダ抽象

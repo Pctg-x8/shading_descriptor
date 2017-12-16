@@ -2,8 +2,7 @@
 
 #[macro_use] pub mod utils;
 pub mod err;
-mod assoc;
-mod expr; mod types; mod decls;
+mod assoc; mod expr; mod types; mod decls;
 pub use self::err::{Success, SuccessM, Failed, FailedM, NotConsumed, NotConsumedM};
 use self::utils::*; use self::err::*;
 use tokparse::*;
