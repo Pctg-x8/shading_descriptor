@@ -5,13 +5,15 @@ pub mod err;
 mod assoc;
 mod expr; mod types; mod decls;
 pub use self::err::{Success, SuccessM, Failed, FailedM, NotConsumed, NotConsumedM};
-pub use self::expr::{FullExpression, Expression, ExpressionFragment, expression};
-pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration};
-pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
-pub use self::assoc::{Associativity, AssociativityEnv};
 use self::utils::*; use self::err::*;
 use tokparse::*;
 use std::rc::Rc; use std::cell::RefCell;
+
+// child parsers //
+pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration};
+pub use self::expr::{FullExpression, ExpressionSynTree};
+pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
+pub use self::assoc::{Associativity, AssociativityEnv};
 
 type RcMut<T> = Rc<RefCell<T>>;
 fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
@@ -180,15 +182,15 @@ pub struct BlendingStateConfig
 /// ```
 /// # use pureshader::*;
 /// let mut ss = ShadingStates::default();
-/// let src = Source::new("!DepthTest").into().all();
+/// let src = Source::new("!DepthTest").into().strip_all();
 /// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("!DepthTest");
-/// let src = Source::new("!DepthWrite").into().all();
+/// let src = Source::new("!DepthWrite").into().strip_all();
 /// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("!DepthWrite");
-/// let src = Source::new("DepthBounds 0.0 1.0").into().all();
+/// let src = Source::new("DepthBounds 0.0 1.0").into().strip_all();
 /// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("DepthBounds");
-/// let src = Source::new("!StencilTest").into().all();
+/// let src = Source::new("!StencilTest").into().strip_all();
 /// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("!StencilTest");
-/// let src = Source::new("StencilMask 128").into().all();
+/// let src = Source::new("StencilMask 128").into().strip_all();
 /// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("StencilMask");
 /// ```
 pub fn depth_state<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S, sink: &mut ShadingStates) -> ParseResult<'t, ()>
@@ -325,7 +327,7 @@ impl<'s> FreeParser<'s> for BlendingStateConfig
 	///
 	/// ```
 	/// # use pureshader::*;
-	/// let src = Source::new("Blend (Add 1 ~SrcAlpha) (~DestAlpha + 1)").into().all();
+	/// let src = Source::new("Blend (Add 1 ~SrcAlpha) (~DestAlpha + 1)").into().strip_all();
 	/// BlendingStateConfig::parse(&mut PreanalyzedTokenStream::from(&src)).unwrap();
 	/// ```
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't
@@ -447,7 +449,7 @@ pub struct ShaderStageDefinition<'s>
 /// 
 /// ```
 /// # use pureshader::*;
-/// let s = Source::new("FragmentShader(uv(TEXCOORD0): f2,):").into().all();
+/// let s = Source::new("FragmentShader(uv(TEXCOORD0): f2,):").into().strip_all();
 /// let (stg, def) = shader_stage_definition(&mut PreanalyzedTokenStream::from(&s)).unwrap();
 /// assert_eq!(stg, ShaderStage::Fragment);
 /// assert_eq!((def.inputs[0].name, def.inputs[0].semantics, def.inputs[0]._type), (Some("uv"), Semantics::Texcoord(0), BType::FVec(2)));

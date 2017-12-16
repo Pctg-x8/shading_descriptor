@@ -320,7 +320,7 @@ impl<'s> TokenizerState<'s>
             }
         }
     }
-    pub fn all(mut self) -> Vec<Token<'s>>
+    pub fn strip_all(mut self) -> Vec<Token<'s>>
     {
         let mut v = Vec::new();
         loop

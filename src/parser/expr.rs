@@ -163,7 +163,7 @@ impl<'s> Parser<'s> for FullExpression<'s>
     ///
     /// ```
     /// # use pureshader::*;
-    /// let s = Source::new("let b = if true then 2 else 3 in do trace $ show b; return b").into().all();
+    /// let s = Source::new("let b = if true then 2 else 3 in do trace $ show b; return b").into().strip_all();
     /// FullExpression::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
@@ -295,7 +295,7 @@ fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
 ///
 /// ```
 /// # use pureshader::*;
-/// let s = Source::new("23 + ft (vec2 4 0).x\n4").into().all();
+/// let s = Source::new("23 + ft (vec2 4 0).x\n4").into().strip_all();
 /// let mut st = PreanalyzedTokenStream::from(&s);
 /// expression(&mut st, Leftmost::Nothing).unwrap();
 /// assert!(!st.is_empty());

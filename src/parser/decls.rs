@@ -12,10 +12,8 @@ impl<'s> Parser<'s> for ValueDeclaration<'s>
     /// 
     /// ```
     /// # use pureshader::*;
-    /// # use std::cell::RefCell;
-    /// let (s, v) = (RefCell::new(Source::new("succ x: int -> _ = x + 1").into()), RefCell::new(Vec::new()));
-    /// let mut tokcache = TokenizerCache::new(&v, &s);
-    /// let vd = ValueDeclaration::parse(&mut tokcache, 0).unwrap();
+    /// let s = Source::new("succ x: int -> _ = x + 1").into().strip_all();
+    /// let vd = ValueDeclaration::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
     /// assert!(vd._type.is_some());
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
@@ -44,11 +42,10 @@ impl<'s> Parser<'s> for UniformDeclaration<'s>
     /// 
     /// ```
     /// # use pureshader::*;
-    /// # use std::cell::RefCell;
-    /// let (s, v) = (RefCell::new(Source::new("uniform test: mf4").into()), RefCell::new(Vec::new()));
-    /// let mut tokcache = TokenizerCache::new(&v, &s);
-    /// let ud = UniformDeclaration::parse(&mut tokcache, 0).unwrap();
+    /// let s = Source::new("uniform test: mf4").into().strip_all();
+    /// let ud = UniformDeclaration::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
     /// assert_eq!(ud.name, Some("test"));
+    /// assert_eq!(ud._type, FullTypeDesc { tree: TypeSynTree::Basic(Location { column: 15, line: 1 }, BType::FMat(4, 4)), quantified: Vec::new(), constraints: Vec::new() });
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
@@ -67,10 +64,8 @@ impl<'s> Parser<'s> for ConstantDeclaration<'s>
     ///
     /// ```
     /// # use pureshader::*;
-    /// # use std::cell::RefCell;
-    /// let (s, v) = (RefCell::new(Source::new("constant psh1 = (0, 0).yx").into()), RefCell::new(Vec::new()));
-    /// let mut tokcache = TokenizerCache::new(&v, &s);
-    /// let cd = ConstantDeclaration::parse(&mut tokcache, 0).unwrap();
+    /// let s = Source::new("constant psh1 = (0, 0).yx").into().strip_all();
+    /// let cd = ConstantDeclaration::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
     /// assert_eq!(cd.name, Some("psh1")); assert!(cd._type.is_none()); assert!(cd.value.is_some());
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
@@ -95,17 +90,14 @@ impl<'s> Parser<'s> for SemanticOutput<'s>
 {
     type ResultTy = Self;
     /// Parse an output declaration from each shader stage  
-    /// `"out" ident semantics "=" full_expression`
+    /// `"out" ident "(" semantics ")" "=" full_expression`
     /// # Example
     /// 
     /// ```
     /// # use pureshader::*;
-    /// # use std::cell::RefCell;
-    /// let (s, v) = (RefCell::new(Source::new("out _(SV_Position) = mvp * pos").into()), RefCell::new(Vec::new()));
-    /// let mut tokcache = TokenizerCache::new(&v, &s);
-    /// let so = SemanticOutput::parse(&mut tokcache, 0).unwrap();
-    /// assert_eq!(so.location, Location::default());
-    /// assert_eq!(so.name, None); assert_eq!(so.semantics, Semantics::SVPosition); assert_eq!(so._type, None);
+    /// let s = Source::new("out _(SV_Position) = mvp * pos").into().strip_all();
+    /// let so = SemanticOutput::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
+    /// assert_eq!((so.name, so.semantics, so._type), (None, Semantics::SVPosition, None));
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
@@ -127,20 +119,19 @@ pub struct SemanticInput<'s> { pub location: Location, pub name: Option<&'s str>
 impl<'s> FreeParser<'s> for SemanticInput<'s>
 {
     type ResultTy = Self;
-    /// Parse an input declaration each shader stage
+    /// Parse an input declaration each shader stage  
+    /// `"in"? ident "(" semantics ")" type_note?`
     /// # Example
     /// 
     /// ```
     /// # use pureshader::*;
-    /// # use std::cell::RefCell;
-    /// let (s, v) = (RefCell::new(Source::new("pos(POSITION): f4").into()), RefCell::new(Vec::new()));
-    /// let mut tokcache = TokenizerCache::new(&v, &s);
-    /// assert_eq!(SemanticInput::parse(&mut tokcache), Success(SemanticInput { location: Location::default(), name: Some("pos"), semantics: Semantics::Position(0), _type: BType::FVec(4) }));
-    /// 
+    /// let s = Source::new("pos(POSITION): f4").into().strip_all();
+    /// let si = SemanticInput::parse(&mut PreanalyzedTokenStream::from(&s)).except("in shortest case");
+    /// assert_eq!((si.name, si.semantics, si._type), (Some("pos"), Semantics::Position(0), BType::FVec(4)));
     /// // optional `in`
-    /// let (s, v) = (RefCell::new(Source::new("in pos(POSITION): f4").into()), RefCell::new(Vec::new()));
-    /// let mut tokcache = TokenizerCache::new(&v, &s);
-    /// assert_eq!(SemanticInput::parse(&mut tokcache), Success(SemanticInput { location: Location::default(), name: Some("pos"), semantics: Semantics::Position(0), _type: BType::FVec(4) }));
+    /// let s = Source::new("in pos(POSITION): f4").into().strip_all();
+    /// let si = SemanticInput::parse(&mut PreanalyzedTokenStream::from(&s)).except("in explicit `in`");
+    /// assert_eq!((si.name, si.semantics, si._type), (Some("pos"), Semantics::Position(0), BType::FVec(4)));
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Self> where 's: 't
     {
