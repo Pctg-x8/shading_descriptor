@@ -12,7 +12,7 @@ impl<'s> Parser<'s> for ValueDeclaration<'s>
     /// 
     /// ```
     /// # use pureshader::*;
-    /// let s = Source::new("succ x: int -> _ = x + 1").into().strip_all();
+    /// let s = TokenizerState::from("succ x: int -> _ = x + 1").strip_all();
     /// let vd = ValueDeclaration::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
     /// assert!(vd._type.is_some());
     /// ```
@@ -42,7 +42,7 @@ impl<'s> Parser<'s> for UniformDeclaration<'s>
     /// 
     /// ```
     /// # use pureshader::*;
-    /// let s = Source::new("uniform test: mf4").into().strip_all();
+    /// let s = TokenizerState::from("uniform test: mf4").strip_all();
     /// let ud = UniformDeclaration::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
     /// assert_eq!(ud.name, Some("test"));
     /// assert_eq!(ud._type, FullTypeDesc { tree: TypeSynTree::Basic(Location { column: 15, line: 1 }, BType::FMat(4, 4)), quantified: Vec::new(), constraints: Vec::new() });
@@ -64,7 +64,7 @@ impl<'s> Parser<'s> for ConstantDeclaration<'s>
     ///
     /// ```
     /// # use pureshader::*;
-    /// let s = Source::new("constant psh1 = (0, 0).yx").into().strip_all();
+    /// let s = TokenizerState::from("constant psh1 = (0, 0).yx").strip_all();
     /// let cd = ConstantDeclaration::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
     /// assert_eq!(cd.name, Some("psh1")); assert!(cd._type.is_none()); assert!(cd.value.is_some());
     /// ```
@@ -95,7 +95,7 @@ impl<'s> Parser<'s> for SemanticOutput<'s>
     /// 
     /// ```
     /// # use pureshader::*;
-    /// let s = Source::new("out _(SV_Position) = mvp * pos").into().strip_all();
+    /// let s = TokenizerState::from("out _(SV_Position) = mvp * pos").strip_all();
     /// let so = SemanticOutput::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
     /// assert_eq!((so.name, so.semantics, so._type), (None, Semantics::SVPosition, None));
     /// ```
@@ -125,11 +125,11 @@ impl<'s> FreeParser<'s> for SemanticInput<'s>
     /// 
     /// ```
     /// # use pureshader::*;
-    /// let s = Source::new("pos(POSITION): f4").into().strip_all();
+    /// let s = TokenizerState::from("pos(POSITION): f4").strip_all();
     /// let si = SemanticInput::parse(&mut PreanalyzedTokenStream::from(&s)).except("in shortest case");
     /// assert_eq!((si.name, si.semantics, si._type), (Some("pos"), Semantics::Position(0), BType::FVec(4)));
     /// // optional `in`
-    /// let s = Source::new("in pos(POSITION): f4").into().strip_all();
+    /// let s = TokenizerState::from("in pos(POSITION): f4").strip_all();
     /// let si = SemanticInput::parse(&mut PreanalyzedTokenStream::from(&s)).except("in explicit `in`");
     /// assert_eq!((si.name, si.semantics, si._type), (Some("pos"), Semantics::Position(0), BType::FVec(4)));
     /// ```

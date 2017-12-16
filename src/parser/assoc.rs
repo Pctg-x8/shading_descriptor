@@ -36,11 +36,8 @@ impl<'s> super::FreeParser<'s> for Associativity
     /// ## Examples
     /// ```
     /// # use pureshader::*;
-    /// # use std::cell::RefCell;
-    ///
-    /// let (src, tvec) = (RefCell::new(Source::new("infixl 3 +").into()), RefCell::new(Vec::new()));
-    /// let mut cache = TokenizerCache::new(&tvec, &src);
-    /// let (ops, assoc) = Associativity::parse(&mut cache).expect("in case 1");
+    /// let s = TokenizerState::from("infixl 3 +").strip_all();
+    /// let (ops, assoc) = Associativity::parse(&mut PreanalyzedTokenStream::from(&s)).unwrap();
     /// assert_eq!(ops, vec![Source { slice: "+", pos: Location { line: 1, column: 10 } }]);
     /// assert_eq!(assoc, Associativity::Left(3));
     /// ```

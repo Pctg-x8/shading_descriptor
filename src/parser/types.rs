@@ -117,7 +117,7 @@ impl<'s> Parser<'s> for TypeSynTree<'s>
     ///
     /// ```
     /// # use pureshader::*;
-    /// let ts = Source::new("z :+: String").into().strip_all();
+    /// let ts = TokenizerState::from("z :+: String").strip_all();
     /// let _ty = TypeSynTree::parse(&mut From::from(&ts), Leftmost::Nothing).unwrap();
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(s: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't { arrow_ty(s, leftmost) }
@@ -134,7 +134,7 @@ impl<'s> Parser<'s> for FullTypeDesc<'s>
     ///
     /// ```
     /// # use pureshader::*;
-    /// let ts = Source::new("forall z. (Show z, Read z) => Eq z => z -> (z, String)").into().strip_all();
+    /// let ts = TokenizerState::from("forall z. (Show z, Read z) => Eq z => z -> (z, String)").strip_all();
     /// let _ty = FullTypeDesc::parse(&mut From::from(&ts), Leftmost::Nothing).unwrap();
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, mut leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
@@ -186,10 +186,10 @@ impl<'s> BlockParser<'s> for TypeFn<'s>
     /// # Examples
     /// ```
     /// # use pureshader::*;
-    /// let src = Source::new("type Xnum = Int").into().strip_all();
+    /// let src = TokenizerState::from("type Xnum = Int").strip_all();
     /// TypeFn::parse(&mut PreanalyzedTokenStream::from(&src)).expect("in case 1");
     /// // multiple definition
-    /// let src = Source::new("type Xnum a = a; Vec4 = f4").into().strip_all();
+    /// let src = TokenizerState::from("type Xnum a = a; Vec4 = f4").strip_all();
     /// TypeFn::parse(&mut PreanalyzedTokenStream::from(&src)).expect("in case 2");
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Self> where 's: 't
@@ -229,10 +229,10 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
     ///
     /// ```
     /// # use pureshader::*;
-    /// let src = Source::new("data Np x = Np x Int").into().strip_all();
+    /// let src = TokenizerState::from("data Np x = Np x Int").strip_all();
     /// TypeDeclaration::parse(&mut PreanalyzedTokenStream::from(&src)).expect("in simple case");
     /// // infix declaration
-    /// let src = Source::new("data a Np x = x :,: a").into().strip_all();
+    /// let src = TokenizerState::from("data a Np x = x :,: a").strip_all();
     /// TypeDeclaration::parse(&mut PreanalyzedTokenStream::from(&src)).expect("in infix case");
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Self> where 's: 't
