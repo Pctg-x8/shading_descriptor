@@ -37,7 +37,7 @@ impl<'s> super::FreeParser<'s> for Associativity
     /// ```
     /// # use pureshader::*;
     /// let s = TokenizerState::from("infixl 3 +").strip_all();
-    /// let (ops, assoc) = Associativity::parse(&mut PreanalyzedTokenStream::from(&s)).unwrap();
+    /// let (ops, assoc) = Associativity::parse(&mut PreanalyzedTokenStream::from(&s[..])).unwrap();
     /// assert_eq!(ops, vec![Source { slice: "+", pos: Location { line: 1, column: 10 } }]);
     /// assert_eq!(assoc, Associativity::Left(3));
     /// ```

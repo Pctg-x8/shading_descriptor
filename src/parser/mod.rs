@@ -182,15 +182,15 @@ pub struct BlendingStateConfig
 /// # use pureshader::*;
 /// let mut ss = ShadingStates::default();
 /// let src = TokenizerState::from("!DepthTest").strip_all();
-/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("!DepthTest");
+/// depth_state(&mut PreanalyzedTokenStream::from(&src[..]), &mut ss).expect("!DepthTest");
 /// let src = TokenizerState::from("!DepthWrite").strip_all();
-/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("!DepthWrite");
+/// depth_state(&mut PreanalyzedTokenStream::from(&src[..]), &mut ss).expect("!DepthWrite");
 /// let src = TokenizerState::from("DepthBounds 0.0 1.0").strip_all();
-/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("DepthBounds");
+/// depth_state(&mut PreanalyzedTokenStream::from(&src[..]), &mut ss).expect("DepthBounds");
 /// let src = TokenizerState::from("!StencilTest").strip_all();
-/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("!StencilTest");
+/// depth_state(&mut PreanalyzedTokenStream::from(&src[..]), &mut ss).expect("!StencilTest");
 /// let src = TokenizerState::from("StencilMask 128").strip_all();
-/// depth_state(&mut PreanalyzedTokenStream::from(&src), &mut ss).expect("StencilMask");
+/// depth_state(&mut PreanalyzedTokenStream::from(&src[..]), &mut ss).expect("StencilMask");
 /// ```
 pub fn depth_state<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S, sink: &mut ShadingStates) -> ParseResult<'t, ()>
 {
@@ -271,6 +271,12 @@ pub trait BlockParser<'s>
 	type ResultTy: 's;
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't;
 }
+/// Parser of a block, yielding multiple errors
+pub trait BlockParserM<'s>
+{
+	type ResultTy: 's;
+	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResultM<'t, Self::ResultTy> where 's: 't;
+}
 /// Parser of an indented element
 pub trait Parser<'s>
 {
@@ -327,7 +333,7 @@ impl<'s> FreeParser<'s> for BlendingStateConfig
 	/// ```
 	/// # use pureshader::*;
 	/// let src = TokenizerState::from("Blend (Add 1 ~SrcAlpha) (~DestAlpha + 1)").strip_all();
-	/// BlendingStateConfig::parse(&mut PreanalyzedTokenStream::from(&src)).unwrap();
+	/// BlendingStateConfig::parse(&mut PreanalyzedTokenStream::from(&src[..])).unwrap();
 	/// ```
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't
 	{
@@ -449,7 +455,7 @@ pub struct ShaderStageDefinition<'s>
 /// ```
 /// # use pureshader::*;
 /// let s = TokenizerState::from("FragmentShader(uv(TEXCOORD0): f2,):").strip_all();
-/// let (stg, def) = shader_stage_definition(&mut PreanalyzedTokenStream::from(&s)).unwrap();
+/// let (stg, def) = shader_stage_definition(&mut PreanalyzedTokenStream::from(&s[..])).unwrap();
 /// assert_eq!(stg, ShaderStage::Fragment);
 /// assert_eq!((def.inputs[0].name, def.inputs[0].semantics, def.inputs[0]._type), (Some("uv"), Semantics::Texcoord(0), BType::FVec(2)));
 /// ```

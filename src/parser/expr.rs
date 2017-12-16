@@ -108,7 +108,7 @@ impl<'s> Parser<'s> for ExpressionSynTree<'s>
     /// ```
     /// # use pureshader::*;
     /// let s = TokenizerState::from("23 + ft (vec2 4 0).x\n4").strip_all();
-    /// let mut st = PreanalyzedTokenStream::from(&s);
+    /// let mut st = PreanalyzedTokenStream::from(&s[..]);
     /// ExpressionSynTree::parse(&mut st, Leftmost::Nothing).unwrap();
     /// assert!(!st.is_empty());
     /// ```
@@ -142,7 +142,7 @@ impl<'s> Parser<'s> for FullExpression<'s>
     /// ```
     /// # use pureshader::*;
     /// let s = TokenizerState::from("let b = if true then 2 else 3 in do trace $ show b; return b").strip_all();
-    /// FullExpression::parse(&mut PreanalyzedTokenStream::from(&s), Leftmost::Nothing).unwrap();
+    /// FullExpression::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::Nothing).unwrap();
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
