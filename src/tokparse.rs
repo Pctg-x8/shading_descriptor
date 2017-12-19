@@ -79,7 +79,7 @@ impl<'s> TokenKind<'s>
     pub fn keyword(&self)  -> Option<Keyword>     { match *self { TokenKind::Keyword(_, k)   => Some(k), _ => None } }
     pub fn operator(&self) -> Option<&Source<'s>> { match *self { TokenKind::Operator(ref s) => Some(s), _ => None } }
     pub fn identifier(&self) -> Option<&Source<'s>> { match *self { TokenKind::Identifier(ref s) => Some(s), _ => None } }
-    pub fn numeric(&self) -> Option<&Source<'s>> { match *self { TokenKind::Numeric(ref s) => Some(s), _ => None } }
+    pub fn numeric(&self) -> Option<&Source<'s>> { match *self { TokenKind::Numeric(ref s, _) => Some(s), _ => None } }
     pub fn infix_assoc(&self) -> bool { match self.keyword() { Some(Keyword::Infix) | Some(Keyword::Infixl) | Some(Keyword::Infixr) => true, _ => false } }
     pub fn is_list_delimiter(&self) -> bool { match *self { TokenKind::ListDelimiter(_) => true, _ => false } }
     pub fn is_item_delimiter(&self) -> bool { discriminant(self) == discriminant(&TokenKind::ItemDescriptorDelimiter(Location::default())) }
