@@ -123,7 +123,7 @@ impl<'s> Parser<'s> for TypeSynTree<'s>
     fn parse<'t, S: TokenStream<'s, 't>>(s: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't { arrow_ty(s, leftmost) }
 }
 
-/// Quantiied: 明示的なものだけ(forall ..., <tree>)
+/// Quantified: 明示的なものだけ(forall ..., <tree>)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullTypeDesc<'s> { pub quantified: Vec<Source<'s>>, pub constraints: Vec<TypeSynTree<'s>>, pub tree: TypeSynTree<'s> }
 impl<'s> Parser<'s> for FullTypeDesc<'s>

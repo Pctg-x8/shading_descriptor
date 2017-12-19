@@ -50,7 +50,7 @@ impl<'s> Parser<'s> for UniformDeclaration<'s>
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
         let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref loc, Keyword::Uniform) => loc.clone());
-        let leftmost = leftmost.into_exclusive();
+        let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(location.column)).into_exclusive();
         let (_, name) = name(stream, leftmost, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
         let _type = type_hint(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::ItemDelimiter, stream.current().position()))?;
         Success(UniformDeclaration { location, name, _type })
@@ -71,7 +71,7 @@ impl<'s> Parser<'s> for ConstantDeclaration<'s>
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
         let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref loc, Keyword::Constant) => loc);
-        let leftmost = leftmost.into_exclusive();
+        let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(location.column)).into_exclusive();
         let (_, name) = name(stream, leftmost, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
         let _type = type_hint(stream, leftmost).into_result_opt()?;
         let value = if leftmost.satisfy(stream.current(), false) && stream.current().is_equal()
@@ -160,8 +160,9 @@ fn par_semantics<'s: 't, 't, S: TokenStream<'s, 't>>(s: &mut S, leftmost: Leftmo
 /// : (basic_type | _)
 fn type_note<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost, allow_placeholder: bool) -> ParseResult<'t, Option<BType>>
 {
-    TMatchFirst!(leftmost => stream; TokenKind::ItemDescriptorDelimiter(_));
-    if !leftmost.satisfy(stream.current(), true) { return Failed(ParseError::Expecting(ExpectingKind::Type, stream.current().position())); }
+    let lref = TMatchFirst!(leftmost => stream; TokenKind::ItemDescriptorDelimiter(ref p) => p);
+    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lref.column)).into_exclusive();
+    if !leftmost.satisfy(stream.current(), false) { return Failed(ParseError::Expecting(ExpectingKind::Type, stream.current().position())); }
     match *stream.current()
     {
         TokenKind::BasicType(_, t) => { stream.shift(); Success(Some(t)) }, TokenKind::Placeholder(_) if allow_placeholder => { stream.shift(); Success(None) },
@@ -171,7 +172,8 @@ fn type_note<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftm
 /// : type
 fn type_hint<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullTypeDesc<'s>>
 {
-    TMatchFirst!(leftmost => stream; TokenKind::ItemDescriptorDelimiter(_));
-    if !leftmost.into_exclusive().satisfy(stream.current(), false) { return Failed(ParseError::Expecting(ExpectingKind::Type, stream.current().position())); }
+    let lref = TMatchFirst!(leftmost => stream; TokenKind::ItemDescriptorDelimiter(ref p) => p);
+    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lref.column)).into_exclusive();
+    if !leftmost.satisfy(stream.current(), false) { return Failed(ParseError::Expecting(ExpectingKind::Type, stream.current().position())); }
     FullTypeDesc::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position())).into()
 }

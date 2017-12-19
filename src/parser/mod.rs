@@ -189,8 +189,8 @@ pub struct BlendingStateConfig
 /// depth_state(&mut PreanalyzedTokenStream::from(&src[..]), &mut ss).expect("DepthBounds");
 /// let src = TokenizerState::from("!StencilTest").strip_all();
 /// depth_state(&mut PreanalyzedTokenStream::from(&src[..]), &mut ss).expect("!StencilTest");
-/// let src = TokenizerState::from("StencilMask 128").strip_all();
-/// depth_state(&mut PreanalyzedTokenStream::from(&src[..]), &mut ss).expect("StencilMask");
+/// let src = TokenizerState::from("StencilWriteMask 128").strip_all();
+/// depth_state(&mut PreanalyzedTokenStream::from(&src[..]), &mut ss).expect("StencilWriteMask");
 /// ```
 pub fn depth_state<'s: 't, 't, S: TokenStream<'s, 't>>(tok: &mut S, sink: &mut ShadingStates) -> ParseResult<'t, ()>
 {
