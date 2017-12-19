@@ -72,8 +72,14 @@ impl<'s> TokenKind<'s>
     {
         match *self { TokenKind::EndEnclosure(_, k) => k == kind, _ => false }
     }
+}
+/// typed container accessors
+impl<'s> TokenKind<'s>
+{
     pub fn keyword(&self)  -> Option<Keyword>     { match *self { TokenKind::Keyword(_, k)   => Some(k), _ => None } }
     pub fn operator(&self) -> Option<&Source<'s>> { match *self { TokenKind::Operator(ref s) => Some(s), _ => None } }
+    pub fn identifier(&self) -> Option<&Source<'s>> { match *self { TokenKind::Identifier(ref s) => Some(s), _ => None } }
+    pub fn numeric(&self) -> Option<&Source<'s>> { match *self { TokenKind::Numeric(ref s) => Some(s), _ => None } }
     pub fn infix_assoc(&self) -> bool { match self.keyword() { Some(Keyword::Infix) | Some(Keyword::Infixl) | Some(Keyword::Infixr) => true, _ => false } }
     pub fn is_list_delimiter(&self) -> bool { match *self { TokenKind::ListDelimiter(_) => true, _ => false } }
     pub fn is_item_delimiter(&self) -> bool { discriminant(self) == discriminant(&TokenKind::ItemDescriptorDelimiter(Location::default())) }
@@ -325,6 +331,18 @@ impl<'s> TokenizerState<'s>
             }
         }
     }
+    /// Tokenize entire contents
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// # use pureshder::*;
+    /// let sv = TokenizerState::from("out a = 2").strip_all();
+    /// assert_eq!(sv[0].kind.keyword(), Some(Keyword::Out));
+    /// assert_eq!(sv[1].kind.identifier().map(|x| x.slice), Some("a"));
+    /// assert!   (sv[2].kind.is_equal());
+    /// assert_eq!(sv[3].kind.numeric().map(|x| x.slice), Some("2"));
+    /// ```
     pub fn strip_all(mut self) -> Vec<Token<'s>>
     {
         let mut v = Vec::new();

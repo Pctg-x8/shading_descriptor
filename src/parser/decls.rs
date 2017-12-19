@@ -126,11 +126,11 @@ impl<'s> FreeParser<'s> for SemanticInput<'s>
     /// ```
     /// # use pureshader::*;
     /// let s = TokenizerState::from("pos(POSITION): f4").strip_all();
-    /// let si = SemanticInput::parse(&mut PreanalyzedTokenStream::from(&s[..])).except("in shortest case");
+    /// let si = SemanticInput::parse(&mut PreanalyzedTokenStream::from(&s[..])).expect("in shortest case");
     /// assert_eq!((si.name, si.semantics, si._type), (Some("pos"), Semantics::Position(0), BType::FVec(4)));
     /// // optional `in`
     /// let s = TokenizerState::from("in pos(POSITION): f4").strip_all();
-    /// let si = SemanticInput::parse(&mut PreanalyzedTokenStream::from(&s[..])).except("in explicit `in`");
+    /// let si = SemanticInput::parse(&mut PreanalyzedTokenStream::from(&s[..])).expect("in explicit `in`");
     /// assert_eq!((si.name, si.semantics, si._type), (Some("pos"), Semantics::Position(0), BType::FVec(4)));
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Self> where 's: 't

@@ -346,7 +346,7 @@ impl<'s> FreeParser<'s> for BlendingStateConfig
 		}
 		fn pat_infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, (BlendOp, BlendFactor, BlendFactor)>
 		{
-			let srcfactor = BlendFactor::parse(stream)?;
+			let srcfactor = BreakParsing!(BlendFactor::parse(stream));
 			let op = BlendOp::classify(stream.current()).ok_or_else(|| ParseError::Expecting(ExpectingKind::BlendOps, stream.current().position()))?; stream.shift();
 			let dstfactor = BlendFactor::parse(stream)?;
 			Success((op, srcfactor, dstfactor))

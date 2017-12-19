@@ -125,7 +125,7 @@ impl<'s> Parser<'s> for TypeSynTree<'s>
 
 /// Quantiied: 明示的なものだけ(forall ..., <tree>)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FullTypeDesc<'s> { quantified: Vec<Source<'s>>, constraints: Vec<TypeSynTree<'s>>, tree: TypeSynTree<'s> }
+pub struct FullTypeDesc<'s> { pub quantified: Vec<Source<'s>>, pub constraints: Vec<TypeSynTree<'s>>, pub tree: TypeSynTree<'s> }
 impl<'s> Parser<'s> for FullTypeDesc<'s>
 {
     type ResultTy = Self;
