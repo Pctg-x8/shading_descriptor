@@ -153,7 +153,7 @@ fn par_semantics<'s: 't, 't, S: TokenStream<'s, 't>>(s: &mut S, leftmost: Leftmo
 {
     TMatchFirst!(leftmost => stream; TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese));
     let leftmost = leftmost.into_exclusive();
-    let sem = TMatch!(leftmost => stream; TokenKind::Semantics(_, s) => s);
+    let sem = TMatch!(leftmost => stream; TokenKind::Semantics(_, s) => s, |p| ParseError::Expecting(ExpectingKind::Semantics, p));
     TMatch!(leftmost => stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
     Success(sem)
 }
