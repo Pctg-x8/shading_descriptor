@@ -101,7 +101,8 @@ impl<'s> Parser<'s> for SemanticOutput<'s>
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
-        let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref loc, Keyword::Out) => loc); let leftmost = leftmost.into_exclusive();
+        let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref loc, Keyword::Out) => loc);
+        let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(location.column)).into_exclusive();
         let (_, name) = name(stream, leftmost, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
         TMatch!(leftmost => stream; TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese),
             |p| ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, p));

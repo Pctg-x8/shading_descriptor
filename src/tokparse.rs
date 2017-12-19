@@ -336,7 +336,7 @@ impl<'s> TokenizerState<'s>
     /// ## Examples
     ///
     /// ```
-    /// # use pureshder::*;
+    /// # use pureshader::*;
     /// let sv = TokenizerState::from("out a = 2").strip_all();
     /// assert_eq!(sv[0].kind.keyword(), Some(Keyword::Out));
     /// assert_eq!(sv[1].kind.identifier().map(|x| x.slice), Some("a"));
