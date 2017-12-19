@@ -20,7 +20,7 @@ macro_rules! TMatch
 	($leftmost: expr => $stream: expr; $pat: pat => $extract: expr, $err: expr) =>
 	{{
 		CheckLayout!($leftmost => $stream);
-		match $stream.current() { $pat => { $stream.shift(); $extract }, ref e => return Err($err(e.position())) }
+		match *$stream.current() { $pat => { $stream.shift(); $extract }, ref e => return Err($err(e.position())).into() }
 	}};
 	($leftmost: expr => $stream: expr; $pat: pat, $err: expr) =>
 	{{
