@@ -18,7 +18,8 @@ impl<'s> Parser<'s> for ValueDeclaration<'s>
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
-        let pat = BreakParsing!(ExpressionSynTree::parse(stream, leftmost)); let leftmost = leftmost.into_exclusive();
+        let pat = BreakParsing!(ExpressionSynTree::parse(stream, leftmost));
+        let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(pat.position().column)).into_exclusive();
         let _type = type_hint(stream, leftmost).into_result_opt()?;
         if !leftmost.satisfy(stream.current(), false) || !stream.current().is_equal()
         {

@@ -8,7 +8,20 @@ use parser::{ExpectingKind, Leftmost, take_current_block_begin, get_definition_l
 {
     SymReference(Source<'s>), Numeric(Source<'s>, Option<NumericTy>), NumericF(Source<'s>, Option<NumericTy>), ArrayLiteral(Location, Vec<FullExpression<'s>>),
     RefPath(Box<FullExpression<'s>>, Vec<Source<'s>>), ArrayRef(Box<FullExpression<'s>>, Box<FullExpression<'s>>),
-    Prefix(Vec<FullExpression<'s>>), Infix { lhs: Box<FullExpression<'s>>, mods: Vec<(Source<'s>, FullExpression<'s>)> }, Tuple(Vec<FullExpression<'s>>)
+    Prefix(Vec<FullExpression<'s>>), Infix { lhs: Box<FullExpression<'s>>, mods: Vec<(Source<'s>, FullExpression<'s>)> }, Tuple(Location, Vec<FullExpression<'s>>)
+}
+impl<'s> ExpressionSynTree<'s>
+{
+    pub fn position(&self) -> &Location
+    {
+        match *self
+        {
+            ExpressionSynTree::SymReference(ref s) | ExpressionSynTree::Numeric(ref s, _) | ExpressionSynTree::NumericF(ref s, _) => &s.pos,
+            ExpressionSynTree::ArrayLiteral(ref l, _) | ExpressionSynTree::Tuple(ref l, _) => l,
+            ExpressionSynTree::RefPath(ref e, _) | ExpressionSynTree::ArrayRef(ref e, _) | ExpressionSynTree::Infix { lhs: ref e, .. } => e.position(),
+            ExpressionSynTree::Prefix(ref ev) => ev.first().expect("Empty Prefix expr").position()
+        }
+    }
 }
 
 /// Infix <- Prefix ((op/infixident) Prefix)*
@@ -88,13 +101,13 @@ pub fn factor_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost:
             TMatch!(leftmost => stream; TokenKind::EndEnclosure(_, EnclosureKind::Bracket), |p| ParseError::ExpectingClose(EnclosureKind::Bracket, p));
             Success(ExpressionSynTree::ArrayLiteral(p.clone(), es).into())
         },
-        &TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) =>
+        &TokenKind::BeginEnclosure(ref p, EnclosureKind::Parenthese) =>
         {
             let leftmost = leftmost.into_exclusive();
             let mut e = full_expressions(stream.shift(), leftmost, Some(EnclosureKind::Parenthese))
                 .into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
             TMatch!(leftmost => stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
-            Success(if e.len() == 1 { e.pop().unwrap() } else { ExpressionSynTree::Tuple(e).into() })
+            Success(if e.len() == 1 { e.pop().unwrap() } else { ExpressionSynTree::Tuple(p.clone(), e).into() })
         },
         _ => NotConsumed
     }
@@ -132,6 +145,19 @@ pub enum FullExpression<'s>
     Lettings { location: Location, vals: Vec<(FullExpression<'s>, FullExpression<'s>)>, subexpr: Box<FullExpression<'s>> },
     Conditional { location: Location, inv: bool, cond: Box<FullExpression<'s>>, then: Box<FullExpression<'s>>, else_: Option<Box<FullExpression<'s>>> },
     Block(Location, Vec<BlockContent<'s>>), Expression(ExpressionSynTree<'s>)
+}
+impl<'s> FullExpression<'s>
+{
+    /// source location beginning of the expression
+    pub fn position(&self) -> &Location
+    {
+        match *self
+        {
+            FullExpression::Lettings { ref location, .. } | FullExpression::Conditional { ref location, .. } |
+            FullExpression::Block(ref location, _) => location,
+            FullExpression::Expression(ref tree) => tree.position()
+        }
+    }
 }
 impl<'s> Parser<'s> for FullExpression<'s>
 {
