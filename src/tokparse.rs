@@ -314,7 +314,7 @@ impl<'s> TokenizerState<'s>
                     {
                         Token { kind: TokenKind::WrappedOp(s2op), line_head: s1.line_head }
                     }
-                    else { self.cache.push(s2); self.cache.push(s3); s1 }
+                    else { self.cache.push(s3); self.cache.push(s2); s1 }
                 },
                 TokenKind::Backquote(_) =>
                 {
@@ -325,7 +325,7 @@ impl<'s> TokenizerState<'s>
                     {
                         Token { kind: TokenKind::InfixIdent(s2ident), line_head: s1.line_head }
                     }
-                    else { self.cache.push(s2); self.cache.push(s3); s1 }
+                    else { self.cache.push(s3); self.cache.push(s2); s1 }
                 },
                 _ => s1
             }

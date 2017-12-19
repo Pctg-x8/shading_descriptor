@@ -312,6 +312,7 @@ fn maybe_enclosed<'s: 't, 't, S: TokenStream<'s, 't>, F, R>(stream: &mut S, inne
 	where F: FnOnce(&mut S) -> Result<R, ParseError<'t>>
 {
 	let in_enclosure = TMatch!(Optional: stream; TokenKind::BeginEnclosure(_, e) => e);
+	println!("maybe enclosed?{:?} {:?}", in_enclosure, stream.current());
 	let r = inner(stream)?;
 	if let Some(k) = in_enclosure
 	{
@@ -333,6 +334,7 @@ impl<'s> FreeParser<'s> for BlendingStateConfig
 	/// ```
 	/// # use pureshader::*;
 	/// let src = TokenizerState::from("Blend (Add 1 ~SrcAlpha) (~DestAlpha + 1)").strip_all();
+	/// println!("{:?}", src);
 	/// BlendingStateConfig::parse(&mut PreanalyzedTokenStream::from(&src[..])).unwrap();
 	/// ```
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't
