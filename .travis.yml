@@ -12,5 +12,4 @@ notifications:
     on_success: always
     on_failure: always
 script:
-- cargo test --verbose
-- cargo run --bin main -- sample.psh
+- cargo test --verbose && cargo run --bin main -- sample.psh
