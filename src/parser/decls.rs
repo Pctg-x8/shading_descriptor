@@ -141,7 +141,7 @@ impl<'s> FreeParser<'s> for SemanticInput<'s>
             _ if location1.is_none() => return NotConsumed,
             ref e => return Failed(ParseError::Expecting(ExpectingKind::Ident, e.position()))
         }; stream.shift();
-        let semantics = par_semantics(stream, leftmost).into_result(|| ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, stream.current().position()))?;
+        let semantics = par_semantics(stream, Leftmost::Exclusive(location.column)).into_result(|| ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, stream.current().position()))?;
         let _type = type_note(stream, Leftmost::Exclusive(location.column), false)
             .into_result(|| ParseError::Expecting(ExpectingKind::ItemDelimiter, stream.current().position()))?.unwrap();
         Success(SemanticInput { location: location.clone(), name, semantics, _type })
@@ -151,10 +151,10 @@ impl<'s> FreeParser<'s> for SemanticInput<'s>
 /// "(" semantics ")"
 fn par_semantics<'s: 't, 't, S: TokenStream<'s, 't>>(s: &mut S, leftmost: Leftmost) -> ParseResult<'t, Semantics>
 {
-    TMatchFirst!(leftmost => stream; TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese));
+    TMatchFirst!(leftmost => s; TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese));
     let leftmost = leftmost.into_exclusive();
-    let sem = TMatch!(leftmost => stream; TokenKind::Semantics(_, s) => s, |p| ParseError::Expecting(ExpectingKind::Semantics, p));
-    TMatch!(leftmost => stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
+    let sem = TMatch!(leftmost => s; TokenKind::Semantics(_, sem) => sem, |p| ParseError::Expecting(ExpectingKind::Semantics, p));
+    TMatch!(leftmost => s; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
     Success(sem)
 }
 /// : (basic_type | _)
