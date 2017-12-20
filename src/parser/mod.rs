@@ -333,6 +333,7 @@ impl<'s> FreeParser<'s> for BlendingStateConfig
 	/// ```
 	/// # use pureshader::*;
 	/// let src = TokenizerState::from("Blend (Add 1 ~SrcAlpha) (~DestAlpha + 1)").strip_all();
+	/// println!("{:?}", src);
 	/// BlendingStateConfig::parse(&mut PreanalyzedTokenStream::from(&src[..])).unwrap();
 	/// ```
 	fn parse<'t, S: TokenStream<'s, 't>>(tok: &mut S) -> ParseResult<'t, Self::ResultTy> where 's: 't
@@ -347,6 +348,7 @@ impl<'s> FreeParser<'s> for BlendingStateConfig
 		fn pat_infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, (BlendOp, BlendFactor, BlendFactor)>
 		{
 			let srcfactor = BreakParsing!(BlendFactor::parse(stream));
+			println!("infix op: {:?}", stream.current());
 			let op = BlendOp::classify(stream.current()).ok_or_else(|| ParseError::Expecting(ExpectingKind::BlendOps, stream.current().position()))?; stream.shift();
 			let dstfactor = BlendFactor::parse(stream)?;
 			Success((op, srcfactor, dstfactor))
@@ -409,8 +411,8 @@ impl BlendOp
 	{
 		match *tok
 		{
-			TokenKind::Keyword(_, Keyword::Add) => Some(BlendOp::Add),
-			TokenKind::Keyword(_, Keyword::Sub) => Some(BlendOp::Sub),
+			TokenKind::Keyword(_, Keyword::Add) | TokenKind::Operator(Source { slice: "+", .. }) | TokenKind::Operator(Source { slice: "＋", .. }) => Some(BlendOp::Add),
+			TokenKind::Keyword(_, Keyword::Sub) | TokenKind::Operator(Source { slice: "-", .. }) | TokenKind::Operator(Source { slice: "ー", .. }) => Some(BlendOp::Sub),
 			_ => None
 		}
 	}
