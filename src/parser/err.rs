@@ -220,7 +220,7 @@ impl<'t, T> ParseResult<'t, T>
 	{
 		match self
 		{
-			Failed(_) => alter(), Success(s) => Success(s), NotConsumed => NotConsumed
+			Success(s) => Success(s), _ => alter()
 		}
 	}
 }
