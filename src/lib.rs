@@ -20,5 +20,5 @@ pub use parser::{ExpressionSynTree, FullExpression};
 pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration};
 pub use parser::utils::Leftmost;
 
-pub use typepaint::{AssociativityDebugPrinter, ConstructorEnv};
+pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
 pub use typepaint::ConstructorEnv;

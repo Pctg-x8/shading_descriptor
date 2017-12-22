@@ -1,7 +1,6 @@
 //! Type Painter
 
 use std::collections::{HashMap, HashSet};
-use {TypeFragment, Type};
 use std::rc::{Rc, Weak};
 
 pub trait AssociativityDebugPrinter
@@ -28,6 +27,7 @@ impl<'s> AssociativityDebugPrinter for ::ShaderStageDefinition<'s>
     }
 }
 
+use std::cell::RefCell;
 pub type RcMut<T> = Rc<RefCell<T>>; pub type WeakMut<T> = Weak<RefCell<T>>;
 pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 
@@ -42,7 +42,7 @@ impl<'s> ConstructorEnv<'s>
     fn append(parent: &RcMut<Self>, child: RcMut<Self>)
     {
         child.borrow_mut().parent = Some(Rc::downgrade(parent));
-        parent.borrow_mut().child.append(child);
+        parent.borrow_mut().children.push(child);
     }
 }
 pub trait ConstructorCollector<'s>
