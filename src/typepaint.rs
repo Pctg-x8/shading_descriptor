@@ -28,6 +28,28 @@ impl<'s> AssociativityDebugPrinter for ::ShaderStageDefinition<'s>
     }
 }
 
+pub type RcMut<T> = Rc<RefCell<T>>; pub type WeakMut<T> = Weak<RefCell<T>>;
+pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
+
+pub struct ConstructorEnv<'s>
+{
+    children: Vec<RcMut<ConstructorEnv<'s>>>, parent: Option<WeakMut<ConstructorEnv<'s>>>,
+    pub ty: HashSet<&'s str>, pub data: HashMap<&'s str, Vec<&'s str>>
+}
+impl<'s> ConstructorEnv<'s>
+{
+    fn new() -> RcMut<Self> { new_rcmut(ConstructorEnv { children: Vec::new(), parent: None, ty: HashSet::new(), data: HashMap::new() }) }
+    fn append(parent: &RcMut<Self>, child: RcMut<Self>)
+    {
+        child.borrow_mut().parent = Some(Rc::downgrade(parent));
+        parent.borrow_mut().child.append(child);
+    }
+}
+pub trait ConstructorCollector<'s>
+{
+    fn collect_ctors(&self, env: &RcMut<ConstructorEnv<'s>>);
+}
+
 /*
 pub struct TyConstructorEnv<'s>
 {

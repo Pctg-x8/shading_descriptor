@@ -6,7 +6,7 @@ extern crate regex;
 
 mod tokparse;
 mod parser;
-// mod typepaint;
+mod typepaint;
 
 pub use tokparse::TokenStream;
 pub use tokparse::{Location, Source, Token, TokenKind, NumericTy, EnclosureKind, TokenizerCache, Semantics, Keyword, BType, TokenizerState, PreanalyzedTokenStream};
@@ -20,4 +20,5 @@ pub use parser::{ExpressionSynTree, FullExpression};
 pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration};
 pub use parser::utils::Leftmost;
 
-// pub use typepaint::AssociativityDebugPrinter;
+pub use typepaint::{AssociativityDebugPrinter, ConstructorEnv};
+pub use typepaint::ConstructorEnv;
