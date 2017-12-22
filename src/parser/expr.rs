@@ -28,7 +28,7 @@ impl<'s> ExpressionSynTree<'s>
 pub fn infix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>>
 {
     let lhs = BreakParsing!(prefix_expr(stream, leftmost));
-    let leftmost = leftmost.into_exclusive();
+    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
     let mut rhs = Vec::new();
     while leftmost.satisfy(stream.current(), false)
     {
@@ -48,7 +48,7 @@ pub fn infix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
 pub fn prefix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>>
 {
     let mut lhs = vec![BreakParsing!(term_expr(stream, leftmost))];
-    let leftmost = leftmost.into_exclusive();
+    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs[0].position().column)).into_exclusive();
     while let Some(rhs) = term_expr(stream, leftmost).into_result_opt()? { lhs.push(rhs); }
     Success(if lhs.len() > 1 { ExpressionSynTree::Prefix(lhs).into() } else { lhs.pop().unwrap() })
 }
@@ -56,7 +56,7 @@ pub fn prefix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost:
 pub fn term_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>>
 {
     let mut lhs = BreakParsing!(factor_expr(stream, leftmost));
-    let leftmost = leftmost.into_exclusive();
+    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
     while leftmost.satisfy(stream.current(), false)
     {
         match stream.current()
