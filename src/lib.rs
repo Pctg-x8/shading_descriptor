@@ -17,8 +17,8 @@ pub use parser::{ShaderStage, ShaderStageDefinition};
 pub use parser::{ShadingState, ShadingStates, CompareOp, StencilOp, StencilTestConfig, BlendingStateConfig, depth_state};
 pub use parser::{ShadingPipeline, shading_pipeline};
 pub use parser::{ExpressionSynTree, FullExpression};
-pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration};
+pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, TypeDeclarable};
 pub use parser::utils::Leftmost;
 
 pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
-pub use typepaint::ConstructorEnv;
+pub use typepaint::{ConstructorEnv, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};

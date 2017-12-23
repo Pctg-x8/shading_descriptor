@@ -33,21 +33,77 @@ pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 
 pub struct ConstructorEnv<'s>
 {
-    children: Vec<RcMut<ConstructorEnv<'s>>>, parent: Option<WeakMut<ConstructorEnv<'s>>>,
     pub ty: HashSet<&'s str>, pub data: HashMap<&'s str, Vec<&'s str>>
 }
 impl<'s> ConstructorEnv<'s>
 {
-    fn new() -> RcMut<Self> { new_rcmut(ConstructorEnv { children: Vec::new(), parent: None, ty: HashSet::new(), data: HashMap::new() }) }
-    fn append(parent: &RcMut<Self>, child: RcMut<Self>)
-    {
-        child.borrow_mut().parent = Some(Rc::downgrade(parent));
-        parent.borrow_mut().children.push(child);
-    }
+    fn new() -> Self { ConstructorEnv { ty: HashSet::new(), data: HashMap::new() } }
+    fn is_empty(&self) -> bool { self.ty.is_empty() && self.data.is_empty() }
 }
 pub trait ConstructorCollector<'s>
 {
-    fn collect_ctors(&self, env: &RcMut<ConstructorEnv<'s>>);
+    type Env: 's;
+    fn collect_ctors(&self, env: &RcMut<Self::Env>);
+}
+pub trait ConstructorEnvironment<'s>
+{
+    fn symbol_set(&self) -> &ConstructorEnv<'s>;
+    fn drop_if_empty(this: RcMut<Self>) -> Option<RcMut<Self>>
+    {
+        if this.borrow().symbol_set().is_empty() { None } else { Some(this) }
+    }
+}
+
+pub struct ShadingPipelineConstructorEnv<'s>
+{
+    vsh: Option<RcMut<ConstructorEnvPerShader<'s>>>, hsh: Option<RcMut<ConstructorEnvPerShader<'s>>>, dsh: Option<RcMut<ConstructorEnvPerShader<'s>>>,
+    gsh: Option<RcMut<ConstructorEnvPerShader<'s>>>, fsh: Option<RcMut<ConstructorEnvPerShader<'s>>>, pub set: ConstructorEnv<'s>
+}
+impl<'s> ConstructorEnvironment<'s> for ShadingPipelineConstructorEnv<'s> { fn symbol_set(&self) -> &ConstructorEnv<'s> { &self.set } }
+impl<'s> ShadingPipelineConstructorEnv<'s>
+{
+    pub fn new() -> RcMut<Self>
+    {
+        new_rcmut(ShadingPipelineConstructorEnv { vsh: None, hsh: None, dsh: None, gsh: None, fsh: None, set: ConstructorEnv::new() })
+    }
+}
+impl<'s> ConstructorCollector<'s> for ::ShadingPipeline<'s>
+{
+    type Env = ShadingPipelineConstructorEnv<'s>;
+    fn collect_ctors(&self, env: &RcMut<Self::Env>)
+    {
+        if let Some(ref v) = self.vsh { env.borrow_mut().vsh = collect_ctors_in_shader(env, v); }
+        if let Some(ref v) = self.hsh { env.borrow_mut().hsh = collect_ctors_in_shader(env, v); }
+        if let Some(ref v) = self.dsh { env.borrow_mut().dsh = collect_ctors_in_shader(env, v); }
+        if let Some(ref v) = self.gsh { env.borrow_mut().gsh = collect_ctors_in_shader(env, v); }
+        if let Some(ref v) = self.fsh { env.borrow_mut().fsh = collect_ctors_in_shader(env, v); }
+        collect_for_type_decls(env, self);
+    }
+}
+pub struct ConstructorEnvPerShader<'s> { parent: WeakMut<ShadingPipelineConstructorEnv<'s>>, pub set: ConstructorEnv<'s> }
+impl<'s> ConstructorEnvironment<'s> for ConstructorEnvPerShader<'s> { fn symbol_set(&self) -> &ConstructorEnv<'s> { &self.set } }
+impl<'s> ConstructorCollector<'s> for ::ShaderStageDefinition<'s>
+{
+    type Env = ConstructorEnvPerShader<'s>;
+    fn collect_ctors(&self, env: &RcMut<Self::Env>) { collect_for_type_decls(env, self); }
+}
+fn collect_ctors_in_shader<'s>(parent: &RcMut<ShadingPipelineConstructorEnv<'s>>, sh: &::ShaderStageDefinition<'s>) -> Option<RcMut<ConstructorEnvPerShader<'s>>>
+{
+    let e = new_rcmut(ConstructorEnvPerShader { parent: Rc::downgrade(parent), set: ConstructorEnv::new() });
+    sh.collect_ctors(&e); ConstructorEnvironment::drop_if_empty(e)
+}
+fn collect_for_type_decls<'s, Env: ConstructorEnvironment<'s>, T: ::TypeDeclarable<'s>>(env: &RcMut<Env>, tree: &T)
+{
+    for &(ref ty, ref defs) in tree.type_decls().iter().flat_map(|td| &td.defs)
+    {
+        println!("**dbg** Found Type Constructor: {:?}", ty);
+        let dcons: Vec<_> = defs.iter().map(|dc| dc.name).collect();
+        println!("**dbg** Found Data Constructor for {:?} = {:?}", ty, dcons);
+    }
+    for &(ref tys, _) in tree.type_fns().iter().flat_map(|tf| &tf.defs)
+    {
+        println!("**dbg** Found Type Constructor: {:?}", tys);
+    }
 }
 
 /*
