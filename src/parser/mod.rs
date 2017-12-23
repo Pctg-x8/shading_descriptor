@@ -449,7 +449,8 @@ pub struct ShaderStageDefinition<'s>
 	pub location: Location,
 	pub inputs: Vec<SemanticInput<'s>>, pub outputs: Vec<SemanticOutput<'s>>,
 	pub uniforms: Vec<UniformDeclaration<'s>>, pub constants: Vec<ConstantDeclaration<'s>>,
-	pub values: Vec<ValueDeclaration<'s>>, pub assoc: RcMut<AssociativityEnv<'s>>
+	pub values: Vec<ValueDeclaration<'s>>, pub assoc: RcMut<AssociativityEnv<'s>>,
+	pub typedecls: Vec<TypeDeclaration<'s>>, pub typefns: Vec<TypeFn<'s>>
 }
 impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 {
@@ -494,10 +495,13 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 			TokenKind::ItemDescriptorDelimiter(_) | TokenKind::Keyword(_, Keyword::Where) => { Some(take_current_block_begin(tok.shift())) }
 			_ => None
 		};
+		let mut def = ShaderStageDefinition
+		{
+			location: location.clone(), inputs, outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new(),
+			assoc: new_rcmut(AssociativityEnv::new(None)), typedecls: Vec::new(), typefns: Vec::new()
+		};
 		if let Some(block_start) = block_start_opt
 		{
-			let (mut outputs, mut uniforms, mut constants, mut values) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-			let assoc = new_rcmut(AssociativityEnv::new(None));
 			let mut errors = Vec::new();
 			while block_start.satisfy(tok.current(), true)
 			{
@@ -509,44 +513,58 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 					{
 						Ok((ops, a)) => for op in ops
 						{
-							if let Some(p) = assoc.borrow_mut().register(op.slice, op.pos, a)
+							if let Some(p) = def.assoc.borrow_mut().register(op.slice, op.pos, a)
 							{
 								errors.place_back() <- ParseError::DuplicatePrecedences(p.clone(), tok.current().position());
 							}
 						},
 						Err(e) =>
 						{
-							errors.push(e); tok.drop_line();
-							while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
+							errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
 						}
 					},
 					TokenKind::Keyword(_, Keyword::Uniform) => match UniformDeclaration::parse(tok, defblock_begin)
 					{
-						Success(v) => { uniforms.push(v); },
+						Success(v) => { def.uniforms.push(v); },
 						Failed(e) =>
 						{
-							errors.push(e); tok.drop_line();
-							while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
+							errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
 						},
 						_ => unreachable!()
 					},
 					TokenKind::Keyword(_, Keyword::Constant) => match ConstantDeclaration::parse(tok, defblock_begin)
 					{
-						Success(v) => { constants.push(v); },
+						Success(v) => { def.constants.push(v); },
 						Failed(e) =>
 						{
-							errors.push(e); tok.drop_line();
-							while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
+							errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
 						},
 						_ => unreachable!()
 					},
 					TokenKind::Keyword(_, Keyword::Out) => match SemanticOutput::parse(tok, defblock_begin)
 					{
-						Success(v) => { outputs.push(v); },
+						Success(v) => { def.outputs.push(v); },
 						Failed(e) =>
 						{
-							errors.push(e); tok.drop_line();
-							while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
+							errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
+						},
+						_ => unreachable!()
+					},
+					TokenKind::Keyword(_, Keyword::Type) => match TypeFn::parse(tok)
+					{
+						Success(v) => { def.typefns.push(v); },
+						Failed(e) =>
+						{
+							errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
+						},
+						_ => unreachable!()
+					},
+					TokenKind::Keyword(_, Keyword::Data) => match TypeDeclaration::parse(tok)
+					{
+						Success(v) => { def.typedecls.push(v); },
+						Failed(e) =>
+						{
+							errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); }
 						},
 						_ => unreachable!()
 					},
@@ -555,27 +573,19 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 						tok.shift();
 						match ValueDeclaration::parse(tok, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, tok.current().position()))
 						{
-							Ok(v) => values.push(v),
+							Ok(v) => def.values.push(v),
 							Err(e) => { errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); } }
 						}
 					},
 					_ => match ValueDeclaration::parse(tok, defblock_begin).into_result(|| ParseError::Unexpected(tok.current().position()))
 					{
-						Ok(v) => values.push(v),
+						Ok(v) => def.values.push(v),
 						Err(e) => { errors.push(e); tok.drop_line(); while defblock_begin.into_exclusive().satisfy(tok.current(), false) { tok.drop_line(); } }
 					}
 				}
 			}
-			if errors.is_empty() { SuccessM((stage, ShaderStageDefinition { location: location.clone(), inputs, outputs, uniforms, constants, values, assoc })) }
-			else { FailedM(errors) }
+			if !errors.is_empty() { return FailedM(errors); }
 		}
-		else
-		{
-			SuccessM((stage, ShaderStageDefinition
-			{
-				location: location.clone(), inputs: Vec::new(), outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new(),
-				assoc: new_rcmut(AssociativityEnv::new(None))
-			}))
-		}
+		SuccessM((stage, def))
 	}
 }
