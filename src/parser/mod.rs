@@ -9,7 +9,7 @@ use tokparse::*;
 use std::rc::Rc; use std::cell::RefCell;
 
 // child parsers //
-pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration};
+pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor};
 pub use self::expr::{FullExpression, ExpressionSynTree};
 pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
 pub use self::assoc::{Associativity, AssociativityEnv};
@@ -27,7 +27,7 @@ pub struct ShadingPipeline<'s>
 	pub vsh: Option<ShaderStageDefinition<'s>>,
 	pub hsh: Option<ShaderStageDefinition<'s>>, pub dsh: Option<ShaderStageDefinition<'s>>,
 	pub gsh: Option<ShaderStageDefinition<'s>>, pub fsh: Option<ShaderStageDefinition<'s>>,
-	values: Vec<ValueDeclaration<'s>>, types: Vec<TypeDeclaration<'s>>, type_fns: Vec<TypeFn<'s>>,
+	values: Vec<ValueDeclaration<'s>>, types: Vec<TypeDeclaration<'s>>, typefns: Vec<TypeFn<'s>>,
 	pub assoc: RcMut<AssociativityEnv<'s>>
 }
 pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>
@@ -35,7 +35,7 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 	let mut sp = ShadingPipeline
 	{
 		state: Default::default(), vsh: None, hsh: None, dsh: None, gsh: None, fsh: None,
-		values: Vec::new(), types: Vec::new(), type_fns: Vec::new(), assoc: new_rcmut(AssociativityEnv::new(None))
+		values: Vec::new(), types: Vec::new(), typefns: Vec::new(), assoc: new_rcmut(AssociativityEnv::new(None))
 	};
 	let mut errors = Vec::new();
 
@@ -66,11 +66,11 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 			{
 				TokenKind::Keyword(_, Keyword::Type) => match TypeFn::parse(stream.restore(inst))
 				{
-					Failed(e) => { errors_t.push(e); true }, Success(tf) => { sp.type_fns.push(tf); continue; }, NotConsumed => unreachable!()
+					Failed(e) => { errors_t.push(e); true }, Success(tf) => { sp.typefns.push(tf); continue; }, _ => unreachable!()
 				},
 				TokenKind::Keyword(_, Keyword::Data) => match TypeDeclaration::parse(stream.restore(inst))
 				{
-					Failed(e) => { errors_t.push(e); true }, Success(td) => { sp.types.push(td); continue; }, NotConsumed => unreachable!()
+					Failed(e) => { errors_t.push(e); true }, Success(td) => { sp.types.push(td); continue; }, _ => unreachable!()
 				},
 				_ => false
 			};
@@ -588,4 +588,18 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 		}
 		SuccessM((stage, def))
 	}
+}
+
+pub trait TypeDeclarable<'s>
+{
+	fn type_decls(&self) -> &Vec<TypeDeclaration<'s>>;
+	fn type_fns(&self) -> &Vec<TypeFn<'s>>;
+}
+impl<'s> TypeDeclarable<'s> for ShadingPipeline<'s>
+{
+	fn type_decls(&self) -> &Vec<TypeDeclaration<'s>> { &self.types } fn type_fns(&self) -> &Vec<TypeFn<'s>> { &self.typefns }
+}
+impl<'s> TypeDeclarable<'s> for ShaderStageDefinition<'s>
+{
+	fn type_decls(&self) -> &Vec<TypeDeclaration<'s>> { &self.typedecls } fn type_fns(&self) -> &Vec<TypeFn<'s>> { &self.typefns }
 }
