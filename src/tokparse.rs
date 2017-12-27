@@ -14,7 +14,7 @@ use regex::Regex;
 /// 2なら1, 4なら2, 8なら3...
 static mut TAB_ALIGNED_BITS: usize = 1;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Location { pub line: usize, pub column: usize }
 impl Default for Location { fn default() -> Self { Location { line: 1, column: 1 } } }
 impl Add<usize> for Location { type Output = Self; fn add(mut self, other: usize) -> Self { self.column += other; self } }
@@ -31,7 +31,7 @@ impl Display for Location
 {
     fn fmt(&self, fmt: &mut Formatter) -> FmtResult { write!(fmt, "line {}, column {}", self.line, self.column) }
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Source<'s> { pub pos: Location, pub slice: &'s str }
 impl<'s> Source<'s>
 {
