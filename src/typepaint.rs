@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
 use super::parser::*;
 use super::{Source, Location, BType};
-use std::mem::{replace, uninitialized};
+use std::mem::replace;
 
 pub trait AssociativityDebugPrinter
 {
