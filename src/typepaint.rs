@@ -166,7 +166,7 @@ fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s, 't>, T: Ty
         };
         // println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
         let mut dcons: Vec<_> = defs.iter().map(|dc| &dc.name).collect();
-        // println!("**dbg** Found Data Constructor for {:?} = {:?}", ty_ctor, dcons);
+        println!("**dbg** Found Data Constructor for {:?} = {:?}", ty_ctor, dcons);
 
         env.symbol_set_mut().ty.insert(ty_ctor);
         env.symbol_set_mut().data.entry(ty_ctor).or_insert(Vec::new()).append(&mut dcons);

@@ -274,7 +274,7 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
             let arg1 = BreakParsing!(prefix_ty(stream, leftmost));
             let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(arg1.position().column)).into_exclusive();
             let name = shift_infix_ops(stream, leftmost).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?;
-            let arg2 = TypeSynTree::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Argument, stream.current().position()))?;
+            let arg2 = prefix_ty(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Argument, stream.current().position()))?;
             Success(DataConstructor { location: arg1.position().clone(), name: name.clone(), args: vec![arg1, arg2] })
         }
         let location = TMatch!(stream; TokenKind::Keyword(ref p, Keyword::Data) => p, |p| ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), p));
