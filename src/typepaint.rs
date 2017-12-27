@@ -187,6 +187,7 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
     ArgumentRequired(&'t Location), UnresolvedAssociation(&'t Location), ConstructorRequired(&'t Location),
     ApplicationProhibited(&'t Location)
 }
+/// Deforming(Resolving infix operators to prefix style) a TypeSynTree using current AssociativityEnv
 pub fn deform_ty<'s: 't, 't>(ty: &'t TypeSynTree<'s>, assoc_env: &AssociativityEnv<'s>) -> Result<TyDeformerIntermediate<'s, 't>, DeformationError<'t>>
 {
     match *ty
