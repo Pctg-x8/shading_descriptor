@@ -21,6 +21,7 @@ pub use parser::{ExpressionSynTree, FullExpression, BlockContent};
 pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, TypeDeclarable, InferredArrayDim};
 pub use parser::utils::Leftmost;
 
+pub use deformer::EqNoloc;
 pub use deformer::{TyDeformerIntermediate, deform_ty};
 pub use deformer::{ExprDeformerIntermediate, deform_expr, deform_expr_full};
 

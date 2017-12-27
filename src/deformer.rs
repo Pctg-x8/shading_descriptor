@@ -14,19 +14,6 @@ use std::ops::Deref;
 pub enum Prefix<'s: 't, 't> { Arrow(&'t Location), User(&'t Source<'s>), PathRef(Box<TyDeformerIntermediate<'s, 't>>, Vec<&'t Source<'s>>) }
 impl<'s: 't, 't> Prefix<'s, 't>
 {
-    pub fn is_equal_nolocation(&self, other: &Self) -> bool
-    {
-        match *self
-        {
-            Prefix::Arrow(p) => *other == Prefix::Arrow(p),
-            Prefix::User(&Source { slice, .. }) => if let Prefix::User(&Source { slice: slice_, .. }) = *other { slice == slice_ } else { false },
-            Prefix::PathRef(ref p, ref v) => if let Prefix::PathRef(ref p_, ref v_) = *other
-            {
-                p.is_equal_nolocation(&p_) && v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(a, b)| a.slice == b.slice)
-            }
-            else { false }
-        }
-    }
     pub fn position(&self) -> &'t Location
     {
         match *self
@@ -77,35 +64,43 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
         }
     }
 
-    pub fn is_equal_nolocation(&self, other: &Self) -> bool
-    {
-        match *self
-        {
-            TyDeformerIntermediate::Placeholder(_) => if let TyDeformerIntermediate::Placeholder(_) = *other { true } else { false },
-            TyDeformerIntermediate::Expressed(ref p, ref v) => if let TyDeformerIntermediate::Expressed(ref p_, ref v_) = *other
-            {
-                p.is_equal_nolocation(&p_) && v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(s, o)| s.is_equal_nolocation(o))
-            }
-            else { false },
-            TyDeformerIntermediate::SafetyGarbage => unreachable!(),
-            TyDeformerIntermediate::Basic(_, bt) => if let TyDeformerIntermediate::Basic(_, bt_) = *other { bt == bt_ } else { false },
-            TyDeformerIntermediate::Tuple(_, ref v) => if let TyDeformerIntermediate::Tuple(_, ref v_) = *other
-            {
-                v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(s, o)| s.is_equal_nolocation(o))
-            }
-            else { false },
-            TyDeformerIntermediate::ArrayDim(ref p, ref e) => if let TyDeformerIntermediate::ArrayDim(ref p_, ref e_) = *other
-            {
-                p.is_equal_nolocation(&p_) && e == e_
-            }
-            else { false }
-        }
-    }
     pub fn leftmost_symbol(&self) -> Option<&Prefix<'s, 't>>
     {
         match *self
         {
             TyDeformerIntermediate::Expressed(ref p, _) => Some(p), _ => None
+        }
+    }
+}
+impl<'s: 't, 't> EqNoloc for TyDeformerIntermediate<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool
+    {
+        match *self
+        {
+            TyDeformerIntermediate::Placeholder(_) => if let TyDeformerIntermediate::Placeholder(_) = *other { true } else { false },
+            TyDeformerIntermediate::Expressed(ref p, ref v) =>
+                if let TyDeformerIntermediate::Expressed(ref p_, ref v_) = *other { p.eq_nolocation(p_) && v.eq_nolocation(v_) } else { false },
+            TyDeformerIntermediate::SafetyGarbage => unreachable!(),
+            TyDeformerIntermediate::Basic(_, bt) => if let TyDeformerIntermediate::Basic(_, bt_) = *other { bt == bt_ } else { false },
+            TyDeformerIntermediate::Tuple(_, ref v) => if let TyDeformerIntermediate::Tuple(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
+            TyDeformerIntermediate::ArrayDim(ref p, ref e) => if let TyDeformerIntermediate::ArrayDim(ref p_, ref e_) = *other
+            {
+                p.eq_nolocation(p_) && e == e_
+            }
+            else { false }
+        }
+    }
+}
+impl<'s: 't, 't> EqNoloc for Prefix<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool
+    {
+        match *self
+        {
+            Prefix::Arrow(p) => *other == Prefix::Arrow(p),
+            Prefix::User(&Source { slice, .. }) => if let Prefix::User(&Source { slice: slice_, .. }) = *other { slice == slice_ } else { false },
+            Prefix::PathRef(ref p, ref v) => if let Prefix::PathRef(ref p_, ref v_) = *other { p.eq_nolocation(&p_) && v.eq_nolocation(v_) } else { false }
         }
     }
 }
@@ -413,7 +408,7 @@ pub fn extract_most_precedences<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s
             let assoc_env = AssociativityEnv::new(None);
             let c1d = deform_ty(&c1, &assoc_env).expect("in deforming case infix");
             let c2d = deform_ty(&c2, &assoc_env).expect("in deforming case prefix");
-            assert!(c1d.is_equal_nolocation(&c2d), "not matching: {:?} and {:?}", c1d, c2d);
+            assert!(c1d.eq_nolocation(&c2d), "not matching: {:?} and {:?}", c1d, c2d);
         }
         test_unify("a `Cons` b", "Cons a b");
         test_unify("(c + b) d", "(+) c b d");
@@ -430,7 +425,7 @@ pub fn extract_most_precedences<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s
             let assoc_env = AssociativityEnv::new(None);
             let c1d = deform_expr_full(&c1, &assoc_env).expect("in deforming case infix");
             let c2d = deform_expr_full(&c2, &assoc_env).expect("in deforming case prefix");
-            assert!(c1d.is_equal_nolocation(&c2d), "not matching: {:?} and {:?}", c1d, c2d);
+            assert!(c1d.eq_nolocation(&c2d), "not matching: {:?} and {:?}", c1d, c2d);
         }
         test_unify("2", "2");
         test_unify("a + 3", "(+) a 3");
