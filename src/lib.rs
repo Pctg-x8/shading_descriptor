@@ -21,7 +21,7 @@ pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstru
 pub use parser::utils::Leftmost;
 
 pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
-pub use typepaint::{ConstructorEnv, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
+pub use typepaint::{ConstructorEnv, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
 pub use typepaint::{deform_ty, TyDeformerIntermediate};
 
 use typepaint::{RcMut, WeakMut};

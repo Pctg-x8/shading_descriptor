@@ -18,11 +18,68 @@ fn main()
     println!("assocs: ");
     p.dbg_print_assoc(1);
     let ctors = ShadingPipelineConstructorEnv::new();
-    p.collect_ctors(&ctors).unwrap();
+    p.collect_ctors(&ctors).expect("Failure in collecting type constructors");
+    ctors.borrow().print_ctor_env();
     /*loop
     {
         let t = cache.next();
         println!("{:?}", t);
         match t { &Token::EOF(_) | &Token::UnknownChar(_) => break, _ => () }
     }*/
+}
+
+trait ConstructorEnvPrint
+{
+    fn print_ctor_env(&self);
+}
+impl<'s: 't, 't> ConstructorEnvPrint for ShadingPipelineConstructorEnv<'s, 't>
+{
+    fn print_ctor_env(&self)
+    {
+        if let Some(ref e) = self.vsh
+        {
+            println!("in Vertex Shader: ");
+            e.borrow().print_ctor_env();
+        }
+        if let Some(ref e) = self.hsh
+        {
+            println!("in Hull Shader: ");
+            e.borrow().print_ctor_env();
+        }
+        if let Some(ref e) = self.dsh
+        {
+            println!("in Hull Shader: ");
+            e.borrow().print_ctor_env();
+        }
+        if let Some(ref e) = self.gsh
+        {
+            println!("in Hull Shader: ");
+            e.borrow().print_ctor_env();
+        }
+        if let Some(ref e) = self.fsh
+        {
+            println!("in Hull Shader: ");
+            e.borrow().print_ctor_env();
+        }
+
+        println!("Compilation Scope: ");
+        for ty in &self.symbol_set().ty { println!("- type {:?}", ty); }
+        for (&dty, dcs) in &self.symbol_set().data
+        {
+            println!("- data {:?}", dty);
+            for dc in dcs { println!("-- {:?}", dc); }
+        }
+    }
+}
+impl<'s: 't, 't> ConstructorEnvPrint for ConstructorEnvPerShader<'s, 't>
+{
+    fn print_ctor_env(&self)
+    {
+        for ty in &self.symbol_set().ty { println!("- type {:?}", ty); }
+        for (&dty, dcs) in &self.symbol_set().data
+        {
+            println!("- data {:?}", dty);
+            for dc in dcs { println!("-- {:?}", dc); }
+        }
+    }
 }

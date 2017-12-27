@@ -5,6 +5,7 @@ use std::rc::{Rc, Weak};
 use super::parser::*;
 use super::{Source, Location, BType};
 use std::mem::replace;
+use std::ops::DerefMut;
 
 pub trait AssociativityDebugPrinter
 {
@@ -34,23 +35,24 @@ use std::cell::RefCell;
 pub type RcMut<T> = Rc<RefCell<T>>; pub type WeakMut<T> = Weak<RefCell<T>>;
 pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 
-pub struct ConstructorEnv<'s>
+pub struct ConstructorEnv<'s: 't, 't>
 {
-    pub ty: HashSet<&'s str>, pub data: HashMap<&'s str, Vec<&'s str>>
+    pub ty: HashSet<&'t Source<'s>>, pub data: HashMap<&'t Source<'s>, Vec<&'t Source<'s>>>
 }
-impl<'s> ConstructorEnv<'s>
+impl<'s: 't, 't> ConstructorEnv<'s, 't>
 {
     fn new() -> Self { ConstructorEnv { ty: HashSet::new(), data: HashMap::new() } }
     fn is_empty(&self) -> bool { self.ty.is_empty() && self.data.is_empty() }
 }
-pub trait ConstructorCollector<'s>
+pub trait ConstructorCollector<'s: 't, 't>
 {
-    type Env: 's;
-    fn collect_ctors(&self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError>>;
+    type Env: 't;
+    fn collect_ctors(&'t self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError<'t>>>;
 }
-pub trait ConstructorEnvironment<'s>
+pub trait ConstructorEnvironment<'s: 't, 't>
 {
-    fn symbol_set(&self) -> &ConstructorEnv<'s>;
+    fn symbol_set(&self) -> &ConstructorEnv<'s, 't>;
+    fn symbol_set_mut(&mut self) -> &mut ConstructorEnv<'s, 't>;
     fn drop_if_empty(this: RcMut<Self>) -> Option<RcMut<Self>>
     {
         if this.borrow().symbol_set().is_empty() { None } else { Some(this) }
@@ -62,24 +64,43 @@ pub enum ConstructorCollectionError<'t>
     DeformingError(DeformationError<'t>), ConstructorNotFound(&'t Location), ArrowNotAllowed(&'t Location), PathRefNotAllowed(&'t Location)
 }
 
-pub struct ShadingPipelineConstructorEnv<'s>
+// specialized constructor envs //
+pub struct ShadingPipelineConstructorEnv<'s: 't, 't>
 {
-    vsh: Option<RcMut<ConstructorEnvPerShader<'s>>>, hsh: Option<RcMut<ConstructorEnvPerShader<'s>>>, dsh: Option<RcMut<ConstructorEnvPerShader<'s>>>,
-    gsh: Option<RcMut<ConstructorEnvPerShader<'s>>>, fsh: Option<RcMut<ConstructorEnvPerShader<'s>>>, pub set: ConstructorEnv<'s>
+    pub vsh: Option<RcMut<ConstructorEnvPerShader<'s, 't>>>, pub hsh: Option<RcMut<ConstructorEnvPerShader<'s, 't>>>, pub dsh: Option<RcMut<ConstructorEnvPerShader<'s, 't>>>,
+    pub gsh: Option<RcMut<ConstructorEnvPerShader<'s, 't>>>, pub fsh: Option<RcMut<ConstructorEnvPerShader<'s, 't>>>, pub set: ConstructorEnv<'s, 't>
 }
-impl<'s> ConstructorEnvironment<'s> for ShadingPipelineConstructorEnv<'s> { fn symbol_set(&self) -> &ConstructorEnv<'s> { &self.set } }
-impl<'s> ShadingPipelineConstructorEnv<'s>
+impl<'s: 't, 't> ConstructorEnvironment<'s, 't> for ShadingPipelineConstructorEnv<'s, 't>
+{
+    fn symbol_set(&self) -> &ConstructorEnv<'s, 't> { &self.set }
+    fn symbol_set_mut(&mut self) -> &mut ConstructorEnv<'s, 't> { &mut self.set }
+}
+impl<'s: 't, 't> ShadingPipelineConstructorEnv<'s, 't>
 {
     pub fn new() -> RcMut<Self>
     {
         new_rcmut(ShadingPipelineConstructorEnv { vsh: None, hsh: None, dsh: None, gsh: None, fsh: None, set: ConstructorEnv::new() })
     }
 }
-impl<'s> ConstructorCollector<'s> for ShadingPipeline<'s>
+pub struct ConstructorEnvPerShader<'s: 't, 't> { parent: WeakMut<ShadingPipelineConstructorEnv<'s, 't>>, pub set: ConstructorEnv<'s, 't> }
+impl<'s: 't, 't> ConstructorEnvironment<'s, 't> for ConstructorEnvPerShader<'s, 't>
 {
-    type Env = ShadingPipelineConstructorEnv<'s>;
-    fn collect_ctors(&self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError>>
+    fn symbol_set(&self) -> &ConstructorEnv<'s, 't> { &self.set }
+    fn symbol_set_mut(&mut self) -> &mut ConstructorEnv<'s, 't> { &mut self.set }
+}
+
+impl<'s: 't, 't> ConstructorCollector<'s, 't> for ShadingPipeline<'s>
+{
+    type Env = ShadingPipelineConstructorEnv<'s, 't>;
+    fn collect_ctors(&'t self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError<'t>>>
     {
+        fn collect_ctors_in_shader<'s: 't, 't>(parent: &RcMut<ShadingPipelineConstructorEnv<'s, 't>>, sh: &'t ShaderStageDefinition<'s>)
+            -> Result<Option<RcMut<ConstructorEnvPerShader<'s, 't>>>, Vec<ConstructorCollectionError<'t>>>
+        {
+            let e = new_rcmut(ConstructorEnvPerShader { parent: Rc::downgrade(parent), set: ConstructorEnv::new() });
+            sh.collect_ctors(&e).map(|_| ConstructorEnvironment::drop_if_empty(e))
+        }
+
         let mut errors = Vec::new();
         if let Some(ref v) = self.vsh
         {
@@ -116,24 +137,16 @@ impl<'s> ConstructorCollector<'s> for ShadingPipeline<'s>
                 Ok(e) => { env.borrow_mut().fsh = e; }, Err(mut ev) => errors.append(&mut ev)
             }
         }
-        if let Err(mut e) = collect_for_type_decls(env, self) { errors.append(&mut e); }
+        if let Err(mut e) = collect_for_type_decls(env.borrow_mut().deref_mut(), self) { errors.append(&mut e); }
         if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 }
-pub struct ConstructorEnvPerShader<'s> { parent: WeakMut<ShadingPipelineConstructorEnv<'s>>, pub set: ConstructorEnv<'s> }
-impl<'s> ConstructorEnvironment<'s> for ConstructorEnvPerShader<'s> { fn symbol_set(&self) -> &ConstructorEnv<'s> { &self.set } }
-impl<'s> ConstructorCollector<'s> for ShaderStageDefinition<'s>
+impl<'s: 't, 't> ConstructorCollector<'s, 't> for ShaderStageDefinition<'s>
 {
-    type Env = ConstructorEnvPerShader<'s>;
-    fn collect_ctors(&self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError>> { collect_for_type_decls(env, self) }
+    type Env = ConstructorEnvPerShader<'s, 't>;
+    fn collect_ctors(&'t self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError>> { collect_for_type_decls(env.borrow_mut().deref_mut(), self) }
 }
-fn collect_ctors_in_shader<'s: 't, 't>(parent: &RcMut<ShadingPipelineConstructorEnv<'s>>, sh: &'t ShaderStageDefinition<'s>)
-    -> Result<Option<RcMut<ConstructorEnvPerShader<'s>>>, Vec<ConstructorCollectionError<'t>>>
-{
-    let e = new_rcmut(ConstructorEnvPerShader { parent: Rc::downgrade(parent), set: ConstructorEnv::new() });
-    sh.collect_ctors(&e).map(|_| ConstructorEnvironment::drop_if_empty(e))
-}
-fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s>, T: TypeDeclarable<'s> + AssociativityEnvironment<'s>>(env: &RcMut<Env>, tree: &'t T)
+fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s, 't>, T: TypeDeclarable<'s> + AssociativityEnvironment<'s>>(env: &mut Env, tree: &'t T)
     -> Result<(), Vec<ConstructorCollectionError<'t>>>
 {
     let aenv = tree.assoc_env().borrow();
@@ -146,14 +159,17 @@ fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s>, T: TypeDe
         };
         let ty_ctor = match dty.leftmost_symbol()
         {
-            Some(&Prefix::User(ref s)) => s,
+            Some(&Prefix::User(s)) => s,
             Some(&Prefix::Arrow(p)) => { errors.place_back() <- ConstructorCollectionError::ArrowNotAllowed(p); continue; },
             Some(&Prefix::PathRef(ref p, _)) => { errors.place_back() <- ConstructorCollectionError::PathRefNotAllowed(p.position()); continue; },
             None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position()); continue; }
         };
-        println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
-        let dcons: Vec<_> = defs.iter().map(|dc| dc.name).collect();
-        println!("**dbg** Found Data Constructor for {:?} = {:?}", ty, dcons);
+        // println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
+        let mut dcons: Vec<_> = defs.iter().map(|dc| &dc.name).collect();
+        // println!("**dbg** Found Data Constructor for {:?} = {:?}", ty_ctor, dcons);
+
+        env.symbol_set_mut().ty.insert(ty_ctor);
+        env.symbol_set_mut().data.entry(ty_ctor).or_insert(Vec::new()).append(&mut dcons);
     }
     for &(ref tys, _) in tree.type_fns().iter().flat_map(|tf| &tf.defs)
     {
@@ -168,7 +184,8 @@ fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s>, T: TypeDe
             Some(&Prefix::PathRef(ref p, _)) => { errors.place_back() <- ConstructorCollectionError::PathRefNotAllowed(p.position()); continue; },
             None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position()); continue; }
         };
-        println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
+        // println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
+        env.symbol_set_mut().ty.insert(ty_ctor);
     }
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }

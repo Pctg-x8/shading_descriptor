@@ -133,10 +133,6 @@ pub fn get_definition_leftmost<'s: 't, 't, S: TokenStream<'s, 't>>(block_leftmos
 }
 
 // minimal/useful parsers //
-pub fn take_operator<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<&'t Source<'s>, &'t Location>
-{
-	match *stream.current() { TokenKind::Operator(ref s) => { stream.shift(); Ok(s) }, ref e => Err(e.position()) }
-}
 pub fn name<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost, allow_placeholder: bool) -> Result<(&'t Location, Option<&'s str>), &'t Location>
 {
 	if !leftmost.satisfy(stream.current(), true) { Err(stream.current().position()) }
@@ -161,21 +157,14 @@ pub fn shift_infix_ops<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftm
         t => Err(t.position())
     }
 }
-/// ident | ( operator )
-pub fn shift_prefix_declarator<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, (&'t Location, &'s str)>
+/// ident | wrapped_op
+pub fn shift_prefix_declarator<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, &'t Source<'s>>
 {
 	let leftmost = leftmost.into_nothing_as(Leftmost::Inclusive(stream.current().position().column));
 	if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
 	match *stream.current()
 	{
-		TokenKind::Identifier(Source { slice, ref pos, .. }) => { stream.shift(); Success((pos, slice)) },
-		TokenKind::BeginEnclosure(ref p, EnclosureKind::Parenthese) =>
-		{
-			stream.shift();
-			let name = take_operator(stream).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?.slice;
-			if stream.current().is_end_enclosure_of(EnclosureKind::Parenthese) { stream.shift(); Success((p, name)) }
-			else { Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, stream.current().position())) }
-		},
+		TokenKind::Identifier(ref s) | TokenKind::WrappedOp(ref s) => { stream.shift(); Success(s) },
 		_ => NotConsumed
 	}
 }

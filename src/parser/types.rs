@@ -194,7 +194,7 @@ impl<'s> Parser<'s> for FullTypeDesc<'s>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeFn<'s> { pub location: Location, pub defs: Vec<(TypeSynTree<'s>, FullTypeDesc<'s>)> }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DataConstructor<'s> { pub location: Location, pub name: &'s str, pub args: Vec<&'s str> }
+pub struct DataConstructor<'s> { pub location: Location, pub name: Source<'s>, pub args: Vec<&'s str> }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeDeclaration<'s> { pub location: Location, pub defs: Vec<(TypeSynTree<'s>, Vec<DataConstructor<'s>>)> }
 impl<'s> BlockParser<'s> for TypeFn<'s>
@@ -257,10 +257,7 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
     {
         fn prefix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
         {
-            let (location, name) = match shift_prefix_declarator(stream, leftmost)
-            {
-                Success(v) => v, Failed(e) => return Failed(e), NotConsumed => return NotConsumed
-            };
+            let name = BreakParsing!(shift_prefix_declarator(stream, leftmost));
             let leftmost = leftmost.into_exclusive();
             let mut args = Vec::new();
             while leftmost.satisfy(stream.current(), true)
@@ -271,21 +268,19 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
                     _ => break
                 }
             }
-            Success(DataConstructor { location: location.clone(), name, args })
+            Success(DataConstructor { location: name.pos.clone(), name: name.clone(), args })
         }
         fn infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
         {
             if !leftmost.satisfy(stream.current(), false) { return NotConsumed; }
             let (location, arg1) = if let TokenKind::Identifier(ref s) = *stream.current() { stream.shift(); (&s.pos, s.slice) } else { return NotConsumed };
-            let leftmost = leftmost.into_exclusive();
-            CheckLayout!(leftmost => stream);
-            let name = take_operator(stream).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?.slice;
-            CheckLayout!(leftmost => stream);
+            let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(location.column)).into_exclusive();
+            let name = shift_infix_ops(stream, leftmost).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?;
             match *stream.current()
             {
-                TokenKind::Identifier(Source { slice: arg2, .. }) =>
+                TokenKind::Identifier(Source { slice: arg2, .. }) if leftmost.satisfy(stream.current(), false) =>
                 {
-                    stream.shift(); Success(DataConstructor { location: location.clone(), name, args: vec![arg1, arg2] })
+                    stream.shift(); Success(DataConstructor { location: location.clone(), name: name.clone(), args: vec![arg1, arg2] })
                 },
                 ref e => Failed(ParseError::Expecting(ExpectingKind::Argument, e.position()))
             }

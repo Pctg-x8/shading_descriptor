@@ -6,6 +6,7 @@ Blend (Add SrcAlpha ~SrcAlpha) (Add ~DestAlpha 1)
 # Blend PremultipliedAlpha
 
 VertexShader(pos(POSITION): f4, uv(TEXCOORD0): f2):
+  data mat n = matf4 f4[n]
   uniform mvp: mf4
   trans x: f4 -> _ =
     let mat = mvp in mat * x
