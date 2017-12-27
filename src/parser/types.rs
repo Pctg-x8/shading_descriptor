@@ -255,6 +255,7 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Self> where 's: 't
     {
+        // op prefix prefix...
         fn prefix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
         {
             let name = BreakParsing!(shift_prefix_declarator(stream, leftmost));
@@ -262,13 +263,14 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
             let mut args = Vec::new();
             while leftmost.satisfy(stream.current(), true)
             {
-                match TypeSynTree::parse(stream, leftmost)
+                match prefix_ty(stream, leftmost)
                 {
                    Success(v) => args.push(v), Failed(e) => return Failed(e), NotConsumed => break
                 }
             }
             Success(DataConstructor { location: name.pos.clone(), name: name.clone(), args })
         }
+        // prefix op prefix
         fn infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
         {
             let arg1 = BreakParsing!(prefix_ty(stream, leftmost));
