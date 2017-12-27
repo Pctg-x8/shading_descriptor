@@ -6,6 +6,7 @@ extern crate regex;
 
 mod tokparse;
 mod parser;
+mod deformer;
 mod typepaint;
 
 pub use tokparse::TokenStream;
@@ -17,11 +18,12 @@ pub use parser::{ShaderStage, ShaderStageDefinition};
 pub use parser::{ShadingState, ShadingStates, CompareOp, StencilOp, StencilTestConfig, BlendingStateConfig, depth_state};
 pub use parser::{ShadingPipeline, shading_pipeline};
 pub use parser::{ExpressionSynTree, FullExpression};
-pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, TypeDeclarable};
+pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, TypeDeclarable, InferredArrayDim};
 pub use parser::utils::Leftmost;
+
+pub use deformer::{TyDeformerIntermediate, deform_ty};
 
 pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
 pub use typepaint::{ConstructorEnv, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
-pub use typepaint::{deform_ty, TyDeformerIntermediate};
 
 use typepaint::{RcMut, WeakMut};
