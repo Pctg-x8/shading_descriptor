@@ -9,7 +9,7 @@ use tokparse::*;
 use std::rc::Rc; use std::cell::RefCell;
 
 // child parsers //
-pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor};
+pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, InferredArrayDim};
 pub use self::expr::{FullExpression, ExpressionSynTree};
 pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
 pub use self::assoc::{Associativity, AssociativityEnv};

@@ -8,6 +8,7 @@ use tokparse::{TokenStream, TokenKind, Keyword, Source, Location};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Associativity { Left(usize), Right(usize), None(usize) }
+impl Default for Associativity { fn default() -> Self { Associativity::Left(9) } }
 #[derive(Debug, Clone)]
 pub struct AssociativityEnv<'s>
 {
@@ -26,6 +27,11 @@ impl<'s> AssociativityEnv<'s>
             ::std::collections::hash_map::Entry::Occupied(e) => Some(&e.into_mut().0),
             v => { v.or_insert((pos, assoc)); None }
         }
+    }
+    pub fn lookup(&self, op: &'s str) -> Associativity
+    {
+        self.ops.get(op).map(|&(_, ref a)| a.clone()).or_else(|| self.parent.as_ref().and_then(Weak::upgrade).map(|x| x.borrow().lookup(op)))
+            .unwrap_or_default()
     }
 }
 

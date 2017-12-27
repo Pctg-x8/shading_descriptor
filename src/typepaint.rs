@@ -2,6 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
+use super::parser::*;
+use super::{Source, Location, BType};
+use std::mem::{replace, uninitialized};
 
 pub trait AssociativityDebugPrinter
 {
@@ -106,6 +109,131 @@ fn collect_for_type_decls<'s, Env: ConstructorEnvironment<'s>, T: ::TypeDeclarab
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Prefix<'s: 't, 't> { Arrow, User(&'t Source<'s>), PathRef(Box<TyDeformerIntermediate<'s, 't>>, Vec<&'t Source<'s>>) }
+#[derive(Debug, PartialEq, Eq)]
+pub enum TyDeformerIntermediate<'s: 't, 't>
+{
+    Placeholder(&'t Location), Expressed(Prefix<'s, 't>, Vec<TyDeformerIntermediate<'s, 't>>),
+    SafetyGarbage, Basic(&'t Location, BType), Tuple(&'t Location, Vec<TyDeformerIntermediate<'s, 't>>),
+    ArrayDim(Box<TyDeformerIntermediate<'s, 't>>, &'t InferredArrayDim<'s>)
+}
+pub struct InfixIntermediate<'s: 't, 't, IR: 't> { op: &'t Source<'s>, assoc: Associativity, ir: IR }
+impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
+{
+    /// self <+> (new_lhs new_arg) = (new_lhs self new_arg)
+    fn combine(self, new_lhs: Prefix<'s, 't>, new_arg: Self) -> Self
+    {
+        TyDeformerIntermediate::Expressed(new_lhs, vec![self, new_arg])
+    }
+    fn combine_inplace(&mut self, new_lhs: Prefix<'s, 't>, new_arg: Self) -> &mut Self
+    {
+        let old = replace(self, TyDeformerIntermediate::SafetyGarbage);
+        *self = old.combine(new_lhs, new_arg); self
+    }
+    fn append_args(&mut self, new_args: &mut Vec<Self>)
+    {
+        match *self
+        {
+            TyDeformerIntermediate::Expressed(_, ref mut args) => args.append(new_args),
+            _ => unreachable!()
+        }
+    }
+}
+
+#[derive(Debug)] pub enum DeformationError<'t>
+{
+    ArgumentRequired(&'t Location), UnresolvedAssociation(&'t Location), ConstructorRequired(&'t Location),
+    ApplicationProhibited(&'t Location)
+}
+pub fn deform_ty<'s: 't, 't>(ty: &'t TypeSynTree<'s>, assoc_env: &AssociativityEnv<'s>) -> Result<TyDeformerIntermediate<'s, 't>, DeformationError<'t>>
+{
+    match *ty
+    {
+        // a b... => (deform(a), sym_placeholder(b...))
+        TypeSynTree::Prefix(ref v) =>
+        {
+            let mut lhs = deform_ty(v.first().expect("Empty PrefixTy"), assoc_env)?;
+            let mut add_args = v[1..].iter().map(|t| deform_ty(t, assoc_env)).collect::<Result<_, _>>()?;
+            lhs.append_args(&mut add_args);
+            Ok(lhs)
+        },
+        TypeSynTree::Infix { ref lhs, ref mods } =>
+        {
+            let mut mods: Vec<_> = mods.iter().map(|&(ref op, ref rhs)| Ok(InfixIntermediate
+            {
+                op, assoc: assoc_env.lookup(op.slice), ir: deform_ty(rhs, assoc_env)?
+            })).collect::<Result<_, _>>()?;
+            let mut lhs = deform_ty(lhs, assoc_env)?;
+            while !mods.is_empty()
+            {
+                let agg = extract_most_precedences(&mods).map_err(DeformationError::UnresolvedAssociation)?.unwrap();
+                let ir = mods.remove(agg.index);
+                let cell = if agg.index >= 1 { &mut mods[agg.index - 1].ir } else { &mut lhs };
+                cell.combine_inplace(Prefix::User(&ir.op), ir.ir);
+            }
+            Ok(lhs)
+        },
+        // a => a, []
+        TypeSynTree::SymReference(ref sym) => Ok(TyDeformerIntermediate::Expressed(Prefix::User(sym), Vec::new())),
+        TypeSynTree::PathRef(ref base, ref v) => Ok(TyDeformerIntermediate::Expressed(Prefix::PathRef(box deform_ty(base, assoc_env)?, v.iter().collect()), Vec::new())),
+        TypeSynTree::Placeholder(ref p) => Ok(TyDeformerIntermediate::Placeholder(p)),
+        TypeSynTree::Basic(ref p, bt) => Ok(TyDeformerIntermediate::Basic(p, bt)),
+        TypeSynTree::Tuple(ref p, ref v) => Ok(TyDeformerIntermediate::Tuple(p, v.iter().map(|t| deform_ty(t, assoc_env)).collect::<Result<_, _>>()?)),
+        TypeSynTree::ArrowInfix { ref lhs, ref rhs } => Ok(TyDeformerIntermediate::Expressed(Prefix::Arrow, vec![deform_ty(lhs, assoc_env)?, deform_ty(rhs, assoc_env)?])),
+        TypeSynTree::ArrayDim { ref lhs, ref num } => Ok(TyDeformerIntermediate::ArrayDim(box deform_ty(lhs, assoc_env)?, num))
+    }
+}
+
+fn ap_2options<A, F: FnOnce(A, A) -> bool>(cond: F, t: Option<A>, f: Option<A>) -> Option<bool>
+{
+    if t.is_none() && f.is_none() { None } else { Some(t.map_or(false, |t| f.map_or(true, |f| cond(t, f)))) }
+}
+
+#[derive(Clone)]
+pub struct AggPointer { prec: usize, index: usize }
+fn extract_most_precedences1<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s, 't, IR>])
+    -> Result<(Option<AggPointer>, Option<AggPointer>, Option<AggPointer>), &'t Location>
+{
+    let (mut left, mut right, mut none): (Option<AggPointer>, Option<AggPointer>, Option<AggPointer>) = (None, None, None);
+    let mut none_last_prec = None;
+    for (i, ir) in mods.iter().enumerate()
+    {
+        match ir.assoc
+        {
+            Associativity::Left(prec) =>
+            {
+                if left.as_ref().map_or(true, |t| prec > t.prec) { left = Some(AggPointer { prec, index: i }); }
+                none_last_prec = None;
+            },
+            Associativity::Right(prec) =>
+            {
+                if right.as_ref().map_or(true, |t| prec >= t.prec) { right = Some(AggPointer { prec, index: i }); }
+                none_last_prec = None;
+            },
+            Associativity::None(prec) if none_last_prec == Some(prec) => return Err(&ir.op.pos),
+            Associativity::None(prec) =>
+            {
+                if none.as_ref().map_or(true, |t| prec > t.prec) { none = Some(AggPointer { prec, index: i }); }
+                none_last_prec = Some(prec);
+            }
+        }
+    }
+    Ok((left, right, none))
+}
+pub fn extract_most_precedences<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s, 't, IR>]) -> Result<Option<AggPointer>, &'t Location>
+{
+    let (l, r, n) = extract_most_precedences1(mods)?;
+    Ok(ap_2options(|l, r| l.prec > r.prec, l.as_ref(), r.as_ref()).map_or(n.clone(), |llarge| if llarge
+    {
+        ap_2options(|n, l| n.prec > l.prec, n.as_ref(), l.as_ref()).map(|nlarge| if nlarge { n.unwrap() } else { l.unwrap() })
+    }
+    else
+    {
+        ap_2options(|n, r| n.prec > r.prec, n.as_ref(), r.as_ref()).map(|nlarge| if nlarge { n.unwrap() } else { r.unwrap() })
+    }))
+}
+
 /*
 pub struct TyConstructorEnv<'s>
 {
@@ -194,3 +322,19 @@ impl<'s> PaintedType<'s>
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaintedTypeString<'s>(Vec<PaintedType<'s>>);*/
+
+#[cfg(test)] mod tests
+{
+    use ::*;
+    #[test] fn ty_unification()
+    {
+        let mut case = TokenizerState::from("(c + b) d").strip_all();
+        let mut case2 = TokenizerState::from("(+) c b d").strip_all();
+        let assoc_env = AssociativityEnv::new(None);
+        let c1 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::Nothing).expect("in case infix");
+        let c2 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::Nothing).expect("in case prefix");
+        let c1d = deform_ty(&c1, &assoc_env).expect("in deforming case infix");
+        let c2d = deform_ty(&c2, &assoc_env).expect("in deforming case prefix");
+        assert_eq!(c1d, c2d);
+    }
+}
