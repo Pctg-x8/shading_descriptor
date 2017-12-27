@@ -111,6 +111,22 @@ fn collect_for_type_decls<'s, Env: ConstructorEnvironment<'s>, T: ::TypeDeclarab
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Prefix<'s: 't, 't> { Arrow, User(&'t Source<'s>), PathRef(Box<TyDeformerIntermediate<'s, 't>>, Vec<&'t Source<'s>>) }
+impl<'s: 't, 't> Prefix<'s, 't>
+{
+    pub fn is_equal_nolocation(&self, other: &Self) -> bool
+    {
+        match *self
+        {
+            Prefix::Arrow => *other == Prefix::Arrow,
+            Prefix::User(&Source { slice, .. }) => if let Prefix::User(&Source { slice: slice_, .. }) = *other { slice == slice_ } else { false },
+            Prefix::PathRef(ref p, ref v) => if let Prefix::PathRef(ref p_, ref v_) = *other
+            {
+                p.is_equal_nolocation(&p_) && v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(a, b)| a.slice == b.slice)
+            }
+            else { false }
+        }
+    }
+}
 #[derive(Debug, PartialEq, Eq)]
 pub enum TyDeformerIntermediate<'s: 't, 't>
 {
@@ -137,6 +153,31 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
         {
             TyDeformerIntermediate::Expressed(_, ref mut args) => args.append(new_args),
             _ => unreachable!()
+        }
+    }
+
+    pub fn is_equal_nolocation(&self, other: &Self) -> bool
+    {
+        match *self
+        {
+            TyDeformerIntermediate::Placeholder(_) => if let TyDeformerIntermediate::Placeholder(_) = *other { true } else { false },
+            TyDeformerIntermediate::Expressed(ref p, ref v) => if let TyDeformerIntermediate::Expressed(ref p_, ref v_) = *other
+            {
+                p.is_equal_nolocation(&p_) && v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(s, o)| s.is_equal_nolocation(o))
+            }
+            else { false },
+            TyDeformerIntermediate::SafetyGarbage => unreachable!(),
+            TyDeformerIntermediate::Basic(_, bt) => if let TyDeformerIntermediate::Basic(_, bt_) = *other { bt == bt_ } else { false },
+            TyDeformerIntermediate::Tuple(_, ref v) => if let TyDeformerIntermediate::Tuple(_, ref v_) = *other
+            {
+                v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(s, o)| s.is_equal_nolocation(o))
+            }
+            else { false },
+            TyDeformerIntermediate::ArrayDim(ref p, ref e) => if let TyDeformerIntermediate::ArrayDim(ref p_, ref e_) = *other
+            {
+                p.is_equal_nolocation(&p_) && e == e_
+            }
+            else { false }
         }
     }
 }
@@ -328,13 +369,13 @@ pub struct PaintedTypeString<'s>(Vec<PaintedType<'s>>);*/
     use ::*;
     #[test] fn ty_unification()
     {
-        let mut case = TokenizerState::from("(c + b) d").strip_all();
-        let mut case2 = TokenizerState::from("(+) c b d").strip_all();
-        let assoc_env = AssociativityEnv::new(None);
+        let case = TokenizerState::from("(c + b) d").strip_all();
+        let case2 = TokenizerState::from("(+) c b d").strip_all();
         let c1 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::Nothing).expect("in case infix");
         let c2 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::Nothing).expect("in case prefix");
+        let assoc_env = AssociativityEnv::new(None);
         let c1d = deform_ty(&c1, &assoc_env).expect("in deforming case infix");
         let c2d = deform_ty(&c2, &assoc_env).expect("in deforming case prefix");
-        assert_eq!(c1d, c2d);
+        assert!(c1d.is_equal_nolocation(&c2d), "not matching: {:?} and {:?}", c1d, c2d);
     }
 }

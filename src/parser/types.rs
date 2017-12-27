@@ -107,6 +107,7 @@ fn factor_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftm
         &TokenKind::Identifier(ref s) => { stream.shift(); Success(TypeSynTree::SymReference(s.clone())) },
         &TokenKind::BasicType(ref p, bt) => { stream.shift(); Success(TypeSynTree::Basic(p.clone(), bt)) },
         &TokenKind::Placeholder(ref p) => { stream.shift(); Success(TypeSynTree::Placeholder(p.clone())) },
+        &TokenKind::WrappedOp(ref s) => { stream.shift(); Success(TypeSynTree::SymReference(s.clone())) },
         &TokenKind::BeginEnclosure(ref pp, EnclosureKind::Parenthese) =>
         {
             let leftmost = leftmost.into_exclusive();
