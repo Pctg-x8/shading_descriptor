@@ -1,5 +1,5 @@
 
-#![feature(placement_in_syntax, collection_placement, box_syntax, placement_new_protocol, try_trait, slice_patterns)]
+#![feature(placement_in_syntax, collection_placement, box_syntax, placement_new_protocol, try_trait, slice_patterns, inclusive_range_syntax)]
 
 extern crate regex;
 #[macro_use] extern crate lazy_static;

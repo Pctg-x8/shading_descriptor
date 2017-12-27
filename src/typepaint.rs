@@ -37,7 +37,7 @@ pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 
 pub struct ConstructorEnv<'s: 't, 't>
 {
-    pub ty: HashSet<&'t Source<'s>>, pub data: HashMap<&'t Source<'s>, Vec<&'t Source<'s>>>
+    pub ty: HashSet<&'t Source<'s>>, pub data: HashMap<&'t Source<'s>, Vec<TypedDataConstructor<'s, 't>>>
 }
 impl<'s: 't, 't> ConstructorEnv<'s, 't>
 {
@@ -63,6 +63,9 @@ pub enum ConstructorCollectionError<'t>
 {
     DeformingError(DeformationError<'t>), ConstructorNotFound(&'t Location), ArrowNotAllowed(&'t Location), PathRefNotAllowed(&'t Location)
 }
+
+#[derive(Debug)]
+pub struct TypedDataConstructor<'s: 't, 't>(pub &'t Source<'s>, pub TyDeformerIntermediate<'s, 't>);
 
 // specialized constructor envs //
 pub struct ShadingPipelineConstructorEnv<'s: 't, 't>
@@ -165,7 +168,10 @@ fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s, 't>, T: Ty
             None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position()); continue; }
         };
         // println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
-        let mut dcons: Vec<_> = defs.iter().map(|dc| &dc.name).collect();
+        let mut dcons: Vec<_> = match defs.iter().map(|dc| Ok(TypedDataConstructor(&dc.name, dcons_ty(dc, &dty, &aenv)?))).collect::<Result<_, _>>()
+        {
+            Ok(v) => v, Err(e) => { errors.place_back() <- ConstructorCollectionError::DeformingError(e); continue; }
+        };
         // println!("**dbg** Found Data Constructor for {:?} = {:?}", ty_ctor, dcons);
 
         env.symbol_set_mut().ty.insert(ty_ctor);
@@ -190,12 +196,32 @@ fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s, 't>, T: Ty
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
+/// データコンストラクタの型の抽出 今回はGADTsは考慮しない
+pub fn dcons_ty<'s: 't, 't>(dtree: &'t DataConstructor<'s>, final_ty: &TyDeformerIntermediate<'s, 't>, assoc_env: &AssociativityEnv<'s>)
+    -> Result<TyDeformerIntermediate<'s, 't>, DeformationError<'t>>
+{
+    let mut t = final_ty.clone();
+    for aindex in dtree.args.len() - 1 ..= 0
+    {
+        let ref arg = dtree.args[aindex];
+        t = TyDeformerIntermediate::Expressed(Prefix::Arrow(&dtree.location), vec![deform_ty(arg, assoc_env)?, t]);
+    }
+    Ok(t)
+}
+
 // paint
 // matf a b => matf(constructor) a(tyvar) b(tyvar)
 // (X _) -> Int => (->) (X _) Int => (->) (forall t0. X t0) Int または forall t0. (->) (X t0) Int
 // (X _)[] -> Int => (->) [X _] Int => (->) [forall t0. X t0] Int (forall t0. (->) [X t0] Intとすると意味が変わる)
 
 // pub fn quantize_ty<'s: 't, 't>(tree: &TyDeformerIntermediate<'s, 't>) -> 
+
+// ラムダ抽象にあたって
+// 例えばResult t e = Ok t | Err eの場合
+// Result(2 items) :: * -> * -> *, Ok :: forall t e. t -> Result t e, Err :: forall t e. e -> Result t e
+// Resultは2アイテムなので、継続系のResult t eはforall r. (t -> r) -> (e -> r) -> r このとき、元の型の引数の数(この場合は2)は関係がない。
+// 例) Result3 t e r = Ok t | Err eでもforall r'. (t -> r') -> (e -> r') -> r'になるし、Option a = Some a | Noneでもforall r. (a -> r) -> r -> rになる
+// これを一般化すると、data T = A | B ...の時、forall r. A@/T/r/ -> B@/T/r/ -> ... -> rとなる。ここで、X@/T/r/は置換操作を表す(Xの型中のTをrに置き換え)。
 
 /*
 #[derive(Debug, Clone, PartialEq, Eq)]
