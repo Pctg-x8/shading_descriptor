@@ -296,39 +296,39 @@ impl<'s> TokenizerState<'s>
             Token { line_head, kind: tk }
         }
     }
+    fn next_one(&mut self) -> Token<'s>
+    {
+        if let Some(t) = self.cache.pop() { t } else { self.take_one() }
+    }
     pub fn next(&mut self) -> Token<'s>
     {
-        if let Some(t) = self.cache.pop() { t }
-        else
+        // Combine multiple tokens
+        let s1 = self.next_one();
+        match s1.kind
         {
-            // Combine multiple tokens
-            let s1 = self.take_one();
-            match s1.kind
+            TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) =>
             {
-                TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) =>
+                let s2 = self.next_one();
+                let s2op = if let TokenKind::Operator(ref s) = s2.kind { s.clone() } else { self.cache.push(s2); return s1; };
+                let s3 = self.next_one();
+                if let TokenKind::EndEnclosure(_, EnclosureKind::Parenthese) = s3.kind
                 {
-                    let s2 = self.take_one();
-                    let s2op = if let TokenKind::Operator(ref s) = s2.kind { s.clone() } else { self.cache.push(s2); return s1; };
-                    let s3 = self.take_one();
-                    if let TokenKind::EndEnclosure(_, EnclosureKind::Parenthese) = s3.kind
-                    {
-                        Token { kind: TokenKind::WrappedOp(s2op), line_head: s1.line_head }
-                    }
-                    else { self.cache.push(s3); self.cache.push(s2); s1 }
-                },
-                TokenKind::Backquote(_) =>
+                    Token { kind: TokenKind::WrappedOp(s2op), line_head: s1.line_head }
+                }
+                else { self.cache.push(s3); self.cache.push(s2); s1 }
+            },
+            TokenKind::Backquote(_) =>
+            {
+                let s2 = self.next_one();
+                let s2ident = if let TokenKind::Identifier(ref s) = s2.kind { s.clone() } else { self.cache.push(s2); return s1; };
+                let s3 = self.next_one();
+                if let &TokenKind::Backquote(_) = &s3.kind
                 {
-                    let s2 = self.take_one();
-                    let s2ident = if let TokenKind::Identifier(ref s) = s2.kind { s.clone() } else { self.cache.push(s2); return s1; };
-                    let s3 = self.take_one();
-                    if let &TokenKind::Backquote(_) = &s3.kind
-                    {
-                        Token { kind: TokenKind::InfixIdent(s2ident), line_head: s1.line_head }
-                    }
-                    else { self.cache.push(s3); self.cache.push(s2); s1 }
-                },
-                _ => s1
-            }
+                    Token { kind: TokenKind::InfixIdent(s2ident), line_head: s1.line_head }
+                }
+                else { self.cache.push(s3); self.cache.push(s2); s1 }
+            },
+            _ => s1
         }
     }
     /// Tokenize entire contents

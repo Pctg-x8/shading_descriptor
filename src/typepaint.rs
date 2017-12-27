@@ -369,13 +369,19 @@ pub struct PaintedTypeString<'s>(Vec<PaintedType<'s>>);*/
     use ::*;
     #[test] fn ty_unification()
     {
-        let case = TokenizerState::from("(c + b) d").strip_all();
-        let case2 = TokenizerState::from("(+) c b d").strip_all();
-        let c1 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::Nothing).expect("in case infix");
-        let c2 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::Nothing).expect("in case prefix");
-        let assoc_env = AssociativityEnv::new(None);
-        let c1d = deform_ty(&c1, &assoc_env).expect("in deforming case infix");
-        let c2d = deform_ty(&c2, &assoc_env).expect("in deforming case prefix");
-        assert!(c1d.is_equal_nolocation(&c2d), "not matching: {:?} and {:?}", c1d, c2d);
+        fn test_unify<'s>(infix: &'s str, prefix: &'s str)
+        {
+            let case = TokenizerState::from(infix).strip_all();
+            let case2 = TokenizerState::from(prefix).strip_all();
+            let c1 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::Nothing).expect(&format!("in case infix({})", infix));
+            let c2 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::Nothing).expect(&format!("in case prefix({})", prefix));
+            let assoc_env = AssociativityEnv::new(None);
+            let c1d = deform_ty(&c1, &assoc_env).expect("in deforming case infix");
+            let c2d = deform_ty(&c2, &assoc_env).expect("in deforming case prefix");
+            assert!(c1d.is_equal_nolocation(&c2d), "not matching: {:?} and {:?}", c1d, c2d);
+        }
+        test_unify("a `Cons` b", "Cons a b");
+        test_unify("(c + b) d", "(+) c b d");
+        test_unify("c + d + e", "(+) ((+) c d) e");
     }
 }
