@@ -194,7 +194,7 @@ impl<'s> Parser<'s> for FullTypeDesc<'s>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeFn<'s> { pub location: Location, pub defs: Vec<(TypeSynTree<'s>, FullTypeDesc<'s>)> }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DataConstructor<'s> { pub location: Location, pub name: Source<'s>, pub args: Vec<&'s str> }
+pub struct DataConstructor<'s> { pub location: Location, pub name: Source<'s>, pub args: Vec<TypeSynTree<'s>> }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeDeclaration<'s> { pub location: Location, pub defs: Vec<(TypeSynTree<'s>, Vec<DataConstructor<'s>>)> }
 impl<'s> BlockParser<'s> for TypeFn<'s>
@@ -262,28 +262,20 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
             let mut args = Vec::new();
             while leftmost.satisfy(stream.current(), true)
             {
-                match *stream.current()
+                match TypeSynTree::parse(stream, leftmost)
                 {
-                    TokenKind::Identifier(Source { slice, .. }) => { stream.shift(); args.push(slice) },
-                    _ => break
+                   Success(v) => args.push(v), Failed(e) => return Failed(e), NotConsumed => break
                 }
             }
             Success(DataConstructor { location: name.pos.clone(), name: name.clone(), args })
         }
         fn infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
         {
-            if !leftmost.satisfy(stream.current(), false) { return NotConsumed; }
-            let (location, arg1) = if let TokenKind::Identifier(ref s) = *stream.current() { stream.shift(); (&s.pos, s.slice) } else { return NotConsumed };
-            let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(location.column)).into_exclusive();
+            let arg1 = BreakParsing!(prefix_ty(stream, leftmost));
+            let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(arg1.position().column)).into_exclusive();
             let name = shift_infix_ops(stream, leftmost).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?;
-            match *stream.current()
-            {
-                TokenKind::Identifier(Source { slice: arg2, .. }) if leftmost.satisfy(stream.current(), false) =>
-                {
-                    stream.shift(); Success(DataConstructor { location: location.clone(), name: name.clone(), args: vec![arg1, arg2] })
-                },
-                ref e => Failed(ParseError::Expecting(ExpectingKind::Argument, e.position()))
-            }
+            let arg2 = TypeSynTree::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Argument, stream.current().position()))?;
+            Success(DataConstructor { location: arg1.position().clone(), name: name.clone(), args: vec![arg1, arg2] })
         }
         let location = TMatch!(stream; TokenKind::Keyword(ref p, Keyword::Data) => p, |p| ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), p));
         let block_start = take_current_block_begin(stream);
