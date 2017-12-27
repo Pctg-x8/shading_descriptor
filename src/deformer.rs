@@ -2,6 +2,7 @@
 use {Location, Source, BType, Associativity, AssociativityEnv};
 use {TypeSynTree, InferredArrayDim};
 use std::mem::replace;
+use std::ops::Deref;
 
 #[derive(Debug)] pub enum DeformationError<'t>
 {
@@ -211,76 +212,69 @@ impl<'s: 't, 't> ExprDeformerIntermediate<'s, 't>
             ExprDeformerIntermediate::Conditional { head, .. } | ExprDeformerIntermediate::Lettings { head, .. } | ExprDeformerIntermediate::Block(head, ..) => head
         }
     }
-    pub fn is_equal_nolocation(&self, other: &Self) -> bool
+}
+pub trait EqNoloc { fn eq_nolocation(&self, other: &Self) -> bool; }
+/// and
+impl<A: EqNoloc, B: EqNoloc> EqNoloc for (A, B)
+{
+    fn eq_nolocation(&self, other: &(A, B)) -> bool { self.0.eq_nolocation(&other.0) && self.1.eq_nolocation(&other.1) }
+}
+/// all
+impl<T: EqNoloc> EqNoloc for [T]
+{
+    fn eq_nolocation(&self, other: &[T]) -> bool { self.len() == other.len() && self.iter().zip(other.iter()).all(|(a, b)| a.eq_nolocation(b)) }
+}
+impl<T: EqNoloc> EqNoloc for Option<T>
+{
+    fn eq_nolocation(&self, other: &Option<T>) -> bool { self.as_ref().map_or(other.is_none(), |a| other.as_ref().map_or(false, |b| a.eq_nolocation(b))) }
+}
+impl<T: EqNoloc> EqNoloc for Box<T> { fn eq_nolocation(&self, other: &Box<T>) -> bool { self.deref().eq_nolocation(other.deref()) } }
+impl<'s> EqNoloc for Source<'s> { fn eq_nolocation(&self, other: &Self) -> bool { self.slice == other.slice } }
+impl<'s: 't, 't> EqNoloc for &'t Source<'s> { fn eq_nolocation(&self, other: &Self) -> bool { self.slice == other.slice } }
+impl<'s: 't, 't> EqNoloc for ExprDeformerIntermediate<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool
     {
         match *self
         {
             ExprDeformerIntermediate::Garbage => false,
-            ExprDeformerIntermediate::Apply(&Source { slice, .. }, ref v) => if let ExprDeformerIntermediate::Apply(&Source { slice: slice_, .. }, ref v_) = *other
+            ExprDeformerIntermediate::Apply(s, ref v) =>
+                if let ExprDeformerIntermediate::Apply(s_, ref v_) = *other { s.slice == s_.slice && v.eq_nolocation(v_) } else { false },
+            ExprDeformerIntermediate::Numeric { text, hint, floating } => if let ExprDeformerIntermediate::Numeric { text: text_, hint: hint_, floating: floating_ } = *other
             {
-                slice == slice_ && v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(a, b)| a.is_equal_nolocation(b))
+                text.slice == text_.slice && hint == hint_ && floating == floating_
             }
             else { false },
-            ExprDeformerIntermediate::Numeric { text: &Source { slice, .. }, hint, floating } =>
-                if let ExprDeformerIntermediate::Numeric { text: &Source { slice: slice_, .. }, hint: hint_, floating: floating_ } = *other
-                {
-                    slice == slice_ && hint == hint_ && floating == floating_
-                }
-                else { false },
-            ExprDeformerIntermediate::ArrayLiteral(_, ref v) => if let ExprDeformerIntermediate::ArrayLiteral(_, ref v_) = *other
-            {
-                v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(a, b)| a.is_equal_nolocation(b))
-            }
-            else { false },
-            ExprDeformerIntermediate::Tuple(_, ref v) => if let ExprDeformerIntermediate::Tuple(_, ref v_) = *other
-            {
-                v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(a, b)| a.is_equal_nolocation(b))
-            }
-            else { false },
-            ExprDeformerIntermediate::ArrayRef(ref b, ref x) => if let ExprDeformerIntermediate::ArrayRef(ref b_, ref x_) = *other
-            {
-                b.is_equal_nolocation(b_) && x.is_equal_nolocation(x_)
-            }
-            else { false },
-            ExprDeformerIntermediate::PathRef(ref b, ref v) => if let ExprDeformerIntermediate::PathRef(ref b_, ref v_) = *other
-            {
-                b.is_equal_nolocation(b_) && v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(a, b)| a.slice == b.slice)
-            }
-            else { false },
+            ExprDeformerIntermediate::ArrayLiteral(_, ref v) => if let ExprDeformerIntermediate::ArrayLiteral(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
+            ExprDeformerIntermediate::Tuple(_, ref v) => if let ExprDeformerIntermediate::Tuple(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
+            ExprDeformerIntermediate::ArrayRef(ref b, ref x) =>
+                if let ExprDeformerIntermediate::ArrayRef(ref b_, ref x_) = *other { b.eq_nolocation(b_) && x.eq_nolocation(x_) } else { false },
+            ExprDeformerIntermediate::PathRef(ref b, ref v) =>
+                if let ExprDeformerIntermediate::PathRef(ref b_, ref v_) = *other { b.eq_nolocation(b_) && v.eq_nolocation(v_) } else { false },
             ExprDeformerIntermediate::Conditional { ref cond, ref then, ref else_, .. } =>
                 if let ExprDeformerIntermediate::Conditional { cond: ref cond_, then: ref then_, else_: ref else__, .. } = *other
                 {
-                    cond.is_equal_nolocation(cond_) && then.is_equal_nolocation(then_) &&
-                    else_.as_ref().map_or(else__.is_none(), |a| else__.as_ref().map_or(false, |b| a.is_equal_nolocation(b)))
+                    cond.eq_nolocation(cond_) && then.eq_nolocation(then_) && else_.eq_nolocation(else__)
                 }
                 else { false },
-            ExprDeformerIntermediate::Block(_, ref v) => if let ExprDeformerIntermediate::Block(_, ref v_) = *other
-            {
-                v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(a, b)| a.is_equal_nolocation(b))
-            }
-            else { false },
+            ExprDeformerIntermediate::Block(_, ref v) => if let ExprDeformerIntermediate::Block(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
             ExprDeformerIntermediate::Lettings { ref vars, ref subexpr, .. } =>
                 if let ExprDeformerIntermediate::Lettings { vars: ref vars_, subexpr: ref subexpr_, .. } = *other
                 {
-                    vars.len() == vars_.len() && vars.iter().zip(vars_.iter()).all(|(a, b)| a.0.is_equal_nolocation(&b.0) && a.1.is_equal_nolocation(&b.1)) &&
-                    subexpr.is_equal_nolocation(subexpr_)
+                    vars.eq_nolocation(vars_) && subexpr.eq_nolocation(subexpr_)
                 }
                 else { false }
         }
     }
 }
-impl<'s: 't, 't> DeformedBlockContent<'s, 't>
+impl<'s: 't, 't> EqNoloc for DeformedBlockContent<'s, 't>
 {
-    pub fn is_equal_nolocation(&self, other: &Self) -> bool
+    fn eq_nolocation(&self, other: &Self) -> bool
     {
         match *self
         {
-            DeformedBlockContent::Vars(ref v) => if let DeformedBlockContent::Vars(ref v_) = *other
-            {
-                v.len() == v_.len() && v.iter().zip(v_.iter()).all(|(a, b)| a.0.is_equal_nolocation(&b.0) && a.1.is_equal_nolocation(&b.1))
-            }
-            else { false },
-            DeformedBlockContent::Expr(ref x) => if let DeformedBlockContent::Expr(ref x_) = *other { x.is_equal_nolocation(x_) } else { false }
+            DeformedBlockContent::Vars(ref v) => if let DeformedBlockContent::Vars(ref v_) = *other { v.eq_nolocation(v_) } else { false },
+            DeformedBlockContent::Expr(ref x) => if let DeformedBlockContent::Expr(ref x_) = *other { x.eq_nolocation(x_) } else { false }
         }
     }
 }
