@@ -181,9 +181,9 @@ pub trait TokenStream<'s: 't, 't>
         match self.current() { &TokenKind::Keyword(_, kk) if kk == k => { self.shift(); Ok(()) }, p => Err(p.position()) }
     }
     /// shift an arrow token, error if the next token is not Arrow
-    fn shift_arrow(&mut self) -> Result<(), &'t Location>
+    fn shift_arrow(&mut self) -> Result<&'t Location, &'t Location>
     {
-        match self.current() { &TokenKind::TyArrow(_) => { self.shift(); Ok(()) }, p => Err(p.position()) }
+        match self.current() { &TokenKind::TyArrow(ref p) => { self.shift(); Ok(p) }, p => Err(p.position()) }
     }
     /// shift a placeholder token, error if the next token is not Placeholder
     fn shift_placeholder(&mut self) -> Result<&'t Location, &'t Location>

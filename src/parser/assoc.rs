@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use std::cell::RefCell;
 use tokparse::{TokenStream, TokenKind, Keyword, Source, Location};
+use RcMut;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Associativity { Left(usize), Right(usize), None(usize) }
@@ -34,6 +35,7 @@ impl<'s> AssociativityEnv<'s>
             .unwrap_or_default()
     }
 }
+pub trait AssociativityEnvironment<'s> { fn assoc_env(&self) -> &RcMut<AssociativityEnv<'s>>; }
 
 impl<'s> super::FreeParser<'s> for Associativity
 {

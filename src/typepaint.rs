@@ -46,7 +46,7 @@ impl<'s> ConstructorEnv<'s>
 pub trait ConstructorCollector<'s>
 {
     type Env: 's;
-    fn collect_ctors(&self, env: &RcMut<Self::Env>);
+    fn collect_ctors(&self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError>>;
 }
 pub trait ConstructorEnvironment<'s>
 {
@@ -55,6 +55,11 @@ pub trait ConstructorEnvironment<'s>
     {
         if this.borrow().symbol_set().is_empty() { None } else { Some(this) }
     }
+}
+#[derive(Debug)]
+pub enum ConstructorCollectionError<'t>
+{
+    DeformingError(DeformationError<'t>), ConstructorNotFound(&'t Location), ArrowNotAllowed(&'t Location), PathRefNotAllowed(&'t Location)
 }
 
 pub struct ShadingPipelineConstructorEnv<'s>
@@ -70,54 +75,113 @@ impl<'s> ShadingPipelineConstructorEnv<'s>
         new_rcmut(ShadingPipelineConstructorEnv { vsh: None, hsh: None, dsh: None, gsh: None, fsh: None, set: ConstructorEnv::new() })
     }
 }
-impl<'s> ConstructorCollector<'s> for ::ShadingPipeline<'s>
+impl<'s> ConstructorCollector<'s> for ShadingPipeline<'s>
 {
     type Env = ShadingPipelineConstructorEnv<'s>;
-    fn collect_ctors(&self, env: &RcMut<Self::Env>)
+    fn collect_ctors(&self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError>>
     {
-        if let Some(ref v) = self.vsh { env.borrow_mut().vsh = collect_ctors_in_shader(env, v); }
-        if let Some(ref v) = self.hsh { env.borrow_mut().hsh = collect_ctors_in_shader(env, v); }
-        if let Some(ref v) = self.dsh { env.borrow_mut().dsh = collect_ctors_in_shader(env, v); }
-        if let Some(ref v) = self.gsh { env.borrow_mut().gsh = collect_ctors_in_shader(env, v); }
-        if let Some(ref v) = self.fsh { env.borrow_mut().fsh = collect_ctors_in_shader(env, v); }
-        collect_for_type_decls(env, self);
+        let mut errors = Vec::new();
+        if let Some(ref v) = self.vsh
+        {
+            match collect_ctors_in_shader(env, v)
+            {
+                Ok(e) => { env.borrow_mut().vsh = e; }, Err(mut ev) => errors.append(&mut ev)
+            }
+        }
+        if let Some(ref v) = self.hsh
+        {
+            match collect_ctors_in_shader(env, v)
+            {
+                Ok(e) => { env.borrow_mut().hsh = e; }, Err(mut ev) => errors.append(&mut ev)
+            }
+        }
+        if let Some(ref v) = self.dsh
+        {
+            match collect_ctors_in_shader(env, v)
+            {
+                Ok(e) => { env.borrow_mut().dsh = e; }, Err(mut ev) => errors.append(&mut ev)
+            }
+        }
+        if let Some(ref v) = self.gsh
+        {
+            match collect_ctors_in_shader(env, v)
+            {
+                Ok(e) => { env.borrow_mut().gsh = e; }, Err(mut ev) => errors.append(&mut ev)
+            }
+        }
+        if let Some(ref v) = self.fsh
+        {
+            match collect_ctors_in_shader(env, v)
+            {
+                Ok(e) => { env.borrow_mut().fsh = e; }, Err(mut ev) => errors.append(&mut ev)
+            }
+        }
+        if let Err(mut e) = collect_for_type_decls(env, self) { errors.append(&mut e); }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 }
 pub struct ConstructorEnvPerShader<'s> { parent: WeakMut<ShadingPipelineConstructorEnv<'s>>, pub set: ConstructorEnv<'s> }
 impl<'s> ConstructorEnvironment<'s> for ConstructorEnvPerShader<'s> { fn symbol_set(&self) -> &ConstructorEnv<'s> { &self.set } }
-impl<'s> ConstructorCollector<'s> for ::ShaderStageDefinition<'s>
+impl<'s> ConstructorCollector<'s> for ShaderStageDefinition<'s>
 {
     type Env = ConstructorEnvPerShader<'s>;
-    fn collect_ctors(&self, env: &RcMut<Self::Env>) { collect_for_type_decls(env, self); }
+    fn collect_ctors(&self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError>> { collect_for_type_decls(env, self) }
 }
-fn collect_ctors_in_shader<'s>(parent: &RcMut<ShadingPipelineConstructorEnv<'s>>, sh: &::ShaderStageDefinition<'s>) -> Option<RcMut<ConstructorEnvPerShader<'s>>>
+fn collect_ctors_in_shader<'s: 't, 't>(parent: &RcMut<ShadingPipelineConstructorEnv<'s>>, sh: &'t ShaderStageDefinition<'s>)
+    -> Result<Option<RcMut<ConstructorEnvPerShader<'s>>>, Vec<ConstructorCollectionError<'t>>>
 {
     let e = new_rcmut(ConstructorEnvPerShader { parent: Rc::downgrade(parent), set: ConstructorEnv::new() });
-    sh.collect_ctors(&e); ConstructorEnvironment::drop_if_empty(e)
+    sh.collect_ctors(&e).map(|_| ConstructorEnvironment::drop_if_empty(e))
 }
-fn collect_for_type_decls<'s, Env: ConstructorEnvironment<'s>, T: ::TypeDeclarable<'s>>(env: &RcMut<Env>, tree: &T)
+fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s>, T: TypeDeclarable<'s> + AssociativityEnvironment<'s>>(env: &RcMut<Env>, tree: &'t T)
+    -> Result<(), Vec<ConstructorCollectionError<'t>>>
 {
+    let aenv = tree.assoc_env().borrow();
+    let mut errors = Vec::new();
     for &(ref ty, ref defs) in tree.type_decls().iter().flat_map(|td| &td.defs)
     {
-        println!("**dbg** Found Type Constructor: {:?}", ty);
+        let dty = match deform_ty(ty, &aenv).map_err(ConstructorCollectionError::DeformingError)
+        {
+            Ok(t) => t, Err(e) => { errors.push(e); continue; }
+        };
+        let ty_ctor = match dty.leftmost_symbol()
+        {
+            Some(&Prefix::User(ref s)) => s,
+            Some(&Prefix::Arrow(p)) => { errors.place_back() <- ConstructorCollectionError::ArrowNotAllowed(p); continue; },
+            Some(&Prefix::PathRef(ref p, _)) => { errors.place_back() <- ConstructorCollectionError::PathRefNotAllowed(p.position()); continue; },
+            None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position()); continue; }
+        };
+        println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
         let dcons: Vec<_> = defs.iter().map(|dc| dc.name).collect();
         println!("**dbg** Found Data Constructor for {:?} = {:?}", ty, dcons);
     }
     for &(ref tys, _) in tree.type_fns().iter().flat_map(|tf| &tf.defs)
     {
-        println!("**dbg** Found Type Constructor: {:?}", tys);
+        let dty = match deform_ty(tys, &aenv).map_err(ConstructorCollectionError::DeformingError)
+        {
+            Ok(t) => t, Err(e) => { errors.push(e); continue; }
+        };
+        let ty_ctor = match dty.leftmost_symbol()
+        {
+            Some(&Prefix::User(ref s)) => s,
+            Some(&Prefix::Arrow(p)) => { errors.place_back() <- ConstructorCollectionError::ArrowNotAllowed(p); continue; },
+            Some(&Prefix::PathRef(ref p, _)) => { errors.place_back() <- ConstructorCollectionError::PathRefNotAllowed(p.position()); continue; },
+            None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position()); continue; }
+        };
+        println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
     }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Prefix<'s: 't, 't> { Arrow, User(&'t Source<'s>), PathRef(Box<TyDeformerIntermediate<'s, 't>>, Vec<&'t Source<'s>>) }
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Prefix<'s: 't, 't> { Arrow(&'t Location), User(&'t Source<'s>), PathRef(Box<TyDeformerIntermediate<'s, 't>>, Vec<&'t Source<'s>>) }
 impl<'s: 't, 't> Prefix<'s, 't>
 {
     pub fn is_equal_nolocation(&self, other: &Self) -> bool
     {
         match *self
         {
-            Prefix::Arrow => *other == Prefix::Arrow,
+            Prefix::Arrow(p) => *other == Prefix::Arrow(p),
             Prefix::User(&Source { slice, .. }) => if let Prefix::User(&Source { slice: slice_, .. }) = *other { slice == slice_ } else { false },
             Prefix::PathRef(ref p, ref v) => if let Prefix::PathRef(ref p_, ref v_) = *other
             {
@@ -126,13 +190,33 @@ impl<'s: 't, 't> Prefix<'s, 't>
             else { false }
         }
     }
+    pub fn position(&self) -> &'t Location
+    {
+        match *self
+        {
+            Prefix::Arrow(p) => p, Prefix::User(&Source { pos: ref p, .. }) => p, Prefix::PathRef(ref p, _) => p.position()
+        }
+    }
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TyDeformerIntermediate<'s: 't, 't>
 {
     Placeholder(&'t Location), Expressed(Prefix<'s, 't>, Vec<TyDeformerIntermediate<'s, 't>>),
     SafetyGarbage, Basic(&'t Location, BType), Tuple(&'t Location, Vec<TyDeformerIntermediate<'s, 't>>),
     ArrayDim(Box<TyDeformerIntermediate<'s, 't>>, &'t InferredArrayDim<'s>)
+}
+impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
+{
+    pub fn position(&self) -> &'t Location
+    {
+        match *self
+        {
+            TyDeformerIntermediate::Placeholder(p) | TyDeformerIntermediate::Tuple(p, _) => p,
+            TyDeformerIntermediate::Expressed(ref p, _) => p.position(),
+            TyDeformerIntermediate::ArrayDim(ref p, _) => p.position(),
+            _ => unreachable!()
+        }
+    }
 }
 pub struct InfixIntermediate<'s: 't, 't, IR: 't> { op: &'t Source<'s>, assoc: Associativity, ir: IR }
 impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
@@ -180,6 +264,13 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
             else { false }
         }
     }
+    pub fn leftmost_symbol(&self) -> Option<&Prefix<'s, 't>>
+    {
+        match *self
+        {
+            TyDeformerIntermediate::Expressed(ref p, _) => Some(p), _ => None
+        }
+    }
 }
 
 #[derive(Debug)] pub enum DeformationError<'t>
@@ -222,7 +313,9 @@ pub fn deform_ty<'s: 't, 't>(ty: &'t TypeSynTree<'s>, assoc_env: &AssociativityE
         TypeSynTree::Placeholder(ref p) => Ok(TyDeformerIntermediate::Placeholder(p)),
         TypeSynTree::Basic(ref p, bt) => Ok(TyDeformerIntermediate::Basic(p, bt)),
         TypeSynTree::Tuple(ref p, ref v) => Ok(TyDeformerIntermediate::Tuple(p, v.iter().map(|t| deform_ty(t, assoc_env)).collect::<Result<_, _>>()?)),
-        TypeSynTree::ArrowInfix { ref lhs, ref rhs } => Ok(TyDeformerIntermediate::Expressed(Prefix::Arrow, vec![deform_ty(lhs, assoc_env)?, deform_ty(rhs, assoc_env)?])),
+        TypeSynTree::ArrowInfix { ref op_pos, ref lhs, ref rhs } => Ok(TyDeformerIntermediate::Expressed(Prefix::Arrow(op_pos), vec![
+            deform_ty(lhs, assoc_env)?, deform_ty(rhs, assoc_env)?
+        ])),
         TypeSynTree::ArrayDim { ref lhs, ref num } => Ok(TyDeformerIntermediate::ArrayDim(box deform_ty(lhs, assoc_env)?, num))
     }
 }

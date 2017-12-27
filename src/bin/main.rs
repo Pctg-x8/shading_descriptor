@@ -18,7 +18,7 @@ fn main()
     println!("assocs: ");
     p.dbg_print_assoc(1);
     let ctors = ShadingPipelineConstructorEnv::new();
-    p.collect_ctors(&ctors);
+    p.collect_ctors(&ctors).unwrap();
     /*loop
     {
         let t = cache.next();

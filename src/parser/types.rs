@@ -10,7 +10,7 @@ use super::{Parser, BlockParser};
 pub enum TypeSynTree<'s>
 {
     Prefix(Vec<TypeSynTree<'s>>), Infix { lhs: Box<TypeSynTree<'s>>, mods: Vec<(Source<'s>, TypeSynTree<'s>)> },
-    ArrowInfix { lhs: Box<TypeSynTree<'s>>, rhs: Box<TypeSynTree<'s>> },
+    ArrowInfix { op_pos: Location, lhs: Box<TypeSynTree<'s>>, rhs: Box<TypeSynTree<'s>> },
     Basic(Location, BType), SymReference(Source<'s>), Placeholder(Location),
     ArrayDim { lhs: Box<TypeSynTree<'s>>, num: InferredArrayDim<'s> },
     PathRef(Box<TypeSynTree<'s>>, Vec<Source<'s>>), Tuple(Location, Vec<TypeSynTree<'s>>)
@@ -31,13 +31,17 @@ impl<'s> TypeSynTree<'s>
 /// Arrow <- Infix (-> Infix)*
 fn arrow_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
+    fn shift_arrow<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> Result<&'t Location, &'t Location>
+    {
+        if leftmost.satisfy(stream.current(), false) { stream.shift_arrow() } else { Err(stream.current().position()) }
+    }
     let mut lhs = BreakParsing!(infix_ty(stream, leftmost));
     let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
-    while leftmost.satisfy(stream.current(), false) && stream.shift_arrow().is_ok()
+    while let Ok(p) = shift_arrow(stream, leftmost)
     {
         lhs = TypeSynTree::ArrowInfix
         {
-            lhs: box lhs,
+            op_pos: p.clone(), lhs: box lhs,
             rhs: box infix_ty(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?
         };
     }

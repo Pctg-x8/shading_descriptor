@@ -12,12 +12,10 @@ use std::rc::Rc; use std::cell::RefCell;
 pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, InferredArrayDim};
 pub use self::expr::{FullExpression, ExpressionSynTree};
 pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
-pub use self::assoc::{Associativity, AssociativityEnv};
+pub use self::assoc::{Associativity, AssociativityEnv, AssociativityEnvironment};
 
 type RcMut<T> = Rc<RefCell<T>>;
 fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
-
-trait Positioned { fn position(&self) -> &Location; }
 
 /// シェーディングパイプライン(コンパイル単位)
 #[derive(Debug, Clone)]
@@ -105,6 +103,7 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 	}
 	if errors.is_empty() { Ok(sp) } else { Err(errors) }
 }
+impl<'s> AssociativityEnvironment<'s> for ShadingPipeline<'s> { fn assoc_env(&self) -> &RcMut<AssociativityEnv<'s>> { &self.assoc } }
 
 /// シェーディングパイプラインステート
 #[derive(Debug, Clone, PartialEq)]
@@ -589,6 +588,7 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 		SuccessM((stage, def))
 	}
 }
+impl<'s> AssociativityEnvironment<'s> for ShaderStageDefinition<'s> { fn assoc_env(&self) -> &RcMut<AssociativityEnv<'s>> { &self.assoc } }
 
 pub trait TypeDeclarable<'s>
 {
