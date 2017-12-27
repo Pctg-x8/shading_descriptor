@@ -63,11 +63,11 @@ impl<'s: 't, 't> ConstructorEnvPrint for ShadingPipelineConstructorEnv<'s, 't>
         }
 
         println!("Compilation Scope: ");
-        for ty in &self.symbol_set().ty { println!("- type {:?}", ty); }
+        for ty in &self.symbol_set().ty { println!("- type {:?}", ty.slice); }
         for (&dty, dcs) in &self.symbol_set().data
         {
-            println!("- data {:?}", dty);
-            for dc in dcs { println!("-- {:?}", dc); }
+            println!("- data {:?}", dty.slice);
+            for dc in dcs { println!("-- {:?}", dc.slice); }
         }
     }
 }
@@ -75,11 +75,11 @@ impl<'s: 't, 't> ConstructorEnvPrint for ConstructorEnvPerShader<'s, 't>
 {
     fn print_ctor_env(&self)
     {
-        for ty in &self.symbol_set().ty { println!("- type {:?}", ty); }
+        for ty in &self.symbol_set().ty { println!("- type {:?}", ty.slice); }
         for (&dty, dcs) in &self.symbol_set().data
         {
-            println!("- data {:?}", dty);
-            for dc in dcs { println!("-- {:?}", dc); }
+            println!("- data {:?}", dty.slice);
+            for dc in dcs { println!("-- {:?}", dc.slice); }
         }
     }
 }

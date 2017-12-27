@@ -192,32 +192,11 @@ fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s, 't>, T: Ty
 
 // paint
 // matf a b => matf(constructor) a(tyvar) b(tyvar)
+// (X _) -> Int => (->) (X _) Int => (->) (forall t0. X t0) Int または forall t0. (->) (X t0) Int
+// (X _)[] -> Int => (->) [X _] Int => (->) [forall t0. X t0] Int (forall t0. (->) [X t0] Intとすると意味が変わる)
 
-/*
-pub struct TyConstructorEnv<'s>
-{
-    /// Type constructor(A in `type A b`, D in `data D a = ...`)
-    pub tycons: HashSet<&'s str>,
-    /// Data constructors(map of (constructor_ident, generated_tycons_candidates))
-    pub datacons: HashMap<&'s str, Vec<&'s str>>,
-    /// Children scope
-    pub children: Vec<TyConstructorEnv<'s>>
-}
-pub trait TyConstructorCollectable<'s>
-{
-    fn collect(&self, scope: &mut TyConstructorEnv<'s>);
-}
-impl<'s> TyConstructorCollectable<'s> for TypeDeclaration<'s>
-{
-    fn collect(&self, scope: &mut TyConstructorEnv<'s>)
-    {
-        for (tycons, datacons_list) in self.defs.iter()
-        {
-            scope.tycons.insert(tycons);
-        }
-    }
-}
-*/
+// pub fn quantize_ty<'s: 't, 't>(tree: &TyDeformerIntermediate<'s, 't>) -> 
+
 /*
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TyKind { Seed, Arrow(Box<TyKind>, Box<TyKind>), Prior(Box<TyKind>) }
