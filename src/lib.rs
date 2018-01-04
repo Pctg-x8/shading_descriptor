@@ -9,6 +9,8 @@ mod parser;
 mod deformer;
 mod typepaint;
 
+mod lambda;
+
 pub use tokparse::TokenStream;
 pub use tokparse::{Location, Source, Token, TokenKind, NumericTy, EnclosureKind, TokenizerCache, Semantics, Keyword, BType, TokenizerState, PreanalyzedTokenStream};
 pub use parser::{Success, Failed, NotConsumed, Parser, FreeParser, BlockParser, BlockParserM};
@@ -27,5 +29,7 @@ pub use deformer::{ExprDeformerIntermediate, deform_expr, deform_expr_full};
 
 pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
 pub use typepaint::{ConstructorEnv, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
+
+pub use lambda::{Numeric, Lambda};
 
 use typepaint::{RcMut, WeakMut};

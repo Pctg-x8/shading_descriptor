@@ -35,6 +35,7 @@ use std::cell::RefCell;
 pub type RcMut<T> = Rc<RefCell<T>>; pub type WeakMut<T> = Weak<RefCell<T>>;
 pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 
+/// Common DataStore for Constructor Environment
 pub struct ConstructorEnv<'s: 't, 't>
 {
     pub ty: HashSet<&'t Source<'s>>, pub data: HashMap<&'t Source<'s>, Vec<TypedDataConstructor<'s, 't>>>
@@ -49,6 +50,7 @@ pub trait ConstructorCollector<'s: 't, 't>
     type Env: 't;
     fn collect_ctors(&'t self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError<'t>>>;
 }
+/// Indicates the type that constructs a Construct Environment.
 pub trait ConstructorEnvironment<'s: 't, 't>
 {
     fn symbol_set(&self) -> &ConstructorEnv<'s, 't>;
@@ -209,19 +211,15 @@ pub fn dcons_ty<'s: 't, 't>(dtree: &'t DataConstructor<'s>, final_ty: &TyDeforme
     Ok(t)
 }
 
+/// カインド型
+pub enum TyConsKind { Star, Arrow(Box<TyConsKind>, Box<TyConsKind>), Constraint }
+
 // paint
 // matf a b => matf(constructor) a(tyvar) b(tyvar)
 // (X _) -> Int => (->) (X _) Int => (->) (forall t0. X t0) Int または forall t0. (->) (X t0) Int
 // (X _)[] -> Int => (->) [X _] Int => (->) [forall t0. X t0] Int (forall t0. (->) [X t0] Intとすると意味が変わる)
 
 // pub fn quantize_ty<'s: 't, 't>(tree: &TyDeformerIntermediate<'s, 't>) -> 
-
-// ラムダ抽象にあたって
-// 例えばResult t e = Ok t | Err eの場合
-// Result(2 items) :: * -> * -> *, Ok :: forall t e. t -> Result t e, Err :: forall t e. e -> Result t e
-// Resultは2アイテムなので、継続系のResult t eはforall r. (t -> r) -> (e -> r) -> r このとき、元の型の引数の数(この場合は2)は関係がない。
-// 例) Result3 t e r = Ok t | Err eでもforall r'. (t -> r') -> (e -> r') -> r'になるし、Option a = Some a | Noneでもforall r. (a -> r) -> r -> rになる
-// これを一般化すると、data T = A | B ...の時、forall r. A@/T/r/ -> B@/T/r/ -> ... -> rとなる。ここで、X@/T/r/は置換操作を表す(Xの型中のTをrに置き換え)。
 
 /*
 #[derive(Debug, Clone, PartialEq, Eq)]

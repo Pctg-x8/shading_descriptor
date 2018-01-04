@@ -3,6 +3,7 @@ use {Location, Source, BType, Associativity, AssociativityEnv};
 use {TypeSynTree, InferredArrayDim};
 use std::mem::replace;
 use std::ops::Deref;
+use lambda::Numeric;
 
 #[derive(Debug)] pub enum DeformationError<'t>
 {
@@ -147,7 +148,7 @@ pub fn deform_ty<'s: 't, 't>(ty: &'t TypeSynTree<'s>, assoc_env: &AssociativityE
     }
 }
 
-use {ExpressionSynTree, FullExpression, NumericTy, BlockContent};
+use {ExpressionSynTree, FullExpression, BlockContent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeformedBlockContent<'s: 't, 't>
@@ -159,12 +160,11 @@ pub enum DeformedBlockContent<'s: 't, 't>
 pub enum ExprDeformerIntermediate<'s: 't, 't>
 {
     Garbage,
-    Apply(&'t Source<'s>, Vec<ExprDeformerIntermediate<'s, 't>>),
-    Numeric { floating: bool, text: &'t Source<'s>, hint: Option<NumericTy> },
+    Apply(&'t Source<'s>, Vec<ExprDeformerIntermediate<'s, 't>>), Numeric(Numeric<'s, 't>),
     ArrayLiteral(&'t Location, Vec<ExprDeformerIntermediate<'s, 't>>),
     ArrayRef(Box<ExprDeformerIntermediate<'s, 't>>, Box<ExprDeformerIntermediate<'s, 't>>),
     PathRef(Box<ExprDeformerIntermediate<'s, 't>>, Vec<&'t Source<'s>>),
-    Tuple(&'t Location, Vec<ExprDeformerIntermediate<'s, 't>>),
+    Unit(&'t Location), Tuple1(Box<ExprDeformerIntermediate<'s, 't>>, Vec<ExprDeformerIntermediate<'s, 't>>),
     // full //
     Conditional
     {
@@ -201,9 +201,9 @@ impl<'s: 't, 't> ExprDeformerIntermediate<'s, 't>
         {
             ExprDeformerIntermediate::Garbage => unreachable!(),
             ExprDeformerIntermediate::Apply(s, _) => &s.pos,
-            ExprDeformerIntermediate::Numeric { text, .. } => &text.pos,
-            ExprDeformerIntermediate::ArrayLiteral(p, _) | ExprDeformerIntermediate::Tuple(p, _) => p,
-            ExprDeformerIntermediate::ArrayRef(ref x, _) | ExprDeformerIntermediate::PathRef(ref x, _) => x.position(),
+            ExprDeformerIntermediate::Numeric(ref n) => n.position(),
+            ExprDeformerIntermediate::ArrayLiteral(p, _) | ExprDeformerIntermediate::Unit(p) => p,
+            ExprDeformerIntermediate::ArrayRef(ref x, _) | ExprDeformerIntermediate::PathRef(ref x, _) | ExprDeformerIntermediate::Tuple1(ref x, _) => x.position(),
             ExprDeformerIntermediate::Conditional { head, .. } | ExprDeformerIntermediate::Lettings { head, .. } | ExprDeformerIntermediate::Block(head, ..) => head
         }
     }
@@ -235,13 +235,14 @@ impl<'s: 't, 't> EqNoloc for ExprDeformerIntermediate<'s, 't>
             ExprDeformerIntermediate::Garbage => false,
             ExprDeformerIntermediate::Apply(s, ref v) =>
                 if let ExprDeformerIntermediate::Apply(s_, ref v_) = *other { s.slice == s_.slice && v.eq_nolocation(v_) } else { false },
-            ExprDeformerIntermediate::Numeric { text, hint, floating } => if let ExprDeformerIntermediate::Numeric { text: text_, hint: hint_, floating: floating_ } = *other
+            ExprDeformerIntermediate::Numeric(ref n) => if let ExprDeformerIntermediate::Numeric(ref n_) = *other { n.eq_nolocation(n_) } else { false },
+            ExprDeformerIntermediate::ArrayLiteral(_, ref v) => if let ExprDeformerIntermediate::ArrayLiteral(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
+            ExprDeformerIntermediate::Tuple1(ref x, ref v) => if let ExprDeformerIntermediate::Tuple1(ref x_, ref v_) = *other
             {
-                text.slice == text_.slice && hint == hint_ && floating == floating_
+                x.eq_nolocation(x_) && v.eq_nolocation(v_)
             }
             else { false },
-            ExprDeformerIntermediate::ArrayLiteral(_, ref v) => if let ExprDeformerIntermediate::ArrayLiteral(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
-            ExprDeformerIntermediate::Tuple(_, ref v) => if let ExprDeformerIntermediate::Tuple(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
+            ExprDeformerIntermediate::Unit(_) => if let ExprDeformerIntermediate::Unit(_) = *other { true } else { false },
             ExprDeformerIntermediate::ArrayRef(ref b, ref x) =>
                 if let ExprDeformerIntermediate::ArrayRef(ref b_, ref x_) = *other { b.eq_nolocation(b_) && x.eq_nolocation(x_) } else { false },
             ExprDeformerIntermediate::PathRef(ref b, ref v) =>
@@ -302,12 +303,15 @@ pub fn deform_expr<'s: 't, 't>(tree: &'t ExpressionSynTree<'s>, assoc_env: &Asso
             Ok(lhs)
         },
         ExpressionSynTree::SymReference(ref s) => Ok(ExprDeformerIntermediate::Apply(s, Vec::new())),
-        ExpressionSynTree::Numeric(ref s, nty) => Ok(ExprDeformerIntermediate::Numeric { floating: false, text: s, hint: nty }),
-        ExpressionSynTree::NumericF(ref s, nty) => Ok(ExprDeformerIntermediate::Numeric { floating: true, text: s, hint: nty }),
+        ExpressionSynTree::Numeric(ref s, ty) => Ok(ExprDeformerIntermediate::Numeric(Numeric { floating: false, text: s, ty })),
+        ExpressionSynTree::NumericF(ref s, ty) => Ok(ExprDeformerIntermediate::Numeric(Numeric { floating: true, text: s, ty })),
         ExpressionSynTree::ArrayLiteral(ref p, ref a) => Ok(ExprDeformerIntermediate::ArrayLiteral(p,
             a.iter().map(|x| deform_expr_full(x, assoc_env)).collect::<Result<_, _>>()?)),
-        ExpressionSynTree::Tuple(ref p, ref a) => Ok(ExprDeformerIntermediate::Tuple(p,
-            a.iter().map(|x| deform_expr_full(x, assoc_env)).collect::<Result<_, _>>()?)),
+        ExpressionSynTree::Tuple(ref p, ref a) => if let Some(a1) = a.first()
+        {
+            Ok(ExprDeformerIntermediate::Tuple1(box deform_expr_full(a1, assoc_env)?, a.iter().map(|x| deform_expr_full(x, assoc_env)).collect::<Result<_, _>>()?))
+        }
+        else { Ok(ExprDeformerIntermediate::Unit(p)) },
         ExpressionSynTree::ArrayRef(ref base, ref index) => Ok(ExprDeformerIntermediate::ArrayRef(
             box deform_expr_full(base, assoc_env)?, box deform_expr_full(index, assoc_env)?)),
         ExpressionSynTree::RefPath(ref base, ref path) => Ok(ExprDeformerIntermediate::PathRef(
