@@ -65,6 +65,9 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
         }
     }
 
+    /// self -> x
+    pub fn arrow(self, x: Self) -> Self { TyDeformerIntermediate::Expressed(Prefix::Arrow(&Location::EMPTY), vec![self, x]) }
+
     pub fn leftmost_symbol(&self) -> Option<&Prefix<'s, 't>>
     {
         match *self

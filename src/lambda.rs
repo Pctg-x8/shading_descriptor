@@ -11,6 +11,7 @@ impl<'s: 't, 't> ::EqNoloc for Numeric<'s, 't>
     fn eq_nolocation(&self, other: &Self) -> bool { self.floating == other.floating && self.ty == other.ty && self.text.eq_nolocation(&other.text) }
 }
 /// ラムダ抽象
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Lambda<'s: 't, 't>
 {
     Fun { arg: &'t Source<'s>, expr: Box<Lambda<'s, 't>> },
@@ -71,8 +72,24 @@ impl<'s: 't, 't> Lambda<'s, 't>
 // 例) Result3 t e r = Ok t | Err eでもforall r'. (t -> r') -> (e -> r') -> r'になるし、Option a = Some a | Noneでもforall r. (a -> r) -> r -> rになる
 // これを一般化すると、data T = A | B ...の時、forall r. A@/T/r/ -> B@/T/r/ -> ... -> rとなる。ここで、X@/T/r/は置換操作を表す(Xの型中のTをrに置き換え)。
 // 中身: Ok t = ¥a. ¥b. a t, Err e = ¥a. ¥b. b e 渡された函数に自身の引数を適用する
+// なので、Ok = ¥t. ¥a. ¥b. a t, Err = ¥e. ¥a. ¥b. b eとなる Result t e :: t -> (t -> r) -> (e -> r) -> r | e -> (t -> r) -> (e -> r) -> r
 
 use std::collections::HashMap;
+use ConstructorEnv;
+use typepaint::TypedDataConstructor;
 
 /// データコンストラクタのラムダ抽象
-pub struct FnDataConstructor<'s: 't, 't>(HashMap<&'s str, Lambda<'s, 't>>);
+pub struct FnDataConstructor<'s: 't, 't>(HashMap<&'s str, HashMap<&'s str, Lambda<'s, 't>>>);
+
+pub fn generate_datactor_matcher<'s: 't, 't>(env: &ConstructorEnv<'s, 't>) -> FnDataConstructor<'s, 't>
+{
+    let mut cons = HashMap::new();
+
+    for (ref scope_ident, ref ctor_list) in &env.data
+    {
+        let pattern_count = ctor_list.len();
+        ctor_list.iter().map(|&TypedDataConstructor(ref name, _)|)
+    }
+
+    FnDataConstructor(cons)
+}

@@ -1,11 +1,12 @@
 //! Type Painter
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::rc::{Rc, Weak};
 use super::parser::*;
 use super::{Source, Location};
 use std::ops::DerefMut;
 use deformer::*;
+use pool::DataPool;
 
 pub trait AssociativityDebugPrinter
 {
@@ -38,11 +39,11 @@ pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 /// Common DataStore for Constructor Environment
 pub struct ConstructorEnv<'s: 't, 't>
 {
-    pub ty: HashSet<&'t Source<'s>>, pub data: HashMap<&'t Source<'s>, Vec<TypedDataConstructor<'s, 't>>>
+    pub ty: HashSet<&'t Source<'s>>, pub data: Vec<TypedDataConstructorScope<'s, 't>>
 }
 impl<'s: 't, 't> ConstructorEnv<'s, 't>
 {
-    fn new() -> Self { ConstructorEnv { ty: HashSet::new(), data: HashMap::new() } }
+    fn new() -> Self { ConstructorEnv { ty: HashSet::new(), data: Vec::new() } }
     fn is_empty(&self) -> bool { self.ty.is_empty() && self.data.is_empty() }
 }
 pub trait ConstructorCollector<'s: 't, 't>
@@ -67,7 +68,17 @@ pub enum ConstructorCollectionError<'t>
 }
 
 #[derive(Debug)]
-pub struct TypedDataConstructor<'s: 't, 't>(pub &'t Source<'s>, pub TyDeformerIntermediate<'s, 't>);
+pub struct TypedDataConstructorScope<'s: 't, 't>
+{
+    pub name: &'t Source<'s>, pub ty: TyDeformerIntermediate<'s, 't>,
+    pub ctors: Vec<TypedDataConstructor<'s, 't>>
+}
+#[derive(Debug)]
+pub struct TypedDataConstructor<'s: 't, 't>
+{
+    pub name: &'t Source<'s>, pub param_count: usize,
+    pub ty: TyDeformerIntermediate<'s, 't>, pub expressed: ::Lambda<'s, 't>
+}
 
 // specialized constructor envs //
 pub struct ShadingPipelineConstructorEnv<'s: 't, 't>
@@ -151,8 +162,8 @@ impl<'s: 't, 't> ConstructorCollector<'s, 't> for ShaderStageDefinition<'s>
     type Env = ConstructorEnvPerShader<'s, 't>;
     fn collect_ctors(&'t self, env: &RcMut<Self::Env>) -> Result<(), Vec<ConstructorCollectionError>> { collect_for_type_decls(env.borrow_mut().deref_mut(), self) }
 }
-fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s, 't>, T: TypeDeclarable<'s> + AssociativityEnvironment<'s>>(env: &mut Env, tree: &'t T)
-    -> Result<(), Vec<ConstructorCollectionError<'t>>>
+fn collect_for_type_decls<'s: 't, 't, Env, T>(env: &mut Env, tree: &'t T, pool: &'t DataPool<Source<'s>>) -> Result<(), Vec<ConstructorCollectionError<'t>>>
+    where Env: ConstructorEnvironment<'s, 't>, T: TypeDeclarable<'s> + AssociativityEnvironment<'s>
 {
     let aenv = tree.assoc_env().borrow();
     let mut errors = Vec::new();
@@ -169,14 +180,30 @@ fn collect_for_type_decls<'s: 't, 't, Env: ConstructorEnvironment<'s, 't>, T: Ty
             Some(&Prefix::PathRef(ref p, _)) => { errors.place_back() <- ConstructorCollectionError::PathRefNotAllowed(p.position()); continue; },
             None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position()); continue; }
         };
-        // println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
-        let mut dcons: Vec<_> = match defs.iter().map(|dc| Ok(TypedDataConstructor(&dc.name, dcons_ty(dc, &dty, &aenv)?))).collect::<Result<_, _>>()
+        let mut ctor_arrow_tys: Vec<_> = match defs.iter().map(|dc| match dc.args.first().map(|a1|
         {
+            let mut ty = deform_ty(a1, &aenv)?;
+            for a in &dc.args[1..] { ty = ty.arrow(deform_ty(a, &aenv)?); }
+            Ok(ty)
+        }) { None => Ok(None), Some(Ok(v)) => Ok(Some(v)), Some(Err(e)) => Err(e) }).collect::<Result<_, _>>()
+        {
+            Ok(v) => v, Err(e) => { errors.place_back() <- ConstructorCollectionError::DeformingError(e); continue; }
+        };
+        let cont_arrow_tys = ctor_arrow_tys.into_iter().map(|x| if let Some(a) = x { a.arrow(TyDeformerIntermediate::Expressed(Prefix::User())) });
+        // println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
+        let mut dcons: Vec<_> = match defs.iter().map(|dc| Ok(TypedDataConstructor
+        {
+            name: &dc.name, param_count: dc.args.len(), ty: dcons_ty(dc, &dty, &aenv)?
+        })).collect::<Result<_, _>>() {
             Ok(v) => v, Err(e) => { errors.place_back() <- ConstructorCollectionError::DeformingError(e); continue; }
         };
         // println!("**dbg** Found Data Constructor for {:?} = {:?}", ty_ctor, dcons);
 
         env.symbol_set_mut().ty.insert(ty_ctor);
+        env.symbol_set_mut().data.place_back() <- TypedDataConstructorScope
+        {
+            name: ty_ctor, 
+        }
         env.symbol_set_mut().data.entry(ty_ctor).or_insert(Vec::new()).append(&mut dcons);
     }
     for &(ref tys, _) in tree.type_fns().iter().flat_map(|tf| &tf.defs)

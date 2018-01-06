@@ -21,6 +21,7 @@ impl Add<usize> for Location { type Output = Self; fn add(mut self, other: usize
 impl AddAssign<usize> for Location { fn add_assign(&mut self, other: usize) { self.column += other; } }
 impl Location
 {
+    pub const EMPTY: Self = Location { column: 0, line: 0 };
     fn advance_line(&mut self) { self.line += 1; self.column = 1; }
     fn advance_tab(&mut self)
     {
