@@ -63,11 +63,11 @@ impl<'s: 't, 't> ConstructorEnvPrint for ShadingPipelineConstructorEnv<'s, 't>
         }
 
         println!("Compilation Scope: ");
-        for ty in &self.symbol_set().ty { println!("- type {}", ty.slice); }
-        for (&dty, dcs) in &self.symbol_set().data
+        for ty in &self.symbol_set().ty { println!("- type {}", ty.text()); }
+        for &TypedDataConstructorScope { ref name, ref ty, ref ctors } in &self.symbol_set().data
         {
-            println!("- data {}", dty.slice);
-            for dc in dcs { println!("-- {} :: {:?}", dc.0.slice, dc.1); }
+            println!("- data {}( :: {:?})", name.text(), ty);
+            for dc in ctors { println!("-- {} :: {:?} = {:?}", dc.name.text(), dc.ty, dc.expressed); }
         }
     }
 }
@@ -75,11 +75,11 @@ impl<'s: 't, 't> ConstructorEnvPrint for ConstructorEnvPerShader<'s, 't>
 {
     fn print_ctor_env(&self)
     {
-        for ty in &self.symbol_set().ty { println!("- type {}", ty.slice); }
-        for (&dty, dcs) in &self.symbol_set().data
+        for ty in &self.symbol_set().ty { println!("- type {}", ty.text()); }
+        for &TypedDataConstructorScope { ref name, ref ty, ref ctors } in &self.symbol_set().data
         {
-            println!("- data {}", dty.slice);
-            for dc in dcs { println!("-- {} :: {:?}", dc.0.slice, dc.1); }
+            println!("- data {}( :: {:?})", name.text(), ty);
+            for dc in ctors { println!("-- {} :: {:?} = {:?}", dc.name.text(), dc.ty, dc.expressed); }
         }
     }
 }

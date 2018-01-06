@@ -4,8 +4,6 @@
 extern crate regex;
 #[macro_use] extern crate lazy_static;
 
-mod pool;
-
 mod tokparse;
 mod parser;
 mod deformer;
@@ -31,7 +29,12 @@ pub use deformer::{ExprDeformerIntermediate, deform_expr, deform_expr_full};
 
 pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
 pub use typepaint::{ConstructorEnv, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
+pub use typepaint::{TypedDataConstructorScope, TypedDataConstructor};
 
 pub use lambda::{Numeric, Lambda};
 
-use typepaint::{RcMut, WeakMut};
+// use typepaint::{RcMut, WeakMut};
+use std::cell::RefCell;
+use std::rc::{Rc, Weak};
+pub type RcMut<T> = Rc<RefCell<T>>; pub type WeakMut<T> = Weak<RefCell<T>>;
+pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }

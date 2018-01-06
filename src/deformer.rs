@@ -5,6 +5,21 @@ use std::mem::replace;
 use std::ops::Deref;
 use lambda::Numeric;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum GenSource<'s: 't, 't> { Generated(String), Sliced(&'t Source<'s>) }
+impl<'s: 't, 't> GenSource<'s, 't>
+{
+    pub fn text(&self) -> &str { match self { &GenSource::Generated(ref t) => t, &GenSource::Sliced(&Source { slice, .. }) => slice } }
+    pub fn position(&self) -> &'t Location
+    {
+        match self { &GenSource::Generated(_) => &Location::EMPTY, &GenSource::Sliced(&Source { ref pos, .. }) => pos }
+    }
+}
+impl<'s: 't, 't> EqNoloc for GenSource<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool { self.text() == other.text() }
+}
+
 #[derive(Debug)] pub enum DeformationError<'t>
 {
     ArgumentRequired(&'t Location), UnresolvedAssociation(&'t Location), ConstructorRequired(&'t Location),
@@ -12,14 +27,14 @@ use lambda::Numeric;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Prefix<'s: 't, 't> { Arrow(&'t Location), User(&'t Source<'s>), PathRef(Box<TyDeformerIntermediate<'s, 't>>, Vec<&'t Source<'s>>) }
+pub enum Prefix<'s: 't, 't> { Arrow(&'t Location), User(GenSource<'s, 't>), PathRef(Box<TyDeformerIntermediate<'s, 't>>, Vec<GenSource<'s, 't>>) }
 impl<'s: 't, 't> Prefix<'s, 't>
 {
     pub fn position(&self) -> &'t Location
     {
         match *self
         {
-            Prefix::Arrow(p) => p, Prefix::User(&Source { pos: ref p, .. }) => p, Prefix::PathRef(ref p, _) => p.position()
+            Prefix::Arrow(p) => p, Prefix::User(ref s) => s.position(), Prefix::PathRef(ref p, _) => p.position()
         }
     }
 }
@@ -67,6 +82,8 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
 
     /// self -> x
     pub fn arrow(self, x: Self) -> Self { TyDeformerIntermediate::Expressed(Prefix::Arrow(&Location::EMPTY), vec![self, x]) }
+    /// x
+    pub fn symref(x: GenSource<'s, 't>) -> Self { TyDeformerIntermediate::Expressed(Prefix::User(x), Vec::new()) }
 
     pub fn leftmost_symbol(&self) -> Option<&Prefix<'s, 't>>
     {
@@ -103,7 +120,7 @@ impl<'s: 't, 't> EqNoloc for Prefix<'s, 't>
         match *self
         {
             Prefix::Arrow(p) => *other == Prefix::Arrow(p),
-            Prefix::User(&Source { slice, .. }) => if let Prefix::User(&Source { slice: slice_, .. }) = *other { slice == slice_ } else { false },
+            Prefix::User(ref s) => if let Prefix::User(ref s_) = *other { s.text() == s_.text() } else { false },
             Prefix::PathRef(ref p, ref v) => if let Prefix::PathRef(ref p_, ref v_) = *other { p.eq_nolocation(&p_) && v.eq_nolocation(v_) } else { false }
         }
     }
@@ -134,13 +151,14 @@ pub fn deform_ty<'s: 't, 't>(ty: &'t TypeSynTree<'s>, assoc_env: &AssociativityE
                 let agg = extract_most_precedences(&mods).map_err(DeformationError::UnresolvedAssociation)?.unwrap();
                 let ir = mods.remove(agg.index);
                 let cell = if agg.index >= 1 { &mut mods[agg.index - 1].ir } else { &mut lhs };
-                cell.combine_inplace(Prefix::User(&ir.op), ir.ir);
+                cell.combine_inplace(Prefix::User(GenSource::Sliced(&ir.op)), ir.ir);
             }
             Ok(lhs)
         },
         // a => a, []
-        TypeSynTree::SymReference(ref sym) => Ok(TyDeformerIntermediate::Expressed(Prefix::User(sym), Vec::new())),
-        TypeSynTree::PathRef(ref base, ref v) => Ok(TyDeformerIntermediate::Expressed(Prefix::PathRef(box deform_ty(base, assoc_env)?, v.iter().collect()), Vec::new())),
+        TypeSynTree::SymReference(ref sym) => Ok(TyDeformerIntermediate::symref(GenSource::Sliced(sym))),
+        TypeSynTree::PathRef(ref base, ref v) =>
+            Ok(TyDeformerIntermediate::Expressed(Prefix::PathRef(box deform_ty(base, assoc_env)?, v.iter().map(GenSource::Sliced).collect()), Vec::new())),
         TypeSynTree::Placeholder(ref p) => Ok(TyDeformerIntermediate::Placeholder(p)),
         TypeSynTree::Basic(ref p, bt) => Ok(TyDeformerIntermediate::Basic(p, bt)),
         TypeSynTree::Tuple(ref p, ref v) => Ok(TyDeformerIntermediate::Tuple(p, v.iter().map(|t| deform_ty(t, assoc_env)).collect::<Result<_, _>>()?)),
@@ -163,7 +181,7 @@ pub enum DeformedBlockContent<'s: 't, 't>
 pub enum ExprDeformerIntermediate<'s: 't, 't>
 {
     Garbage,
-    Apply(&'t Source<'s>, Vec<ExprDeformerIntermediate<'s, 't>>), Numeric(Numeric<'s, 't>),
+    Apply(GenSource<'s, 't>, Vec<ExprDeformerIntermediate<'s, 't>>), Numeric(Numeric<'s, 't>),
     ArrayLiteral(&'t Location, Vec<ExprDeformerIntermediate<'s, 't>>),
     ArrayRef(Box<ExprDeformerIntermediate<'s, 't>>, Box<ExprDeformerIntermediate<'s, 't>>),
     PathRef(Box<ExprDeformerIntermediate<'s, 't>>, Vec<&'t Source<'s>>),
@@ -188,11 +206,11 @@ impl<'s: 't, 't> ExprDeformerIntermediate<'s, 't>
         if let ExprDeformerIntermediate::Apply(_, ref mut a) = *self { a.append(args); }
         else { unreachable!("invalid usage") }
     }
-    fn combine(self, new_lhs: &'t Source<'s>, new_arg: Self) -> Self
+    fn combine(self, new_lhs: GenSource<'s, 't>, new_arg: Self) -> Self
     {
         ExprDeformerIntermediate::Apply(new_lhs, vec![self, new_arg])
     }
-    fn combine_inplace(&mut self, new_lhs: &'t Source<'s>, new_arg: Self)
+    fn combine_inplace(&mut self, new_lhs: GenSource<'s, 't>, new_arg: Self)
     {
         let old = replace(self, ExprDeformerIntermediate::Garbage);
         *self = old.combine(new_lhs, new_arg);
@@ -203,7 +221,7 @@ impl<'s: 't, 't> ExprDeformerIntermediate<'s, 't>
         match *self
         {
             ExprDeformerIntermediate::Garbage => unreachable!(),
-            ExprDeformerIntermediate::Apply(s, _) => &s.pos,
+            ExprDeformerIntermediate::Apply(ref s, _) => s.position(),
             ExprDeformerIntermediate::Numeric(ref n) => n.position(),
             ExprDeformerIntermediate::ArrayLiteral(p, _) | ExprDeformerIntermediate::Unit(p) => p,
             ExprDeformerIntermediate::ArrayRef(ref x, _) | ExprDeformerIntermediate::PathRef(ref x, _) | ExprDeformerIntermediate::Tuple1(ref x, _) => x.position(),
@@ -236,8 +254,8 @@ impl<'s: 't, 't> EqNoloc for ExprDeformerIntermediate<'s, 't>
         match *self
         {
             ExprDeformerIntermediate::Garbage => false,
-            ExprDeformerIntermediate::Apply(s, ref v) =>
-                if let ExprDeformerIntermediate::Apply(s_, ref v_) = *other { s.slice == s_.slice && v.eq_nolocation(v_) } else { false },
+            ExprDeformerIntermediate::Apply(ref s, ref v) =>
+                if let ExprDeformerIntermediate::Apply(ref s_, ref v_) = *other { s.text() == s_.text() && v.eq_nolocation(v_) } else { false },
             ExprDeformerIntermediate::Numeric(ref n) => if let ExprDeformerIntermediate::Numeric(ref n_) = *other { n.eq_nolocation(n_) } else { false },
             ExprDeformerIntermediate::ArrayLiteral(_, ref v) => if let ExprDeformerIntermediate::ArrayLiteral(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
             ExprDeformerIntermediate::Tuple1(ref x, ref v) => if let ExprDeformerIntermediate::Tuple1(ref x_, ref v_) = *other
@@ -301,13 +319,13 @@ pub fn deform_expr<'s: 't, 't>(tree: &'t ExpressionSynTree<'s>, assoc_env: &Asso
                 let agg = extract_most_precedences(&mods).map_err(DeformationError::UnresolvedAssociation)?.unwrap();
                 let ir = mods.remove(agg.index);
                 let cell = if agg.index >= 1 { &mut mods[agg.index - 1].ir } else { &mut lhs };
-                cell.combine_inplace(&ir.op, ir.ir);
+                cell.combine_inplace(GenSource::Sliced(&ir.op), ir.ir);
             }
             Ok(lhs)
         },
-        ExpressionSynTree::SymReference(ref s) => Ok(ExprDeformerIntermediate::Apply(s, Vec::new())),
-        ExpressionSynTree::Numeric(ref s, ty) => Ok(ExprDeformerIntermediate::Numeric(Numeric { floating: false, text: s, ty })),
-        ExpressionSynTree::NumericF(ref s, ty) => Ok(ExprDeformerIntermediate::Numeric(Numeric { floating: true, text: s, ty })),
+        ExpressionSynTree::SymReference(ref s) => Ok(ExprDeformerIntermediate::Apply(GenSource::Sliced(s), Vec::new())),
+        ExpressionSynTree::Numeric(ref s, ty) => Ok(ExprDeformerIntermediate::Numeric(Numeric { floating: false, text: GenSource::Sliced(s), ty })),
+        ExpressionSynTree::NumericF(ref s, ty) => Ok(ExprDeformerIntermediate::Numeric(Numeric { floating: true, text: GenSource::Sliced(s), ty })),
         ExpressionSynTree::ArrayLiteral(ref p, ref a) => Ok(ExprDeformerIntermediate::ArrayLiteral(p,
             a.iter().map(|x| deform_expr_full(x, assoc_env)).collect::<Result<_, _>>()?)),
         ExpressionSynTree::Tuple(ref p, ref a) => if let Some(a1) = a.first()
@@ -329,7 +347,7 @@ pub fn deform_expr_full<'s: 't, 't>(tree: &'t FullExpression<'s>, assoc_env: &As
         FullExpression::Conditional { ref location, inv, ref cond, ref then, ref else_ } =>
         {
             let mut cond = deform_expr_full(cond, assoc_env)?;
-            if inv { cond = ExprDeformerIntermediate::Apply(&NOT_TOKEN, vec![cond]); }
+            if inv { cond = ExprDeformerIntermediate::Apply(GenSource::Sliced(&NOT_TOKEN), vec![cond]); }
             let (then, else_) = (deform_expr_full(then, assoc_env)?, reverse_opt_res(else_.as_ref().map(|e| deform_expr_full(e, assoc_env)))?);
             Ok(ExprDeformerIntermediate::Conditional { head: location, cond: box cond, then: box then, else_: else_.map(Box::new) })
         },
