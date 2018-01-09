@@ -38,3 +38,6 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 pub type RcMut<T> = Rc<RefCell<T>>; pub type WeakMut<T> = Weak<RefCell<T>>;
 pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
+
+/// Pretty-printing(human readable printing)
+pub trait PrettyPrint { fn pretty_print<W: std::io::Write>(&self, sink: &mut W) -> std::io::Result<()>; }

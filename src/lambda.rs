@@ -66,6 +66,39 @@ impl<'s: 't, 't> Lambda<'s, 't>
     pub fn apply(self, x: Self) -> Self { Lambda::Apply { applier: box self, param: box x } }
 }
 
+use std::io::{Write, Result as IOResult};
+impl<'s: 't, 't> ::PrettyPrint for Lambda<'s, 't>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        match *self
+        {
+            Lambda::Apply { ref applier, ref param } =>
+            {
+                applier.pretty_print(sink)?; sink.write(" ".as_bytes())?; param.pretty_print(sink)
+            },
+            Lambda::Fun { ref arg, ref expr } =>
+            {
+                write!(sink, "¥{}. ", arg.text())?; expr.pretty_print(sink)
+            },
+            Lambda::DontCare => sink.write(b"?").map(drop),
+            Lambda::SymRef(ref s) => sink.write(s.text().as_bytes()).map(drop),
+            Lambda::Numeric(ref n) => sink.write(n.text.text().as_bytes()).map(drop),
+            Lambda::Unit(_) => sink.write(b"()").map(drop),
+            Lambda::ArrayLiteral(_, ref items) =>
+            {
+                sink.write(b"[")?;
+                for (n, l) in items.iter().enumerate()
+                {
+                    if n > 0 { sink.write(b", ")?; }
+                    l.pretty_print(sink)?;
+                }
+                sink.write(b"]").map(drop)
+            }
+        }
+    }
+}
+
 // ラムダ抽象にあたって
 // 例えばResult t e = Ok t | Err eの場合
 // Result(2 items) :: * -> * -> *, Ok :: forall t e. t -> Result t e, Err :: forall t e. e -> Result t e
