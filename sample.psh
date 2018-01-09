@@ -22,6 +22,7 @@ FragmentShader(uv(TEXCOORD0): f2) where
   out _(SV_Target) = let mf f = if f > 1 then do f else 1 in texture.sample(uv) * mf multiply
   
 data WorkoutResult a b = Ok a | Err b
+data Opt t = Some t | None | SomeN int t
 type c \/ d = WorkoutResult c d
 infixl 5 \/
 workout t: a -> a \/ Int = if t == 0

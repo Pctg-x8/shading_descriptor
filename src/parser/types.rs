@@ -255,7 +255,7 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Self> where 's: 't
     {
-        // op prefix prefix...
+        // op term...
         fn prefix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
         {
             let name = BreakParsing!(shift_prefix_declarator(stream, leftmost));
@@ -263,20 +263,20 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
             let mut ap_list = vec![TypeSynTree::SymReference(name.clone())];
             while leftmost.satisfy(stream.current(), true)
             {
-                match prefix_ty(stream, leftmost)
+                match term_ty(stream, leftmost)
                 {
                    Success(v) => ap_list.push(v), Failed(e) => return Failed(e), NotConsumed => break
                 }
             }
             Success(DataConstructor { location: name.pos.clone(), tree: TypeSynTree::Prefix(ap_list) })
         }
-        // prefix op prefix
+        // term op term
         fn infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
         {
-            let arg1 = BreakParsing!(prefix_ty(stream, leftmost));
+            let arg1 = BreakParsing!(term_ty(stream, leftmost));
             let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(arg1.position().column)).into_exclusive();
             let name = shift_infix_ops(stream, leftmost).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?;
-            let arg2 = prefix_ty(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Argument, stream.current().position()))?;
+            let arg2 = term_ty(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Argument, stream.current().position()))?;
             Success(DataConstructor { location: arg1.position().clone(), tree: TypeSynTree::Prefix(vec![TypeSynTree::SymReference(name.clone()), arg1, arg2]) })
         }
         let location = TMatch!(stream; TokenKind::Keyword(ref p, Keyword::Data) => p, |p| ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), p));

@@ -76,7 +76,7 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
         match *self
         {
             TyDeformerIntermediate::Expressed(_, ref mut args) => args.append(new_args),
-            _ => unreachable!()
+            _ => unreachable!("{:?}", self)
         }
     }
 

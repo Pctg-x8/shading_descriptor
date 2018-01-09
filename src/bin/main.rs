@@ -67,7 +67,11 @@ impl<'s: 't, 't> ConstructorEnvPrint for ShadingPipelineConstructorEnv<'s, 't>
         for &TypedDataConstructorScope { ref name, ref ty, ref ctors } in &self.symbol_set().data
         {
             println!("- data {}( :: {:?})", name.text(), ty);
-            for dc in ctors { println!("-- {} :: {:?} = {:?}", dc.name.text(), dc.ty, dc.expressed); }
+            for dc in ctors
+            {
+                let mut xp = Vec::new(); dc.expressed.pretty_print(&mut xp).unwrap();
+                println!("-- {} :: {:?} = {}", dc.name.text(), dc.ty, std::str::from_utf8(&xp).unwrap());
+            }
         }
     }
 }

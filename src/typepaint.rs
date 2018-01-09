@@ -194,12 +194,11 @@ fn generate_ctor_arrows<'s: 't, 't>(ctors: &[DeformedDataConstructor<'s, 't>], c
 fn express_ctor<'s: 't, 't>(ctor: &DeformedDataConstructor<'s, 't>, selector: &GenSource<'s, 't>, ctor_fns: &[GenSource<'s, 't>]) -> ::Lambda<'s, 't>
 {
     // 最終型(f0 a b)の形にする
-    let xf = ctor.args.iter().enumerate()
-        .map(|(ax, _)| GenSource::Generated(format!("#a{}", ax)))
+    let xf = ctor.args.iter().enumerate().map(|(ax, _)| GenSource::Generated(format!("#a{}", ax)))
         .fold(::Lambda::SymRef(selector.clone()), |x, a| x.apply(::Lambda::SymRef(a)));
     // 継続の受け付け束縛、そのあとコンストラクタ引数を追加する
-    ctor_fns.iter().cloned().chain(ctor.args.iter().enumerate().map(|(ax, _)| GenSource::Generated(format!("#a{}", ax))))
-        .rev().fold(xf, |x, a| ::Lambda::Fun { arg: a, expr: box x })
+    ctor_fns.iter().cloned().rev().chain(ctor.args.iter().enumerate().map(|(ax, _)| GenSource::Generated(format!("#a{}", ax))).rev())
+        .fold(xf, |x, a| ::Lambda::Fun { arg: a, expr: box x })
 }
 fn collect_for_type_decls<'s: 't, 't, Env, T>(env: &mut Env, tree: &'t T) -> Result<(), Vec<ConstructorCollectionError<'t>>>
     where Env: ConstructorEnvironment<'s, 't>, T: TypeDeclarable<'s> + AssociativityEnvironment<'s>
