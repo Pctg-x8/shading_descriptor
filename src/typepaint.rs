@@ -94,7 +94,7 @@ impl<'s: 't, 't> ShadingPipelineConstructorEnv<'s, 't>
         new_rcmut(ShadingPipelineConstructorEnv { vsh: None, hsh: None, dsh: None, gsh: None, fsh: None, set: ConstructorEnv::new() })
     }
 }
-pub struct ConstructorEnvPerShader<'s: 't, 't> { parent: WeakMut<ShadingPipelineConstructorEnv<'s, 't>>, pub set: ConstructorEnv<'s, 't> }
+pub struct ConstructorEnvPerShader<'s: 't, 't> { #[allow(dead_code)] parent: WeakMut<ShadingPipelineConstructorEnv<'s, 't>>, pub set: ConstructorEnv<'s, 't> }
 impl<'s: 't, 't> ConstructorEnvironment<'s, 't> for ConstructorEnvPerShader<'s, 't>
 {
     fn symbol_set(&self) -> &ConstructorEnv<'s, 't> { &self.set }
@@ -263,8 +263,10 @@ fn dcons_ty<'s: 't, 't>(dtree: &DeformedDataConstructor<'s, 't>, data_ty: &TyDef
     dtree.args.iter().cloned().rev().fold(data_ty.clone(), |t, a| a.arrow(t))
 }
 
+/*
 /// カインド型
 pub enum TyConsKind { Star, Arrow(Box<TyConsKind>, Box<TyConsKind>), Constraint }
+*/
 
 #[cfg(test)]
 mod test
@@ -274,7 +276,7 @@ mod test
 
     #[test] fn dcons_ty()
     {
-        let ctor = super::DeformedDataConstructor { name: GenSource::Generated("Ctor".to_string()), args: vec![GenSource::Generated("a".to_string())] };
+        let ctor = super::DeformedDataConstructor { name: GenSource::Generated("Ctor".to_string()), args: vec![TyDeformerIntermediate::symref(GenSource::Generated("a".to_string()))] };
         let final_ty = TyDeformerIntermediate::Expressed(Prefix::User(GenSource::Generated("Data".to_string())),
             vec![TyDeformerIntermediate::symref(GenSource::Generated("a".to_string()))]);
         let r = super::dcons_ty(&ctor, &final_ty);
@@ -283,8 +285,8 @@ mod test
     #[test] fn generate_ctor_arrows()
     {
         let ctors = vec![
-            super::DeformedDataConstructor { name: GenSource::Generated("Ok".to_string()), args: vec![GenSource::Generated("t".to_string())] },
-            super::DeformedDataConstructor { name: GenSource::Generated("Err".to_string()), args: vec![GenSource::Generated("e".to_string())] },
+            super::DeformedDataConstructor { name: GenSource::Generated("Ok".to_string()), args: vec![TyDeformerIntermediate::symref(GenSource::Generated("t".to_string()))] },
+            super::DeformedDataConstructor { name: GenSource::Generated("Err".to_string()), args: vec![TyDeformerIntermediate::symref(GenSource::Generated("e".to_string()))] },
             super::DeformedDataConstructor { name: GenSource::Generated("Void".to_string()), args: Vec::new() }
         ];
         let cont_placeholder = TyDeformerIntermediate::symref(GenSource::Generated("r".to_string()));

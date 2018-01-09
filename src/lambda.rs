@@ -75,7 +75,13 @@ impl<'s: 't, 't> ::PrettyPrint for Lambda<'s, 't>
         {
             Lambda::Apply { ref applier, ref param } =>
             {
-                applier.pretty_print(sink)?; sink.write(" ".as_bytes())?; param.pretty_print(sink)
+                let ap = match **applier { Lambda::Fun { .. } => true, _ => false };
+                let pp = match **param   { Lambda::Fun { .. } | Lambda::Apply { .. } => true, _ => false };
+
+                if ap { sink.write(b"(")?; } applier.pretty_print(sink)?; if ap { sink.write(b")")?; }
+                sink.write(" ".as_bytes())?;
+                if pp { sink.write(b"(")?; } param.pretty_print(sink)?; if pp { sink.write(b")")?; }
+                Ok(())
             },
             Lambda::Fun { ref arg, ref expr } =>
             {
@@ -108,10 +114,12 @@ impl<'s: 't, 't> ::PrettyPrint for Lambda<'s, 't>
 // 中身: Ok t = ¥a. ¥b. a t, Err e = ¥a. ¥b. b e 渡された函数に自身の引数を適用する
 // なので、Ok = ¥t. ¥a. ¥b. a t, Err = ¥e. ¥a. ¥b. b eとなる Result t e :: t -> (t -> r) -> (e -> r) -> r | e -> (t -> r) -> (e -> r) -> r
 
+/*
 use std::collections::HashMap;
 
 /// データコンストラクタのラムダ抽象
 pub struct FnDataConstructor<'s: 't, 't>(HashMap<&'s str, HashMap<&'s str, Lambda<'s, 't>>>);
+*/
 
 /*
 pub fn generate_datactor_matcher<'s: 't, 't>(env: &ConstructorEnv<'s, 't>) -> FnDataConstructor<'s, 't>
@@ -127,3 +135,42 @@ pub fn generate_datactor_matcher<'s: 't, 't>(env: &ConstructorEnv<'s, 't>) -> Fn
     FnDataConstructor(cons)
 }
 */
+
+#[cfg(test)]
+mod test
+{
+    use {PrettyPrint, Lambda};
+    use deformer::GenSource;
+    use std::str::from_utf8;
+
+    #[test] pub fn pretty_lambda_mix_precedence()
+    {
+        let l = Lambda::Apply
+        {
+            applier: box Lambda::SymRef(GenSource::Generated("f".into())),
+            param: box Lambda::Fun { arg: GenSource::Generated("x".into()), expr: box Lambda::SymRef(GenSource::Generated("x".into())) }
+        };
+        let mut s = Vec::new(); l.pretty_print(&mut s).unwrap();
+        assert_eq!(from_utf8(&s).unwrap(), "f (¥x. x)");
+
+        let l = Lambda::Apply
+        {
+            applier: box Lambda::Apply
+            {
+                applier: box Lambda::Apply
+                {
+                    applier: box Lambda::SymRef(GenSource::Generated("cond".into())),
+                    param: box Lambda::SymRef(GenSource::Generated("x".into()))
+                },
+                param: box Lambda::Apply
+                {
+                    applier: box Lambda::SymRef(GenSource::Generated("cond2".into())),
+                    param: box Lambda::SymRef(GenSource::Generated("x".into()))
+                }
+            },
+            param: box Lambda::DontCare
+        };
+        s.clear(); l.pretty_print(&mut s).unwrap();
+        assert_eq!(from_utf8(&s).unwrap(), "cond x (cond2 x) ?");
+    }
+}
