@@ -280,6 +280,7 @@ pub enum TyConsKind { Star, Arrow(Box<TyConsKind>, Box<TyConsKind>), Constraint 
 mod test
 {
     use deformer::{GenSource, TyDeformerIntermediate, Prefix, EqNoloc};
+    use std::str::from_utf8;
 
     #[test] fn dcons_ty()
     {
@@ -301,7 +302,10 @@ mod test
 
         let ok_arrow = TyDeformerIntermediate::symref(GenSource::Generated("t".to_string())).arrow(cont_placeholder.clone());
         let err_arrow = TyDeformerIntermediate::symref(GenSource::Generated("e".to_string())).arrow(cont_placeholder.clone());
-        assert!(r.eq_nolocation(&ok_arrow.arrow(err_arrow).arrow(cont_placeholder.clone()).arrow(cont_placeholder.clone())), "result: {:?}", r);
+        let rsuc = ok_arrow.arrow(err_arrow.arrow(cont_placeholder.clone().arrow(cont_placeholder.clone())));
+        let mut s = Vec::new(); r.pretty_print(&mut s).unwrap();
+        let mut s2 = Vec::new(); rsuc.pretty_print(&mut s2).unwrap();
+        assert!(r.eq_nolocation(&rsuc), "result: {} <=> {}", from_utf8(&s).unwrap(), from_utf8(&s2).unwrap());
     }
 }
 

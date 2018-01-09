@@ -419,6 +419,59 @@ pub fn extract_most_precedences<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s
     }))
 }
 
+use std::io::{Result as IOResult, Write};
+impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
+{
+    pub fn pretty_print<W: Write>(&self, dest: &mut W) -> IOResult<()>
+    {
+        match *self
+        {
+            TyDeformerIntermediate::Expressed(Prefix::Arrow(_), ref args) =>
+            {
+                write!(dest, "(")?; args[0].pretty_print(dest)?; write!(dest, ") -> ")?;
+                write!(dest, "(")?; args[1].pretty_print(dest)?; write!(dest, ")")?;
+                for a in &args[2..] { write!(dest, " (")?; a.pretty_print(dest)?; write!(dest, ")")?; }
+                Ok(())
+            },
+            TyDeformerIntermediate::Expressed(ref p, ref args) =>
+            {
+                p.pretty_print(dest)?;
+                for a in args { write!(dest, " (")?; a.pretty_print(dest)?; write!(dest, ")")?; }
+                Ok(())
+            },
+            TyDeformerIntermediate::Placeholder(_) => write!(dest, "_"),
+            TyDeformerIntermediate::Basic(_, bt) => write!(dest, "{:?}", bt),
+            TyDeformerIntermediate::Tuple(_, ref args) =>
+            {
+                write!(dest, "(")?;
+                if let Some(a1) = args.first()
+                {
+                    a1.pretty_print(dest)?;
+                    for a in &args[1..] { write!(dest, ", ")?; a.pretty_print(dest)?; }
+                }
+                write!(dest, ")")
+            },
+            TyDeformerIntermediate::ArrayDim(ref base, ref index) =>
+            {
+                base.pretty_print(dest)?; write!(dest, "[{:?}]", index)
+            },
+            TyDeformerIntermediate::SafetyGarbage => unreachable!()
+        }
+    }
+}
+impl<'s: 't, 't> Prefix<'s, 't>
+{
+    pub fn pretty_print<W: Write>(&self, dest: &mut W) -> IOResult<()>
+    {
+        match *self
+        {
+            Prefix::Arrow(_) => write!(dest, "(->)"),
+            Prefix::User(ref s) => write!(dest, "{}", s.text()),
+            Prefix::PathRef(ref base, ref sv) => { write!(dest, "(")?; base.pretty_print(dest)?; write!(dest, ")")?; for s in sv { write!(dest, ".{}", s.text())?; } Ok(()) }
+        }
+    }
+}
+
 #[cfg(test)] mod tests
 {
     use ::*;
