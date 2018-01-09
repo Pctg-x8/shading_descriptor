@@ -433,7 +433,11 @@ impl<'s: 't, 't> ::PrettyPrint for TyDeformerIntermediate<'s, 't>
                 dest.print_if(b"(", a0p)?.pretty_sink(&args[0])?.print_if(b")", a0p)?;
                 dest.print(b" -> ")?.pretty_sink(&args[1])?;
                 if args.len() > 2 { dest.write(b")")?; }
-                for a in &args[2..] { a.pretty_print(dest)?; }
+                for a in &args[2..]
+                {
+                    let p = match *a { TyDeformerIntermediate::Expressed(_, ref v) => !v.is_empty(), _ => false };
+                    dest.print(b" ")?.print_if(b"(", p)?.pretty_sink(a)?.print_if(b")", p)?;
+                }
                 Ok(())
             },
             TyDeformerIntermediate::Expressed(ref p, ref args) =>
