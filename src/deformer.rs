@@ -51,10 +51,10 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
     {
         match *self
         {
-            TyDeformerIntermediate::Placeholder(p) | TyDeformerIntermediate::Tuple(p, _) => p,
+            TyDeformerIntermediate::Placeholder(p) | TyDeformerIntermediate::Tuple(p, _) | TyDeformerIntermediate::Basic(p, _) => p,
             TyDeformerIntermediate::Expressed(ref p, _) => p.position(),
             TyDeformerIntermediate::ArrayDim(ref p, _) => p.position(),
-            _ => unreachable!()
+            TyDeformerIntermediate::SafetyGarbage => unreachable!("internal garbage item")
         }
     }
 }
