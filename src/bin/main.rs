@@ -20,12 +20,6 @@ fn main()
     let ctors = ShadingPipelineConstructorEnv::new();
     p.collect_ctors(&ctors).expect("Failure in collecting type constructors");
     ctors.borrow().print_ctor_env();
-    /*loop
-    {
-        let t = cache.next();
-        println!("{:?}", t);
-        match t { &Token::EOF(_) | &Token::UnknownChar(_) => break, _ => () }
-    }*/
 }
 
 trait ConstructorEnvPrint
@@ -68,14 +62,15 @@ impl<'s: 't, 't> ConstructorEnvPrint for ShadingPipelineConstructorEnv<'s, 't>
         {
             std::io::stdout().print(b"- data ").unwrap()
                 .print(name.text().as_bytes()).unwrap()
-                .print(b"( :: ").unwrap().pretty_sink(ty).unwrap().print(b")\n").unwrap()
-                .flush().unwrap();
+                .print(b"( :: ").unwrap().pretty_sink(ty).unwrap().print(b")\n").unwrap();
             for dc in ctors
             {
-                let mut tp = Vec::new(); dc.ty.pretty_print(&mut tp).unwrap();
-                let mut xp = Vec::new(); dc.expressed.pretty_print(&mut xp).unwrap();
-                println!("-- {} :: {} = {}", dc.name.text(), std::str::from_utf8(&tp).unwrap(), std::str::from_utf8(&xp).unwrap());
+                std::io::stdout().print(b"-- ").unwrap()
+                    .print(dc.name.text().as_bytes()).unwrap().print(b" :: ").unwrap()
+                    .pretty_sink(&dc.ty).unwrap().print(b" = ").unwrap()
+                    .pretty_sink(&dc.expressed).unwrap().print(b"\n").unwrap();
             }
+            std::io::stdout().flush().unwrap();
         }
     }
 }
@@ -88,14 +83,15 @@ impl<'s: 't, 't> ConstructorEnvPrint for ConstructorEnvPerShader<'s, 't>
         {
             std::io::stdout().print(b"- data ").unwrap()
                 .print(name.text().as_bytes()).unwrap()
-                .print(b"( :: ").unwrap().pretty_sink(ty).unwrap().print(b")\n").unwrap()
-                .flush().unwrap();
+                .print(b"( :: ").unwrap().pretty_sink(ty).unwrap().print(b")\n").unwrap();
             for dc in ctors
             {
-                let mut tp = Vec::new(); dc.ty.pretty_print(&mut tp).unwrap();
-                let mut xp = Vec::new(); dc.expressed.pretty_print(&mut xp).unwrap();
-                println!("-- {} :: {} = {}", dc.name.text(), std::str::from_utf8(&tp).unwrap(), std::str::from_utf8(&xp).unwrap());
+                std::io::stdout().print(b"-- ").unwrap()
+                    .print(dc.name.text().as_bytes()).unwrap().print(b" :: ").unwrap()
+                    .pretty_sink(&dc.ty).unwrap().print(b" = ").unwrap()
+                    .pretty_sink(&dc.expressed).unwrap().print(b"\n").unwrap();
             }
+            std::io::stdout().flush().unwrap();
         }
     }
 }
