@@ -419,24 +419,31 @@ pub fn extract_most_precedences<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s
     }))
 }
 
-use std::io::{Result as IOResult, Write};
-impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
+use std::io::{Result as IOResult, Write}; use PrettyPrintSink;
+impl<'s: 't, 't> ::PrettyPrint for TyDeformerIntermediate<'s, 't>
 {
-    pub fn pretty_print<W: Write>(&self, dest: &mut W) -> IOResult<()>
+    fn pretty_print<W: Write>(&self, dest: &mut W) -> IOResult<()>
     {
         match *self
         {
             TyDeformerIntermediate::Expressed(Prefix::Arrow(_), ref args) =>
             {
-                write!(dest, "(")?; args[0].pretty_print(dest)?; write!(dest, ") -> ")?;
-                write!(dest, "(")?; args[1].pretty_print(dest)?; write!(dest, ")")?;
-                for a in &args[2..] { write!(dest, " (")?; a.pretty_print(dest)?; write!(dest, ")")?; }
+                if args.len() > 2 { dest.write(b"(")?; }
+                let a0p = match args[0] { TyDeformerIntermediate::Expressed(_, ref v) => !v.is_empty(), _ => false };
+                dest.print_if(b"(", a0p)?.pretty_sink(&args[0])?.print_if(b")", a0p)?;
+                dest.print(b" -> ")?.pretty_sink(&args[1])?;
+                if args.len() > 2 { dest.write(b")")?; }
+                for a in &args[2..] { a.pretty_print(dest)?; }
                 Ok(())
             },
             TyDeformerIntermediate::Expressed(ref p, ref args) =>
             {
-                p.pretty_print(dest)?;
-                for a in args { write!(dest, " (")?; a.pretty_print(dest)?; write!(dest, ")")?; }
+                dest.pretty_sink(p)?;
+                for a in args
+                {
+                    let p = match *a { TyDeformerIntermediate::Expressed(_, ref v) => !v.is_empty(), _ => false };
+                    dest.print(b" ")?.print_if(b"(", p)?.pretty_sink(a)?.print_if(b")", p)?;
+                }
                 Ok(())
             },
             TyDeformerIntermediate::Placeholder(_) => write!(dest, "_"),
@@ -447,7 +454,7 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
                 if let Some(a1) = args.first()
                 {
                     a1.pretty_print(dest)?;
-                    for a in &args[1..] { write!(dest, ", ")?; a.pretty_print(dest)?; }
+                    for a in &args[1..] { dest.print(b", ")?.pretty_sink(a)?; }
                 }
                 write!(dest, ")")
             },
@@ -459,15 +466,20 @@ impl<'s: 't, 't> TyDeformerIntermediate<'s, 't>
         }
     }
 }
-impl<'s: 't, 't> Prefix<'s, 't>
+impl<'s: 't, 't> ::PrettyPrint for Prefix<'s, 't>
 {
-    pub fn pretty_print<W: Write>(&self, dest: &mut W) -> IOResult<()>
+    fn pretty_print<W: Write>(&self, dest: &mut W) -> IOResult<()>
     {
         match *self
         {
-            Prefix::Arrow(_) => write!(dest, "(->)"),
-            Prefix::User(ref s) => write!(dest, "{}", s.text()),
-            Prefix::PathRef(ref base, ref sv) => { write!(dest, "(")?; base.pretty_print(dest)?; write!(dest, ")")?; for s in sv { write!(dest, ".{}", s.text())?; } Ok(()) }
+            Prefix::Arrow(_) => dest.write(b"(->)").map(drop),
+            Prefix::User(ref s) => dest.write(s.text().as_bytes()).map(drop),
+            Prefix::PathRef(ref base, ref sv) =>
+            {
+                base.pretty_print(dest)?;
+                for s in sv { write!(dest, ".{}", s.text())?; }
+                Ok(())
+            }
         }
     }
 }

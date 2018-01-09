@@ -41,3 +41,19 @@ pub fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 
 /// Pretty-printing(human readable printing)
 pub trait PrettyPrint { fn pretty_print<W: std::io::Write>(&self, sink: &mut W) -> std::io::Result<()>; }
+/// chained printing helper
+pub trait PrettyPrintSink
+{
+    fn pretty_sink<P: ::PrettyPrint>(&mut self, target: &P) -> std::io::Result<&mut Self>;
+    fn print(&mut self, text: &[u8]) -> std::io::Result<&mut Self>;
+
+    fn print_if(&mut self, text: &[u8], cond: bool) -> std::io::Result<&mut Self>
+    {
+        if cond { self.print(text) } else { Ok(self) }
+    }
+}
+impl<W: std::io::Write> PrettyPrintSink for W
+{
+    fn pretty_sink<P: ::PrettyPrint>(&mut self, target: &P) -> std::io::Result<&mut Self> { target.pretty_print(self).map(|_| self) }
+    fn print(&mut self, text: &[u8]) -> std::io::Result<&mut Self> { self.write(text).map(|_| self) }
+}

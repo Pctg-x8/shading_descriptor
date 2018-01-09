@@ -66,11 +66,15 @@ impl<'s: 't, 't> ConstructorEnvPrint for ShadingPipelineConstructorEnv<'s, 't>
         for ty in &self.symbol_set().ty { println!("- type {}", ty.text()); }
         for &TypedDataConstructorScope { ref name, ref ty, ref ctors } in &self.symbol_set().data
         {
-            println!("- data {}( :: {:?})", name.text(), ty);
+            std::io::stdout().print(b"- data ").unwrap()
+                .print(name.text().as_bytes()).unwrap()
+                .print(b"( :: ").unwrap().pretty_sink(ty).unwrap().print(b")\n").unwrap()
+                .flush().unwrap();
             for dc in ctors
             {
+                let mut tp = Vec::new(); dc.ty.pretty_print(&mut tp).unwrap();
                 let mut xp = Vec::new(); dc.expressed.pretty_print(&mut xp).unwrap();
-                println!("-- {} :: {:?} = {}", dc.name.text(), dc.ty, std::str::from_utf8(&xp).unwrap());
+                println!("-- {} :: {} = {}", dc.name.text(), std::str::from_utf8(&tp).unwrap(), std::str::from_utf8(&xp).unwrap());
             }
         }
     }
@@ -82,11 +86,15 @@ impl<'s: 't, 't> ConstructorEnvPrint for ConstructorEnvPerShader<'s, 't>
         for ty in &self.symbol_set().ty { println!("- type {}", ty.text()); }
         for &TypedDataConstructorScope { ref name, ref ty, ref ctors } in &self.symbol_set().data
         {
-            println!("- data {}( :: {:?})", name.text(), ty);
+            std::io::stdout().print(b"- data ").unwrap()
+                .print(name.text().as_bytes()).unwrap()
+                .print(b"( :: ").unwrap().pretty_sink(ty).unwrap().print(b")\n").unwrap()
+                .flush().unwrap();
             for dc in ctors
             {
+                let mut tp = Vec::new(); dc.ty.pretty_print(&mut tp).unwrap();
                 let mut xp = Vec::new(); dc.expressed.pretty_print(&mut xp).unwrap();
-                println!("-- {} :: {:?} = {}", dc.name.text(), dc.ty, std::str::from_utf8(&xp).unwrap());
+                println!("-- {} :: {} = {}", dc.name.text(), std::str::from_utf8(&tp).unwrap(), std::str::from_utf8(&xp).unwrap());
             }
         }
     }
