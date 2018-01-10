@@ -250,7 +250,7 @@ impl<'s> FullExpression<'s>
 impl<'s> Parser<'s> for FullExpression<'s>
 {
     type ResultTy = Self;
-    /// Parse a full expression(contains let, if or do)
+    /// Parse a full expression(contains let, if, case-of or do)
     /// # Examples
     ///
     /// ```
@@ -266,6 +266,7 @@ impl<'s> Parser<'s> for FullExpression<'s>
             TokenKind::Keyword(_, Keyword::Let) => expr_lettings(stream, leftmost),
             TokenKind::Keyword(_, Keyword::If) | TokenKind::Keyword(_, Keyword::Unless) => expr_conditional(stream, leftmost),
             TokenKind::Keyword(_, Keyword::Do) => block_content(stream),
+            TokenKind::Keyword(_, Keyword::Case) => case_of(stream, leftmost),
             _ => ExpressionSynTree::parse(stream, leftmost)
         }
     }
