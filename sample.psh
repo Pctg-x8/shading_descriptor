@@ -36,5 +36,5 @@ workout2 t = case t of
   _ -> Err t
 
 workout3 t = case t == 0 of
-  True -> workout (* 2 $ cos 30 + 2)
+  True -> workout ((*) 2 $ cos 30 + 2)
   False -> Err t
