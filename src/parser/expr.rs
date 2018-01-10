@@ -66,7 +66,7 @@ fn prefix_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Left
     while let Some(a) = factor_pat(stream, leftmost).into_result_opt()? { args.push(a); }
     Success(if args.is_empty() { lhs } else { ExprPatSynTree::Prefix(box lhs, args) })
 }
-/// ident ("." ident)* / num / "(" [infix ("," infix)*] ")"
+/// ident ("." ident)* / num / _ / "(" [infix ("," infix)*] ")"
 fn factor_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, ExprPatSynTree<'s>>
 {
     if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
@@ -83,6 +83,7 @@ fn factor_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Left
         },
         &TokenKind::Numeric(ref s, nty) => { stream.shift(); Success(ExprPatSynTree::Numeric(Numeric { floating: false, text: s.clone(), ty: nty })) },
         &TokenKind::NumericF(ref s, nty) => { stream.shift(); Success(ExprPatSynTree::Numeric(Numeric { floating: true, text: s.clone(), ty: nty })) },
+        &TokenKind::Placeholder(ref p) => { stream.shift(); Success(ExprPatSynTree::Placeholder(p.clone())) },
         &TokenKind::BeginEnclosure(ref p, EnclosureKind::Parenthese) =>
         {
             stream.shift();
