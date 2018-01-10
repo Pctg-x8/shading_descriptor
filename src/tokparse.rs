@@ -197,6 +197,11 @@ pub trait TokenStream<'s: 't, 't>
     {
         match self.current() { &TokenKind::ListDelimiter(_) => { self.shift(); Ok(()) }, p => Err(p.position()) }
     }
+    /// shift an identifier, error if the next token is not Identifier
+    fn shift_identifier(&mut self) -> Result<&'t Source<'s>, &'t Location>
+    {
+        match self.current() { &TokenKind::Identifier(ref s) => { self.shift(); Ok(s) }, p => Err(p.position()) }
+    }
 
     /// drop tokens until satisfying a predicate
     fn drop_until<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
