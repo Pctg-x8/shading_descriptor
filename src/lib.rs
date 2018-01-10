@@ -19,7 +19,7 @@ pub use parser::{SemanticInput, SemanticOutput, UniformDeclaration, ConstantDecl
 pub use parser::{ShaderStage, ShaderStageDefinition};
 pub use parser::{ShadingState, ShadingStates, CompareOp, StencilOp, StencilTestConfig, BlendingStateConfig, depth_state};
 pub use parser::{ShadingPipeline, shading_pipeline};
-pub use parser::{ExpressionSynTree, FullExpression, BlockContent, ExprPatSynTree};
+pub use parser::{ExpressionSynTree, FullExpression, BlockContent, ExprPatSynTree, Binding};
 pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, TypeDeclarable, InferredArrayDim};
 pub use parser::utils::Leftmost;
 

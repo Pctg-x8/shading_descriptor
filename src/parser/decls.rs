@@ -3,7 +3,7 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValueDeclaration<'s> { pub pat: FullExpression<'s>, pub _type: Option<FullTypeDesc<'s>>, pub value: FullExpression<'s> }
+pub struct ValueDeclaration<'s> { pub pat: ExprPatSynTree<'s>, pub _type: Option<FullTypeDesc<'s>>, pub value: FullExpression<'s> }
 impl<'s> Parser<'s> for ValueDeclaration<'s>
 {
     type ResultTy = Self;
@@ -18,13 +18,10 @@ impl<'s> Parser<'s> for ValueDeclaration<'s>
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
-        let pat = BreakParsing!(ExpressionSynTree::parse(stream, leftmost));
+        let pat = BreakParsing!(ExprPatSynTree::parse(stream, leftmost));
         let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(pat.position().column)).into_exclusive();
         let _type = type_hint(stream, leftmost).into_result_opt()?;
-        if !leftmost.satisfy(stream.current(), false) || !stream.current().is_equal()
-        {
-            return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
-        }
+        TMatch!(leftmost => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::Binding, p));
         stream.shift(); CheckLayout!(leftmost => stream);
         let value = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(ValueDeclaration { pat, _type, value })
@@ -107,7 +104,7 @@ impl<'s> Parser<'s> for SemanticOutput<'s>
         let (_, name) = name(stream, leftmost, true).map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?;
         let semantics = par_semantics(stream, leftmost).into_result(|| ParseError::ExpectingEnclosed(ExpectingKind::Semantics, EnclosureKind::Parenthese, stream.current().position()))?;
         let _type = type_note(stream, leftmost, true).into_result_opt()?.and_then(|v| v);
-        TMatch!(leftmost => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::ConcreteExpression, p));
+        TMatch!(leftmost => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::Binding, p));
         let expr = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(SemanticOutput { location: location.clone(), name, semantics, _type, expr })
     }

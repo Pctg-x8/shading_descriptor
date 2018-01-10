@@ -220,10 +220,7 @@ impl<'s> BlockParser<'s> for TypeFn<'s>
             let defblock_begin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
             let pat = TypeSynTree::parse(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::TypePattern, stream.current().position()))?;
             let defblock_begin = defblock_begin.into_exclusive();
-            if !defblock_begin.satisfy(stream.current(), true) || !stream.current().is_equal()
-            {
-                return Failed(ParseError::Expecting(ExpectingKind::ConcreteType, stream.current().position()));
-            }
+            TMatch!(defblock_begin => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::Binding, p));
             stream.shift(); CheckLayout!(defblock_begin => stream);
             let bound = FullTypeDesc::parse(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
             defs.place_back() <- (pat, bound);

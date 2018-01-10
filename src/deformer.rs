@@ -1,6 +1,6 @@
 
 use {Location, Source, BType, Associativity, AssociativityEnv};
-use {TypeSynTree, InferredArrayDim};
+use {TypeSynTree, InferredArrayDim, Binding};
 use std::mem::replace;
 use std::ops::Deref;
 use lambda::NumericRef;
@@ -178,10 +178,11 @@ pub fn deform_ty<'s: 't, 't>(ty: &'t TypeSynTree<'s>, assoc_env: &AssociativityE
 use {ExpressionSynTree, FullExpression, BlockContent, ExprPatSynTree};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DeformedBlockContent<'s: 't, 't>
-{
-    Vars(Vec<(ExprDeformerIntermediate<'s, 't>, ExprDeformerIntermediate<'s, 't>)>), Expr(ExprDeformerIntermediate<'s, 't>)
-}
+pub struct DeformedBinding<'s: 't, 't> { pub pat: DeformedExprPat<'s, 't>, pub expr: ExprDeformerIntermediate<'s, 't> }
+pub type DeformedBindings<'s: 't, 't> = Vec<DeformedBinding<'s, 't>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeformedBlockContent<'s: 't, 't> { Vars(DeformedBindings<'s, 't>), Expr(ExprDeformerIntermediate<'s, 't>) }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprDeformerIntermediate<'s: 't, 't>
 {
@@ -198,7 +199,7 @@ pub enum ExprDeformerIntermediate<'s: 't, 't>
         then: Box<ExprDeformerIntermediate<'s, 't>>, else_: Option<Box<ExprDeformerIntermediate<'s, 't>>>
     },
     Block(&'t Location, Vec<DeformedBlockContent<'s, 't>>),
-    Lettings { head: &'t Location, vars: Vec<(ExprDeformerIntermediate<'s, 't>, ExprDeformerIntermediate<'s, 't>)>, subexpr: Box<ExprDeformerIntermediate<'s, 't>> },
+    Lettings { head: &'t Location, vars: DeformedBindings<'s, 't>, subexpr: Box<ExprDeformerIntermediate<'s, 't>> },
     CaseOf { head: &'t Location, expr: Box<ExprDeformerIntermediate<'s, 't>>, matchers: Vec<(DeformedExprPat<'s, 't>, ExprDeformerIntermediate<'s, 't>)> }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -328,6 +329,10 @@ impl<'s: 't, 't> EqNoloc for DeformedBlockContent<'s, 't>
         }
     }
 }
+impl<'s: 't, 't> EqNoloc for DeformedBinding<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool { self.pat.eq_nolocation(&other.pat) && self.expr.eq_nolocation(&other.expr) }
+}
 pub fn deform_expr<'s: 't, 't>(tree: &'t ExpressionSynTree<'s>, assoc_env: &AssociativityEnv<'s>) -> Result<ExprDeformerIntermediate<'s, 't>, DeformationError<'t>>
 {
     match *tree
@@ -385,14 +390,13 @@ pub fn deform_expr_full<'s: 't, 't>(tree: &'t FullExpression<'s>, assoc_env: &As
         },
         FullExpression::Block(ref p, ref elist) => elist.iter().map(|x| match *x
         {
-            BlockContent::BlockVars { ref vals, .. } => vals.iter().map(|&(ref pat, ref x)|
-                Ok((deform_expr_full(pat, assoc_env)?, deform_expr_full(x, assoc_env)?))).collect::<Result<_, _>>().map(DeformedBlockContent::Vars),
+            BlockContent::BlockVars { ref vals, .. } => vals.iter().map(|b| b.deform(assoc_env)).collect::<Result<_, _>>().map(DeformedBlockContent::Vars),
             BlockContent::Expression(ref fe) => deform_expr_full(fe, assoc_env).map(DeformedBlockContent::Expr)
         }).collect::<Result<_, _>>().map(|x| ExprDeformerIntermediate::Block(p, x)),
         FullExpression::Lettings { ref location, ref vals, ref subexpr } => Ok(ExprDeformerIntermediate::Lettings
         {
             head: location,
-            vars: vals.iter().map(|&(ref p, ref x)| Ok((deform_expr_full(p, assoc_env)?, deform_expr_full(x, assoc_env)?))).collect::<Result<_, _>>()?,
+            vars: vals.iter().map(|b| b.deform(assoc_env)).collect::<Result<_, _>>()?,
             subexpr: box deform_expr_full(subexpr, assoc_env)?
         }),
         FullExpression::CaseOf { ref location, ref cond, ref matchers } => Ok(ExprDeformerIntermediate::CaseOf
@@ -437,6 +441,13 @@ pub fn deform_expr_pat<'s: 't, 't>(tree: &'t ExprPatSynTree<'s>, assoc_env: &Ass
             }
             Ok(lhs)
         }
+    }
+}
+impl<'s> Binding<'s>
+{
+    fn deform<'t>(&'t self, assoc_env: &AssociativityEnv<'s>) -> Result<DeformedBinding<'s, 't>, DeformationError<'t>>
+    {
+        Ok(DeformedBinding { pat: deform_expr_pat(&self.pat, assoc_env)?, expr: deform_expr_full(&self.expr, assoc_env)? })
     }
 }
 impl<'s: 't, 't> DeformedExprPat<'s, 't>

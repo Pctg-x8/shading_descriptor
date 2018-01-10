@@ -220,17 +220,21 @@ impl<'s> Into<FullExpression<'s>> for ExpressionSynTree<'s>
     fn into(self) -> FullExpression<'s> { FullExpression::Expression(self) }
 }
 
+/// Let Binding(pat = expr)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Binding<'s> { pub pat: ExprPatSynTree<'s>, pub expr: FullExpression<'s> }
+pub type Bindings<'s> = Vec<Binding<'s>>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockContent<'s>
 {
-    BlockVars { location: Location, vals: Vec<(FullExpression<'s>, FullExpression<'s>)> },
-    Expression(FullExpression<'s>)
+    BlockVars { location: Location, vals: Bindings<'s> }, Expression(FullExpression<'s>)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FullExpression<'s>
 {
-    Lettings { location: Location, vals: Vec<(FullExpression<'s>, FullExpression<'s>)>, subexpr: Box<FullExpression<'s>> },
+    Lettings { location: Location, vals: Bindings<'s>, subexpr: Box<FullExpression<'s>> },
     Conditional { location: Location, inv: bool, cond: Box<FullExpression<'s>>, then: Box<FullExpression<'s>>, else_: Option<Box<FullExpression<'s>>> },
     CaseOf { location: Location, cond: Box<FullExpression<'s>>, matchers: Vec<(ExprPatSynTree<'s>, FullExpression<'s>)> },
     Block(Location, Vec<BlockContent<'s>>), Expression(ExpressionSynTree<'s>)
@@ -373,13 +377,10 @@ fn case_of<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmos
         let defbegin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
         let pat = ExprPatSynTree::parse(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
         let defbegin = defbegin.into_exclusive();
-        if !stream.current().is_tyarrow() || !defbegin.satisfy(stream.current(), false)
-        {
-            return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
-        }
+        TMatch!(defbegin => stream; TokenKind::TyArrow(_), |p| ParseError::Expecting(ExpectingKind::Arrow1, p));
         let xp = FullExpression::parse(stream.shift(), defbegin).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         matchers.place_back() <- (pat, xp);
-        while TMatch!(Optional: stream; TokenKind::StatementDelimiter(_)) {}
+        while let TokenKind::StatementDelimiter(_) = *stream.current() { stream.shift(); }
     }
     if block_start.is_explicit() && !stream.current().is_end_enclosure_of(EnclosureKind::Brace)
     {
@@ -387,8 +388,8 @@ fn case_of<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmos
     }
     Success(FullExpression::CaseOf { location: location.clone(), cond, matchers })
 }
-/// let (decls) [in?]
-fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, (&'t Location, Vec<(FullExpression<'s>, FullExpression<'s>)>)>
+/// let (bindings) [in?]
+fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, (&'t Location, Bindings<'s>)>
 {
     let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref p, Keyword::Let) => p);
     let block_start = take_current_block_begin(stream);
@@ -397,21 +398,36 @@ fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
     {
         if stream.current().keyword() == Some(Keyword::In) { break; }
         if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
-        let defbegin = get_definition_leftmost(block_start, stream);
-        let pat = ExpressionSynTree::parse(stream, Leftmost::Inclusive(defbegin))
-            .into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
-        let defbegin = Leftmost::Exclusive(defbegin);
-        if !stream.current().is_equal() || !defbegin.satisfy(stream.current(), false)
-        {
-            return Failed(ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()));
-        }
-        stream.shift(); CheckLayout!(defbegin => stream);
-        let rhs = FullExpression::parse(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::ConcreteExpression, stream.current().position()))?;
-        vals.place_back() <- (pat, rhs);
-        while TMatch!(Optional: stream; TokenKind::StatementDelimiter(_)) {  }
+        let defbegin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
+        vals.place_back() <- Binding::parse(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
+        while let TokenKind::StatementDelimiter(_) = *stream.current() { stream.shift(); }
     }
-    if block_start.is_explicit() && !stream.current().is_end_enclosure_of(EnclosureKind::Brace) { return Failed(ParseError::ExpectingClose(EnclosureKind::Brace, stream.current().position())); }
+    if block_start.is_explicit() && !stream.current().is_end_enclosure_of(EnclosureKind::Brace)
+    {
+        return Failed(ParseError::ExpectingClose(EnclosureKind::Brace, stream.current().position()));
+    }
     Success((location, vals))
+}
+
+impl<'s> Parser<'s> for Binding<'s>
+{
+    type ResultTy = Self;
+    /// Parses a binding. `<pat> = <expr>`
+    /// ## Examples
+    /// ```
+    /// # use pureshader::*;
+    /// let s = TokenizerState::from("f (Cons x _) = x + 3").strip_all();
+    /// let mut st = PreanalyzedTokenStream::from(&s[..]);
+    /// Binding::parse(&mut st, Leftmost::Nothing).expect("Failed to parsing input as `Binding`");
+    /// ```
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
+    {
+        let pat = BreakParsing!(ExprPatSynTree::parse(stream, leftmost));
+        let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(pat.position().column)).into_exclusive();
+        TMatch!(leftmost => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::Binding, p));
+        let expr = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+        Success(Binding { pat, expr })
+    }
 }
 
 /*
