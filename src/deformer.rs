@@ -3,7 +3,7 @@ use {Location, Source, BType, Associativity, AssociativityEnv};
 use {TypeSynTree, InferredArrayDim};
 use std::mem::replace;
 use std::ops::Deref;
-use lambda::Numeric;
+use lambda::NumericRef;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GenSource<'s: 't, 't> { Generated(String), Sliced(&'t Source<'s>) }
@@ -181,7 +181,7 @@ pub enum DeformedBlockContent<'s: 't, 't>
 pub enum ExprDeformerIntermediate<'s: 't, 't>
 {
     Garbage,
-    Apply(GenSource<'s, 't>, Vec<ExprDeformerIntermediate<'s, 't>>), Numeric(Numeric<'s, 't>),
+    Apply(GenSource<'s, 't>, Vec<ExprDeformerIntermediate<'s, 't>>), Numeric(NumericRef<'s, 't>),
     ArrayLiteral(&'t Location, Vec<ExprDeformerIntermediate<'s, 't>>),
     ArrayRef(Box<ExprDeformerIntermediate<'s, 't>>, Box<ExprDeformerIntermediate<'s, 't>>),
     PathRef(Box<ExprDeformerIntermediate<'s, 't>>, Vec<&'t Source<'s>>),
@@ -332,8 +332,7 @@ pub fn deform_expr<'s: 't, 't>(tree: &'t ExpressionSynTree<'s>, assoc_env: &Asso
             Ok(lhs)
         },
         ExpressionSynTree::SymReference(ref s) => Ok(ExprDeformerIntermediate::Apply(GenSource::Sliced(s), Vec::new())),
-        ExpressionSynTree::Numeric(ref s, ty) => Ok(ExprDeformerIntermediate::Numeric(Numeric { floating: false, text: GenSource::Sliced(s), ty })),
-        ExpressionSynTree::NumericF(ref s, ty) => Ok(ExprDeformerIntermediate::Numeric(Numeric { floating: true, text: GenSource::Sliced(s), ty })),
+        ExpressionSynTree::Numeric(ref s) => Ok(ExprDeformerIntermediate::Numeric(s.into())),
         ExpressionSynTree::ArrayLiteral(ref p, ref a) => Ok(ExprDeformerIntermediate::ArrayLiteral(p,
             a.iter().map(|x| deform_expr_full(x, assoc_env)).collect::<Result<_, _>>()?)),
         ExpressionSynTree::Tuple(ref p, ref a) => if let Some(a1) = a.first()

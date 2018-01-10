@@ -88,6 +88,7 @@ impl<'s> TokenKind<'s>
     pub fn is_eof(&self) -> bool { discriminant(self) == discriminant(&TokenKind::EOF(Location::default())) }
     pub fn is_equal(&self) -> bool { discriminant(self) == discriminant(&TokenKind::Equal(Location::default())) }
     pub fn is_placeholder(&self) -> bool { discriminant(self) == discriminant(&TokenKind::Placeholder(Location::default())) }
+    pub fn is_tyarrow(&self) -> bool { discriminant(self) == discriminant(&TokenKind::TyArrow(Location::default())) }
     pub fn is_text_period(&self) -> bool
     {
         match *self

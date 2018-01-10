@@ -5,9 +5,16 @@ use deformer::GenSource;
 
 /// 数値
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Numeric<'s: 't, 't> { pub floating: bool, pub text: GenSource<'s, 't>, pub ty: Option<NumericTy> }
-impl<'s: 't, 't> Numeric<'s, 't> { pub fn position(&self) -> &'t ::Location { self.text.position() } }
-impl<'s: 't, 't> ::EqNoloc for Numeric<'s, 't>
+pub struct Numeric<'s> { pub floating: bool, pub text: Source<'s>, pub ty: Option<NumericTy> }
+impl<'s: 't, 't> From<&'t Numeric<'s>> for NumericRef<'s, 't>
+{
+    fn from(r: &'t Numeric<'s>) -> Self { NumericRef { floating: r.floating, text: GenSource::Sliced(&r.text), ty: r.ty.clone() } }
+}
+/// 数値
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NumericRef<'s: 't, 't> { pub floating: bool, pub text: GenSource<'s, 't>, pub ty: Option<NumericTy> }
+impl<'s: 't, 't> NumericRef<'s, 't> { pub fn position(&self) -> &'t ::Location { self.text.position() } }
+impl<'s: 't, 't> ::EqNoloc for NumericRef<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool { self.floating == other.floating && self.ty == other.ty && self.text.eq_nolocation(&other.text) }
 }
@@ -17,7 +24,7 @@ pub enum Lambda<'s: 't, 't>
 {
     Fun { arg: GenSource<'s, 't>, expr: Box<Lambda<'s, 't>> },
     Apply { applier: Box<Lambda<'s, 't>>, param: Box<Lambda<'s, 't>> },
-    SymRef(GenSource<'s, 't>), Numeric(Numeric<'s, 't>), ArrayLiteral(&'t Location, Vec<Lambda<'s, 't>>),
+    SymRef(GenSource<'s, 't>), Numeric(NumericRef<'s, 't>), ArrayLiteral(&'t Location, Vec<Lambda<'s, 't>>),
     DontCare, Unit(&'t Location)
 }
 
