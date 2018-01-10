@@ -1,8 +1,9 @@
 //! Expression Parser
 
-use tokparse::{Location, Source, TokenKind, Keyword, TokenStream, NumericTy, EnclosureKind};
+use tokparse::{Location, Source, TokenKind, Keyword, TokenStream, EnclosureKind};
 use super::err::*;
 use parser::{ExpectingKind, Leftmost, take_current_block_begin, get_definition_leftmost, Parser};
+use parser::utils::*;
 use lambda::Numeric;
 
 #[derive(Debug, Clone, PartialEq, Eq)] pub enum ExpressionSynTree<'s>
@@ -13,7 +14,9 @@ use lambda::Numeric;
 }
 #[derive(Debug, Clone, PartialEq, Eq)] pub enum ExprPatSynTree<'s>
 {
-    SymBinding(Source<'s>), Numeric(Numeric<'s>)
+    SymBinding(Source<'s>), Placeholder(Location), Numeric(Numeric<'s>), ArrayLiteral(Location, Vec<ExprPatSynTree<'s>>),
+    SymPath(Source<'s>, Vec<Source<'s>>), Prefix(Box<ExprPatSynTree<'s>>, Vec<ExprPatSynTree<'s>>),
+    Infix { lhs: Box<ExprPatSynTree<'s>>, mods: Vec<(Source<'s>, ExprPatSynTree<'s>)> }, Tuple(Location, Vec<ExprPatSynTree<'s>>)
 }
 impl<'s> ExpressionSynTree<'s>
 {
@@ -27,6 +30,85 @@ impl<'s> ExpressionSynTree<'s>
             ExpressionSynTree::Prefix(ref ev) => ev.first().expect("Empty Prefix expr").position()
         }
     }
+}
+impl<'s> ExprPatSynTree<'s>
+{
+    pub fn position(&self) -> &Location
+    {
+        match *self
+        {
+            ExprPatSynTree::SymBinding(ref s) | ExprPatSynTree::Numeric(Numeric { text: ref s, .. }) | ExprPatSynTree::SymPath(ref s, _) => &s.pos,
+            ExprPatSynTree::Prefix(ref x, _) | ExprPatSynTree::Infix { lhs: ref x, .. } => x.position(),
+            ExprPatSynTree::ArrayLiteral(ref p, _) | ExprPatSynTree::Tuple(ref p, _) | ExprPatSynTree::Placeholder(ref p) => p
+        }
+    }
+}
+
+/// prefix ((op/infixident) prefix)*
+fn infix_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, ExprPatSynTree<'s>>
+{
+    let lhs = BreakParsing!(prefix_pat(stream, leftmost));
+    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
+    let mut mods = Vec::new();
+    while let Ok(op) = shift_infix_ops(stream, leftmost)
+    {
+        let e = prefix_pat(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+        mods.place_back() <- (op.clone(), e);
+    }
+    Success(if mods.is_empty() { lhs } else { ExprPatSynTree::Infix { lhs: box lhs, mods } })
+}
+/// term term*
+fn prefix_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, ExprPatSynTree<'s>>
+{
+    let lhs = BreakParsing!(factor_pat(stream, leftmost));
+    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
+    let mut args = Vec::new();
+    while let Some(a) = factor_pat(stream, leftmost).into_result_opt()? { args.push(a); }
+    Success(if args.is_empty() { lhs } else { ExprPatSynTree::Prefix(box lhs, args) })
+}
+/// ident ("." ident)* / num / "(" [infix ("," infix)*] ")"
+fn factor_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, ExprPatSynTree<'s>>
+{
+    if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
+    match stream.current()
+    {
+        &TokenKind::Identifier(ref s) =>
+        {
+            stream.shift(); let mut v = Vec::new();
+            while stream.shift_object_descender().is_ok()
+            {
+                v.place_back() <- stream.shift_identifier().map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?.clone();
+            }
+            Success(if v.is_empty() { ExprPatSynTree::SymBinding(s.clone()) } else { ExprPatSynTree::SymPath(s.clone(), v) })
+        },
+        &TokenKind::Numeric(ref s, nty) => { stream.shift(); Success(ExprPatSynTree::Numeric(Numeric { floating: false, text: s.clone(), ty: nty })) },
+        &TokenKind::NumericF(ref s, nty) => { stream.shift(); Success(ExprPatSynTree::Numeric(Numeric { floating: true, text: s.clone(), ty: nty })) },
+        &TokenKind::BeginEnclosure(ref p, EnclosureKind::Parenthese) =>
+        {
+            stream.shift();
+            if stream.current().is_end_enclosure_of(EnclosureKind::Parenthese)
+            {
+                stream.shift();
+                return Success(ExprPatSynTree::Tuple(p.clone(), Vec::new()));
+            }
+            let mut v = vec![infix_pat(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?];
+            while stream.shift_list_delimiter().is_ok()
+            {
+                v.place_back() <- infix_pat(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+            }
+            if !stream.current().is_end_enclosure_of(EnclosureKind::Parenthese)
+            {
+                return Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, stream.current().position()));
+            }
+            Success(if v.len() == 1 { v.pop().unwrap() } else { ExprPatSynTree::Tuple(p.clone(), v) })
+        },
+        _ => NotConsumed
+    }
+}
+impl<'s> Parser<'s> for ExprPatSynTree<'s>
+{
+    type ResultTy = Self;
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't { infix_pat(stream, leftmost) }
 }
 
 /// Infix <- Prefix ((op/infixident) Prefix)*
@@ -149,7 +231,7 @@ pub enum FullExpression<'s>
 {
     Lettings { location: Location, vals: Vec<(FullExpression<'s>, FullExpression<'s>)>, subexpr: Box<FullExpression<'s>> },
     Conditional { location: Location, inv: bool, cond: Box<FullExpression<'s>>, then: Box<FullExpression<'s>>, else_: Option<Box<FullExpression<'s>>> },
-    CaseOf { location: Location, cond: Box<FullExpression<'s>>, matchers: Vec<(ExpressionSynTree<'s>, FullExpression<'s>)> },
+    CaseOf { location: Location, cond: Box<FullExpression<'s>>, matchers: Vec<(ExprPatSynTree<'s>, FullExpression<'s>)> },
     Block(Location, Vec<BlockContent<'s>>), Expression(ExpressionSynTree<'s>)
 }
 impl<'s> FullExpression<'s>
@@ -287,7 +369,7 @@ fn case_of<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmos
     {
         if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
         let defbegin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
-        let pat = ExpressionPattern::parse(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
+        let pat = ExprPatSynTree::parse(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
         let defbegin = defbegin.into_exclusive();
         if !stream.current().is_tyarrow() || !defbegin.satisfy(stream.current(), false)
         {
