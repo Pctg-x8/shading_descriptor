@@ -193,7 +193,8 @@ pub enum ExprDeformerIntermediate<'s: 't, 't>
         then: Box<ExprDeformerIntermediate<'s, 't>>, else_: Option<Box<ExprDeformerIntermediate<'s, 't>>>
     },
     Block(&'t Location, Vec<DeformedBlockContent<'s, 't>>),
-    Lettings { head: &'t Location, vars: Vec<(ExprDeformerIntermediate<'s, 't>, ExprDeformerIntermediate<'s, 't>)>, subexpr: Box<ExprDeformerIntermediate<'s, 't>> }
+    Lettings { head: &'t Location, vars: Vec<(ExprDeformerIntermediate<'s, 't>, ExprDeformerIntermediate<'s, 't>)>, subexpr: Box<ExprDeformerIntermediate<'s, 't>> },
+    CaseOf { head: &'t Location, expr: Box<ExprDeformerIntermediate<'s, 't>>, matchers: Vec<(ExprDeformerIntermediate<'s, 't>, ExprDeformerIntermediate<'s, 't>)> }
 }
 impl<'s: 't, 't> ExprDeformerIntermediate<'s, 't>
 {
@@ -225,7 +226,8 @@ impl<'s: 't, 't> ExprDeformerIntermediate<'s, 't>
             ExprDeformerIntermediate::Numeric(ref n) => n.position(),
             ExprDeformerIntermediate::ArrayLiteral(p, _) | ExprDeformerIntermediate::Unit(p) => p,
             ExprDeformerIntermediate::ArrayRef(ref x, _) | ExprDeformerIntermediate::PathRef(ref x, _) | ExprDeformerIntermediate::Tuple1(ref x, _) => x.position(),
-            ExprDeformerIntermediate::Conditional { head, .. } | ExprDeformerIntermediate::Lettings { head, .. } | ExprDeformerIntermediate::Block(head, ..) => head
+            ExprDeformerIntermediate::Conditional { head, .. } | ExprDeformerIntermediate::Lettings { head, .. } | ExprDeformerIntermediate::Block(head, ..) |
+            ExprDeformerIntermediate::CaseOf { head, .. } => head
         }
     }
 }
@@ -279,6 +281,12 @@ impl<'s: 't, 't> EqNoloc for ExprDeformerIntermediate<'s, 't>
                 if let ExprDeformerIntermediate::Lettings { vars: ref vars_, subexpr: ref subexpr_, .. } = *other
                 {
                     vars.eq_nolocation(vars_) && subexpr.eq_nolocation(subexpr_)
+                }
+                else { false },
+            ExprDeformerIntermediate::CaseOf { ref expr, ref matchers, .. } =>
+                if let ExprDeformerIntermediate::CaseOf { expr: ref expr_, matchers: ref matchers_, .. } = *other
+                {
+                    expr.eq_nolocation(expr_) && matchers.eq_nolocation(matchers_)
                 }
                 else { false }
         }
@@ -362,6 +370,11 @@ pub fn deform_expr_full<'s: 't, 't>(tree: &'t FullExpression<'s>, assoc_env: &As
             head: location,
             vars: vals.iter().map(|&(ref p, ref x)| Ok((deform_expr_full(p, assoc_env)?, deform_expr_full(x, assoc_env)?))).collect::<Result<_, _>>()?,
             subexpr: box deform_expr_full(subexpr, assoc_env)?
+        }),
+        FullExpression::CaseOf { ref location, ref cond, ref matchers } => Ok(ExprDeformerIntermediate::CaseOf
+        {
+            head: location, expr: box deform_expr_full(cond, assoc_env)?,
+            matchers: matchers.iter().map(|&(ref p, ref x)| Ok((deform_expr(p, assoc_env)?, deform_expr_full(x, assoc_env)?))).collect::<Result<_, _>>()?
         })
     }
 }

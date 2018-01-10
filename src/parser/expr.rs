@@ -144,6 +144,7 @@ pub enum FullExpression<'s>
 {
     Lettings { location: Location, vals: Vec<(FullExpression<'s>, FullExpression<'s>)>, subexpr: Box<FullExpression<'s>> },
     Conditional { location: Location, inv: bool, cond: Box<FullExpression<'s>>, then: Box<FullExpression<'s>>, else_: Option<Box<FullExpression<'s>>> },
+    CaseOf { location: Location, cond: Box<FullExpression<'s>>, matchers: Vec<(ExpressionSynTree<'s>, FullExpression<'s>)> },
     Block(Location, Vec<BlockContent<'s>>), Expression(ExpressionSynTree<'s>)
 }
 impl<'s> FullExpression<'s>
@@ -154,7 +155,7 @@ impl<'s> FullExpression<'s>
         match *self
         {
             FullExpression::Lettings { ref location, .. } | FullExpression::Conditional { ref location, .. } |
-            FullExpression::Block(ref location, _) => location,
+            FullExpression::Block(ref location, _) | FullExpression::CaseOf { ref location, .. } => location,
             FullExpression::Expression(ref tree) => tree.position()
         }
     }
