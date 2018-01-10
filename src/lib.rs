@@ -19,13 +19,14 @@ pub use parser::{SemanticInput, SemanticOutput, UniformDeclaration, ConstantDecl
 pub use parser::{ShaderStage, ShaderStageDefinition};
 pub use parser::{ShadingState, ShadingStates, CompareOp, StencilOp, StencilTestConfig, BlendingStateConfig, depth_state};
 pub use parser::{ShadingPipeline, shading_pipeline};
-pub use parser::{ExpressionSynTree, FullExpression, BlockContent};
+pub use parser::{ExpressionSynTree, FullExpression, BlockContent, ExprPatSynTree};
 pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, TypeDeclarable, InferredArrayDim};
 pub use parser::utils::Leftmost;
 
 pub use deformer::EqNoloc;
 pub use deformer::{TyDeformerIntermediate, deform_ty};
 pub use deformer::{ExprDeformerIntermediate, deform_expr, deform_expr_full};
+pub use deformer::{DeformedExprPat, deform_expr_pat};
 
 pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
 pub use typepaint::{ConstructorEnv, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};

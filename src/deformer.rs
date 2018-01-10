@@ -39,6 +39,12 @@ impl<'s: 't, 't> Prefix<'s, 't>
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SymPath<'s: 't, 't> { pub base: GenSource<'s, 't>, pub desc: Vec<GenSource<'s, 't>> }
+impl<'s: 't, 't> SymPath<'s, 't>
+{
+    pub fn position(&self) -> &'t Location { self.base.position() }
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TyDeformerIntermediate<'s: 't, 't>
 {
     Placeholder(&'t Location), Expressed(Prefix<'s, 't>, Vec<TyDeformerIntermediate<'s, 't>>),
@@ -169,13 +175,12 @@ pub fn deform_ty<'s: 't, 't>(ty: &'t TypeSynTree<'s>, assoc_env: &AssociativityE
     }
 }
 
-use {ExpressionSynTree, FullExpression, BlockContent};
+use {ExpressionSynTree, FullExpression, BlockContent, ExprPatSynTree};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeformedBlockContent<'s: 't, 't>
 {
-    Vars(Vec<(ExprDeformerIntermediate<'s, 't>, ExprDeformerIntermediate<'s, 't>)>),
-    Expr(ExprDeformerIntermediate<'s, 't>)
+    Vars(Vec<(ExprDeformerIntermediate<'s, 't>, ExprDeformerIntermediate<'s, 't>)>), Expr(ExprDeformerIntermediate<'s, 't>)
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprDeformerIntermediate<'s: 't, 't>
@@ -194,7 +199,14 @@ pub enum ExprDeformerIntermediate<'s: 't, 't>
     },
     Block(&'t Location, Vec<DeformedBlockContent<'s, 't>>),
     Lettings { head: &'t Location, vars: Vec<(ExprDeformerIntermediate<'s, 't>, ExprDeformerIntermediate<'s, 't>)>, subexpr: Box<ExprDeformerIntermediate<'s, 't>> },
-    CaseOf { head: &'t Location, expr: Box<ExprDeformerIntermediate<'s, 't>>, matchers: Vec<(ExprDeformerIntermediate<'s, 't>, ExprDeformerIntermediate<'s, 't>)> }
+    CaseOf { head: &'t Location, expr: Box<ExprDeformerIntermediate<'s, 't>>, matchers: Vec<(DeformedExprPat<'s, 't>, ExprDeformerIntermediate<'s, 't>)> }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeformedExprPat<'s: 't, 't>
+{
+    Garbage, SymBinding(GenSource<'s, 't>), Numeric(NumericRef<'s, 't>), PathRef(GenSource<'s, 't>, Vec<GenSource<'s, 't>>),
+    ArrayLiteral(&'t Location, Vec<DeformedExprPat<'s, 't>>), Unit(&'t Location), Tuple(Box<DeformedExprPat<'s, 't>>, Vec<DeformedExprPat<'s, 't>>),
+    Apply(SymPath<'s, 't>, Vec<DeformedExprPat<'s, 't>>), Placeholder(&'t Location)
 }
 impl<'s: 't, 't> ExprDeformerIntermediate<'s, 't>
 {
@@ -228,6 +240,19 @@ impl<'s: 't, 't> ExprDeformerIntermediate<'s, 't>
             ExprDeformerIntermediate::ArrayRef(ref x, _) | ExprDeformerIntermediate::PathRef(ref x, _) | ExprDeformerIntermediate::Tuple1(ref x, _) => x.position(),
             ExprDeformerIntermediate::Conditional { head, .. } | ExprDeformerIntermediate::Lettings { head, .. } | ExprDeformerIntermediate::Block(head, ..) |
             ExprDeformerIntermediate::CaseOf { head, .. } => head
+        }
+    }
+}
+impl<'s: 't, 't> DeformedExprPat<'s, 't>
+{
+    pub fn position(&self) -> &'t Location
+    {
+        match *self
+        {
+            DeformedExprPat::SymBinding(ref s) | DeformedExprPat::Numeric(NumericRef { text: ref s, .. }) | DeformedExprPat::PathRef(ref s, ..) => s.position(),
+            DeformedExprPat::ArrayLiteral(ref p, _) | DeformedExprPat::Unit(ref p) | DeformedExprPat::Placeholder(ref p) => p,
+            DeformedExprPat::Apply(ref p0, _) => p0.position(), DeformedExprPat::Tuple(ref p0, _) => p0.position(),
+            DeformedExprPat::Garbage => unreachable!("internal garbage")
         }
     }
 }
@@ -373,8 +398,102 @@ pub fn deform_expr_full<'s: 't, 't>(tree: &'t FullExpression<'s>, assoc_env: &As
         FullExpression::CaseOf { ref location, ref cond, ref matchers } => Ok(ExprDeformerIntermediate::CaseOf
         {
             head: location, expr: box deform_expr_full(cond, assoc_env)?,
-            matchers: matchers.iter().map(|&(ref p, ref x)| Ok((deform_expr(p, assoc_env)?, deform_expr_full(x, assoc_env)?))).collect::<Result<_, _>>()?
+            matchers: matchers.iter().map(|&(ref p, ref x)| Ok((deform_expr_pat(p, assoc_env)?, deform_expr_full(x, assoc_env)?))).collect::<Result<_, _>>()?
         })
+    }
+}
+pub fn deform_expr_pat<'s: 't, 't>(tree: &'t ExprPatSynTree<'s>, assoc_env: &AssociativityEnv<'s>) -> Result<DeformedExprPat<'s, 't>, DeformationError<'t>>
+{
+    match *tree
+    {
+        ExprPatSynTree::SymBinding(ref s) => Ok(DeformedExprPat::SymBinding(GenSource::Sliced(s))),
+        ExprPatSynTree::Numeric(ref n) => Ok(DeformedExprPat::Numeric(n.into())),
+        ExprPatSynTree::SymPath(ref s1, ref sv) => Ok(DeformedExprPat::PathRef(GenSource::Sliced(s1), sv.iter().map(GenSource::Sliced).collect())),
+        ExprPatSynTree::ArrayLiteral(ref p, ref xv) => Ok(DeformedExprPat::ArrayLiteral(p, xv.iter().map(|t| deform_expr_pat(t, assoc_env)).collect::<Result<_, _>>()?)),
+        ExprPatSynTree::Tuple(ref p, ref xv) if xv.is_empty() => Ok(DeformedExprPat::Unit(p)),
+        ExprPatSynTree::Tuple(_, ref xv) =>
+            Ok(DeformedExprPat::Tuple(box deform_expr_pat(xv.first().unwrap(), assoc_env)?, xv.iter().map(|t| deform_expr_pat(t, assoc_env)).collect::<Result<_, _>>()?)),
+        ExprPatSynTree::Placeholder(ref p) => Ok(DeformedExprPat::Placeholder(p)),
+        ExprPatSynTree::Prefix(ref lhs, ref args) =>
+        {
+            let mut lhs = deform_expr_pat(lhs, assoc_env)?;
+            let mut args = args.iter().map(|t| deform_expr_pat(t, assoc_env)).collect::<Result<_, _>>()?;
+            lhs.apply_args(&mut args).map_err(|_| DeformationError::UnableToApply(lhs.position()))?;
+            Ok(lhs)
+        },
+        ExprPatSynTree::Infix { ref lhs, ref mods } =>
+        {
+            let mut mods: Vec<_> = mods.iter().map(|&(ref op, ref rhs)| Ok(InfixIntermediate
+            {
+                op, assoc: assoc_env.lookup(op.slice), ir: deform_expr_pat(rhs, assoc_env)?
+            })).collect::<Result<_, _>>()?;
+            let mut lhs = deform_expr_pat(lhs, assoc_env)?;
+            while !mods.is_empty()
+            {
+                let agg = extract_most_precedences(&mods).map_err(DeformationError::UnresolvedAssociation)?.unwrap();
+                let ir = mods.remove(agg.index);
+                let cell = if agg.index >= 1 { &mut mods[agg.index - 1].ir } else { &mut lhs };
+                cell.combine_inplace(SymPath { base: GenSource::Sliced(&ir.op), desc: Vec::new() }, ir.ir);
+            }
+            Ok(lhs)
+        }
+    }
+}
+impl<'s: 't, 't> DeformedExprPat<'s, 't>
+{
+    fn apply_args(&mut self, args: &mut Vec<Self>) -> Result<(), ()>
+    {
+        match replace(self, DeformedExprPat::Garbage)
+        {
+            DeformedExprPat::Apply(p, mut args_) => { args_.append(args); *self = DeformedExprPat::Apply(p, args_); Ok(()) },
+            DeformedExprPat::SymBinding(s) => { *self = DeformedExprPat::Apply(SymPath { base: s, desc: Vec::new() }, args.drain(..).collect()); Ok(()) },
+            DeformedExprPat::PathRef(sb, sv) => { *self = DeformedExprPat::Apply(SymPath { base: sb, desc: sv }, args.drain(..).collect()); Ok(()) },
+            _ => Err(())
+        }
+    }
+    /// l self a
+    fn combine(self, lhs: SymPath<'s, 't>, arg2: Self) -> Self { DeformedExprPat::Apply(lhs, vec![self, arg2]) }
+    fn combine_inplace(&mut self, lhs: SymPath<'s, 't>, arg2: Self)
+    {
+        let old = replace(self, DeformedExprPat::Garbage);
+        *self = old.combine(lhs, arg2);
+    }
+}
+impl<'s: 't, 't> EqNoloc for DeformedExprPat<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool
+    {
+        match *self
+        {
+            DeformedExprPat::Apply(ref p, ref sv) => if let DeformedExprPat::Apply(ref p_, ref sv_) = *other
+            {
+                p.eq_nolocation(p_) && sv.eq_nolocation(sv_)
+            }
+            else { false },
+            DeformedExprPat::SymBinding(ref s) => if let DeformedExprPat::SymBinding(ref s_) = *other { s.eq_nolocation(s_) } else { false },
+            DeformedExprPat::Numeric(ref n) => if let DeformedExprPat::Numeric(ref n_) = *other { n.eq_nolocation(n_) } else { false },
+            DeformedExprPat::Unit(_) => if let DeformedExprPat::Unit(_) = *other { true } else { false },
+            DeformedExprPat::Placeholder(_) => if let DeformedExprPat::Placeholder(_) = *other { true } else { false },
+            DeformedExprPat::PathRef(ref sb, ref sv) => if let DeformedExprPat::PathRef(ref sb_, ref sv_) = *other
+            {
+                sb.eq_nolocation(sb_) && sv.eq_nolocation(sv_)
+            }
+            else { false },
+            DeformedExprPat::Tuple(ref x0, ref xv) => if let DeformedExprPat::Tuple(ref x0_, ref xv_) = *other
+            {
+                x0.eq_nolocation(x0_) && xv.eq_nolocation(xv_)
+            }
+            else { false },
+            DeformedExprPat::ArrayLiteral(_, ref xv) => if let DeformedExprPat::ArrayLiteral(_, ref xv_) = *other { xv.eq_nolocation(xv_) } else { false },
+            DeformedExprPat::Garbage => false
+        }
+    }
+}
+impl<'s: 't, 't> EqNoloc for SymPath<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool
+    {
+        self.base.eq_nolocation(&other.base) && self.desc.eq_nolocation(&other.desc)
     }
 }
 
