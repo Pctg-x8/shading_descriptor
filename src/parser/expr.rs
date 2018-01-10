@@ -97,10 +97,7 @@ fn factor_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Left
             {
                 v.place_back() <- infix_pat(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
             }
-            if !stream.current().is_end_enclosure_of(EnclosureKind::Parenthese)
-            {
-                return Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, stream.current().position()));
-            }
+            TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
             Success(if v.len() == 1 { v.pop().unwrap() } else { ExprPatSynTree::Tuple(p.clone(), v) })
         },
         _ => NotConsumed
