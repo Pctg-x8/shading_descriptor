@@ -337,9 +337,9 @@ pub fn deform_expr<'s: 't, 't>(tree: &'t ExpressionSynTree<'s>, assoc_env: &Asso
 {
     match *tree
     {
-        ExpressionSynTree::Prefix(ref v) =>
+        ExpressionSynTree::Prefix(ref v0, ref v) =>
         {
-            let mut lhs = deform_expr_full(v.first().expect("Empty PrefixExpr"), assoc_env)?;
+            let mut lhs = deform_expr_full(v0, assoc_env)?;
             lhs.assume_application().map_err(|lhs| DeformationError::UnableToApply(lhs.position()))?;
             let mut args = v[1..].iter().map(|x| deform_expr_full(x, assoc_env)).collect::<Result<_, _>>()?;
             lhs.append_args(&mut args);

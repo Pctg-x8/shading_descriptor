@@ -10,7 +10,8 @@ use lambda::Numeric;
 {
     SymReference(Source<'s>), Numeric(Numeric<'s>), ArrayLiteral(Location, Vec<FullExpression<'s>>),
     RefPath(Box<FullExpression<'s>>, Vec<Source<'s>>), ArrayRef(Box<FullExpression<'s>>, Box<FullExpression<'s>>),
-    Prefix(Vec<FullExpression<'s>>), Infix { lhs: Box<FullExpression<'s>>, mods: Vec<(Source<'s>, FullExpression<'s>)> }, Tuple(Location, Vec<FullExpression<'s>>)
+    Prefix(Box<FullExpression<'s>>, Vec<FullExpression<'s>>), Infix { lhs: Box<FullExpression<'s>>, mods: Vec<(Source<'s>, FullExpression<'s>)> },
+    Tuple(Location, Vec<FullExpression<'s>>)
 }
 #[derive(Debug, Clone, PartialEq, Eq)] pub enum ExprPatSynTree<'s>
 {
@@ -26,8 +27,8 @@ impl<'s> ExpressionSynTree<'s>
         {
             ExpressionSynTree::SymReference(ref s) | ExpressionSynTree::Numeric(Numeric { text: ref s, .. }) => &s.pos,
             ExpressionSynTree::ArrayLiteral(ref l, _) | ExpressionSynTree::Tuple(ref l, _) => l,
-            ExpressionSynTree::RefPath(ref e, _) | ExpressionSynTree::ArrayRef(ref e, _) | ExpressionSynTree::Infix { lhs: ref e, .. } => e.position(),
-            ExpressionSynTree::Prefix(ref ev) => ev.first().expect("Empty Prefix expr").position()
+            ExpressionSynTree::RefPath(ref e, _) | ExpressionSynTree::ArrayRef(ref e, _) |
+            ExpressionSynTree::Infix { lhs: ref e, .. } | ExpressionSynTree::Prefix(ref e, _) => e.position()
         }
     }
 }
@@ -122,10 +123,11 @@ pub fn infix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
 /// Prefix <- Term Term*
 pub fn prefix_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>>
 {
-    let mut lhs = vec![BreakParsing!(term_expr(stream, leftmost))];
-    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs[0].position().column)).into_exclusive();
-    while let Some(rhs) = term_expr(stream, leftmost).into_result_opt()? { lhs.push(rhs); }
-    Success(if lhs.len() > 1 { ExpressionSynTree::Prefix(lhs).into() } else { lhs.pop().unwrap() })
+    let lhs = BreakParsing!(term_expr(stream, leftmost));
+    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
+    let mut args = Vec::new();
+    while let Some(rhs) = term_expr(stream, leftmost).into_result_opt()? { args.push(rhs); }
+    Success(if args.is_empty() { lhs } else { ExpressionSynTree::Prefix(box lhs, args).into() })
 }
 /// Term <- Factor (. ident / [ FullEx ])*
 pub fn term_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>>
