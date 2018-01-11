@@ -73,12 +73,16 @@ fn factor_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Left
     if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
     match stream.current()
     {
-        &TokenKind::Identifier(ref s) =>
+        &TokenKind::Identifier(ref s) | &TokenKind::WrappedOp(ref s) =>
         {
             stream.shift(); let mut v = Vec::new();
             while stream.shift_object_descender().is_ok()
             {
-                v.place_back() <- stream.shift_identifier().map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?.clone();
+                v.place_back() <- match stream.current()
+                {
+                    &TokenKind::Identifier(ref s) | &TokenKind::WrappedOp(ref s) => { stream.shift(); s.clone() },
+                    ref t => return Failed(ParseError::Expecting(ExpectingKind::Ident, t.position()))
+                };
             }
             Success(if v.is_empty() { ExprPatSynTree::SymBinding(s.clone()) } else { ExprPatSynTree::SymPath(s.clone(), v) })
         },

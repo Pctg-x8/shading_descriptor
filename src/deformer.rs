@@ -341,7 +341,7 @@ pub fn deform_expr<'s: 't, 't>(tree: &'t ExpressionSynTree<'s>, assoc_env: &Asso
         {
             let mut lhs = deform_expr_full(v0, assoc_env)?;
             lhs.assume_application().map_err(|lhs| DeformationError::UnableToApply(lhs.position()))?;
-            let mut args = v[1..].iter().map(|x| deform_expr_full(x, assoc_env)).collect::<Result<_, _>>()?;
+            let mut args = v.iter().map(|x| deform_expr_full(x, assoc_env)).collect::<Result<_, _>>()?;
             lhs.append_args(&mut args);
             Ok(lhs)
         },
