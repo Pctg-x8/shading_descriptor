@@ -22,7 +22,6 @@ impl<'s> Parser<'s> for ValueDeclaration<'s>
         let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(pat.position().column)).into_exclusive();
         let _type = type_hint(stream, leftmost).into_result_opt()?;
         TMatch!(leftmost => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::Binding, p));
-        stream.shift(); CheckLayout!(leftmost => stream);
         let value = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(ValueDeclaration { pat, _type, value })
     }

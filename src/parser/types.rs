@@ -221,7 +221,6 @@ impl<'s> BlockParser<'s> for TypeFn<'s>
             let pat = TypeSynTree::parse(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::TypePattern, stream.current().position()))?;
             let defblock_begin = defblock_begin.into_exclusive();
             TMatch!(defblock_begin => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::Binding, p));
-            stream.shift(); CheckLayout!(defblock_begin => stream);
             let bound = FullTypeDesc::parse(stream, defblock_begin).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
             defs.place_back() <- (pat, bound);
 
