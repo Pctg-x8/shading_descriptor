@@ -92,6 +92,8 @@ impl<'t> Error for ParseError<'t>
 					Keyword::Blend => "Expecting a `Blend`",
 					Keyword::Type => "Expecting a `type`",
 					Keyword::Data => "Expecting a `data`",
+					Keyword::Of => "Expecting a `of`",
+					Keyword::Then => "Expecting a `then`",
 					_ => unreachable!()
 				}
 			},
