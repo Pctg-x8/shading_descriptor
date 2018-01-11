@@ -89,6 +89,19 @@ fn factor_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Left
         &TokenKind::Numeric(ref s, nty) => { stream.shift(); Success(ExprPatSynTree::Numeric(Numeric { floating: false, text: s.clone(), ty: nty })) },
         &TokenKind::NumericF(ref s, nty) => { stream.shift(); Success(ExprPatSynTree::Numeric(Numeric { floating: true, text: s.clone(), ty: nty })) },
         &TokenKind::Placeholder(ref p) => { stream.shift(); Success(ExprPatSynTree::Placeholder(p.clone())) },
+        &TokenKind::BeginEnclosure(ref p, EnclosureKind::Bracket) =>
+        {
+            stream.shift();
+            let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(p.column)).into_exclusive();
+            if stream.shift_end_enclosure_of(EnclosureKind::Bracket).is_ok() { return Success(ExprPatSynTree::ArrayLiteral(p.clone(), Vec::new())); }
+            let mut xs = vec![ExprPatSynTree::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?];
+            while stream.shift_list_delimiter().is_ok()
+            {
+                match ExprPatSynTree::parse(stream, leftmost).into_result_opt()? { Some(x) => xs.push(x), _ => break }
+            }
+            stream.shift_end_enclosure_of(EnclosureKind::Bracket).map_err(|p| ParseError::ExpectingClose(EnclosureKind::Bracket, p))?;
+            Success(ExprPatSynTree::ArrayLiteral(p.clone(), xs))
+        },
         &TokenKind::BeginEnclosure(ref p, EnclosureKind::Parenthese) =>
         {
             stream.shift();
@@ -189,13 +202,13 @@ pub fn factor_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost:
         {
             stream.shift();
             let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(p.column)).into_exclusive();
-            if stream.shift_end_enclosure_of(EnclosureKind::Bracket).is_ok() { return Success(ExpressionSynTree::Tuple(p.clone(), Vec::new()).into()); }
+            if stream.shift_end_enclosure_of(EnclosureKind::Parenthese).is_ok() { return Success(ExpressionSynTree::Tuple(p.clone(), Vec::new()).into()); }
             let mut xs = vec![FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?];
             while stream.shift_list_delimiter().is_ok()
             {
                 match FullExpression::parse(stream, leftmost).into_result_opt()? { Some(x) => xs.push(x), _ => break }
             }
-            stream.shift_end_enclosure_of(EnclosureKind::Bracket).map_err(|p| ParseError::ExpectingClose(EnclosureKind::Bracket, p))?;
+            stream.shift_end_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p))?;
             Success(if xs.len() == 1 { xs.pop().unwrap() } else { ExpressionSynTree::Tuple(p.clone(), xs).into() })
         },
         _ => NotConsumed
