@@ -67,42 +67,40 @@ fn prefix_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftm
     while let Some(p) = term_ty(stream, leftmost).into_result_opt()? { lhs.push(p); }
     Success(if lhs.len() == 1 { lhs.pop().unwrap() } else { TypeSynTree::Prefix(lhs) })
 }
-/// Term <- Factor (. ident / [ FullEx ])*
+/// Term <- Factor (. ident / [ FullEx? ])*
 fn term_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
     let mut e = BreakParsing!(factor_ty(stream, leftmost));
     let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(e.position().column)).into_exclusive();
     while leftmost.satisfy(stream.current(), false)
     {
-        match stream.current()
+        e = match stream.current()
         {
             &TokenKind::ObjectDescender(_) =>
             {
                 let mut p = Vec::new();
                 while stream.shift_object_descender().is_ok()
                 {
-                    p.place_back() <- TMatch!(stream; TokenKind::Identifier(ref s) => s.clone(), |p| ParseError::Expecting(ExpectingKind::Ident, p));
+                    p.place_back() <- stream.shift_identifier().map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))?.clone();
                 }
                 assert!(!p.is_empty());
-                e = TypeSynTree::PathRef(box e, p);
+                TypeSynTree::PathRef(box e, p)
             },
             &TokenKind::BeginEnclosure(_, EnclosureKind::Bracket) =>
             {
                 stream.shift();
-                let num = if let Ok(p) = stream.shift_placeholder() { InferredArrayDim::Inferred(p.clone()) }
-                    else
-                    {
-                        FullExpression::parse(stream, Leftmost::Nothing).into_result_opt()?.map_or(InferredArrayDim::Unsized, InferredArrayDim::Fixed)
-                    };
-                if let Err(p) = stream.shift_end_enclosure_of(EnclosureKind::Bracket) { return Failed(ParseError::ExpectingClose(EnclosureKind::Bracket, p)); }
-                e = TypeSynTree::ArrayDim { lhs: box e, num };
+                let num = stream.shift_placeholder().map(|p| InferredArrayDim::Inferred(p.clone()))
+                    .or_else(|_| FullExpression::parse(stream, Leftmost::Nothing).into_result_opt()
+                        .map(|v| v.map_or(InferredArrayDim::Unsized, InferredArrayDim::Fixed)))?;
+                stream.shift_end_enclosure_of(EnclosureKind::Bracket).map_err(|p| ParseError::ExpectingClose(EnclosureKind::Bracket, p))?;
+                TypeSynTree::ArrayDim { lhs: box e, num }
             },
             _ => break
         }
     }
     Success(e)
 }
-/// Factor <- ident / basic / ( Arrow (, Arrow)* )
+/// Factor <- ident / basic / ( [Arrow (, Arrow)*] )
 fn factor_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
     if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
@@ -114,13 +112,15 @@ fn factor_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftm
         &TokenKind::WrappedOp(ref s) => { stream.shift(); Success(TypeSynTree::SymReference(s.clone())) },
         &TokenKind::BeginEnclosure(ref pp, EnclosureKind::Parenthese) =>
         {
+            stream.shift();
+            if stream.shift_end_enclosure_of(EnclosureKind::Parenthese).is_ok() { return Success(TypeSynTree::Tuple(pp.clone(), Vec::new())); }
             let leftmost = leftmost.into_exclusive();
-            let mut p = vec![arrow_ty(stream.shift(), leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?];
+            let mut p = vec![arrow_ty(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?];
             while stream.shift_list_delimiter().is_ok()
             {
                 p.place_back() <- TypeSynTree::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Type, stream.current().position()))?;
             }
-            if let Err(p) = stream.shift_end_enclosure_of(EnclosureKind::Parenthese) { return Failed(ParseError::ExpectingClose(EnclosureKind::Parenthese, p)); }
+            stream.shift_end_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p))?;
             Success(if p.len() == 1 { p.pop().unwrap() } else { TypeSynTree::Tuple(pp.clone(), p) })
         },
         _ => NotConsumed
@@ -225,13 +225,13 @@ impl<'s> BlockParser<'s> for TypeFn<'s>
             defs.place_back() <- (pat, bound);
 
             let delimitered = TMatch!(Optional: stream; TokenKind::StatementDelimiter(_));
-            if block_start.is_nothing() && TMatch!(Optional: stream; TokenKind::EndEnclosure(_, EnclosureKind::Brace))
+            if block_start.is_explicit() && TMatch!(Optional: stream; TokenKind::EndEnclosure(_, EnclosureKind::Brace))
             {
                 return Success(TypeFn { location: location.clone(), defs })
             }
             if !delimitered || (stream.on_linehead() && block_start.satisfy(stream.current(), false)) { break; }
         }
-        if block_start.is_nothing() { TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Brace), |p| ParseError::ExpectingClose(EnclosureKind::Brace, p)); }
+        if block_start.is_explicit() { TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Brace), |p| ParseError::ExpectingClose(EnclosureKind::Brace, p)); }
         Success(TypeFn { location: location.clone(), defs })
     }
 }
