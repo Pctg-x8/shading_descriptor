@@ -1,6 +1,6 @@
 //! Type Painter
 
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::rc::Rc;
 use super::parser::*;
 use super::Location;
@@ -35,12 +35,14 @@ impl<'s> AssociativityDebugPrinter for ::ShaderStageDefinition<'s>
 /// Common DataStore for Constructor Environment
 pub struct ConstructorEnv<'s: 't, 't>
 {
-    pub ty: HashSet<GenSource<'s, 't>>, pub data: Vec<TypedDataConstructorScope<'s, 't>>
+    pub ty: HashSet<GenSource<'s, 't>>, pub data: Vec<TypedDataConstructorScope<'s, 't>>, pub dctor_map: HashMap<&'t str, (usize, usize)>
 }
 impl<'s: 't, 't> ConstructorEnv<'s, 't>
 {
-    fn new() -> Self { ConstructorEnv { ty: HashSet::new(), data: Vec::new() } }
+    fn new() -> Self { ConstructorEnv { ty: HashSet::new(), data: Vec::new(), dctor_map: HashMap::new() } }
     fn is_empty(&self) -> bool { self.ty.is_empty() && self.data.is_empty() }
+    
+    fn lookup_dctor_indices(&self, name: &str) -> Option<(usize, usize)> { self.dctor_map.get(name).cloned() }
 }
 /// Indicates the type that constructs a Construct Environment.
 pub trait ConstructorEnvironment<'s: 't, 't>
@@ -50,6 +52,11 @@ pub trait ConstructorEnvironment<'s: 't, 't>
     fn drop_if_empty(this: RcMut<Self>) -> Option<RcMut<Self>>
     {
         if this.borrow().symbol_set().is_empty() { None } else { Some(this) }
+    }
+
+    fn lookup_dctor(&self, name: &str) -> Option<&TypedDataConstructor<'s, 't>>
+    {
+        self.symbol_set().lookup_dctor_indices(name).map(|(s, d)| &self.symbol_set().data[s].ctors[d])
     }
 }
 #[derive(Debug)]
@@ -94,11 +101,16 @@ impl<'s: 't, 't> ShadingPipelineConstructorEnv<'s, 't>
         new_rcmut(ShadingPipelineConstructorEnv { vsh: None, hsh: None, dsh: None, gsh: None, fsh: None, set: ConstructorEnv::new() })
     }
 }
-pub struct ConstructorEnvPerShader<'s: 't, 't> { #[allow(dead_code)] parent: WeakMut<ShadingPipelineConstructorEnv<'s, 't>>, pub set: ConstructorEnv<'s, 't> }
+pub struct ConstructorEnvPerShader<'s: 't, 't> { parent: WeakMut<ShadingPipelineConstructorEnv<'s, 't>>, pub set: ConstructorEnv<'s, 't> }
 impl<'s: 't, 't> ConstructorEnvironment<'s, 't> for ConstructorEnvPerShader<'s, 't>
 {
     fn symbol_set(&self) -> &ConstructorEnv<'s, 't> { &self.set }
     fn symbol_set_mut(&mut self) -> &mut ConstructorEnv<'s, 't> { &mut self.set }
+
+    fn lookup_dctor(&self, name: &str) -> Option<&TypedDataConstructor<'s, 't>>
+    {
+        ConstructorEnvironment::lookup_dctor(self, name).or_else(|| self.parent.upgrade().unwrap().borrow().lookup_dctor(name))
+    }
 }
 
 pub trait ConstructorCollector<'s: 't, 't>
@@ -235,6 +247,7 @@ fn collect_for_type_decls<'s: 't, 't, Env, T>(env: &mut Env, tree: &'t T) -> Res
         // println!("**dbg** Found Data Constructor for {:?} = {:?}", ty_ctor, dcons);
 
         env.symbol_set_mut().ty.insert(ty_ctor_name.clone());
+        for n in 0 .. dcons.len() { env.symbol_set_mut().dctor_map.insert(dcons[n].name.text(), (env.symbol_set().data.len(), n)); }
         env.symbol_set_mut().data.place_back() <- TypedDataConstructorScope { name: ty_ctor_name.clone(), ty: cont_arrow_tys, ctors: dcons };
     }
     for &(ref tys, _) in tree.type_fns().iter().flat_map(|tf| &tf.defs)

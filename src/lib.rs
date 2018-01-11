@@ -8,6 +8,7 @@ mod tokparse;
 mod parser;
 mod deformer;
 mod typepaint;
+mod patresolve;
 
 mod lambda;
 
