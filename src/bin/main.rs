@@ -11,7 +11,7 @@ fn main()
     let mut cache = PreanalyzedTokenStream::from(&toks[..]);
     let p = match shading_pipeline(&mut cache)
     {
-        Ok(p) => p, Err(ve) => { for e in ve { println!("Error: {}", e); } return; }
+        Ok(p) => p, Err(ve) => { for e in ve { println!("Error: {}", e); } std::process::exit(1); }
     };
     if !cache.current().is_eof() { println!("Error: Compilation was not completed, remaining since {}", cache.current().position()); }
     println!("ast: {:?}", p);
