@@ -5,3 +5,5 @@ version = "0.1.0"
 [dependencies]
 lazy_static = "*"
 regex = "*"
+
+pshcompile-custom-derives = { path = "pshcompile-custom-derives" }
