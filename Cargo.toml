@@ -6,4 +6,4 @@ version = "0.1.0"
 lazy_static = "*"
 regex = "*"
 
-pshcompile-custom-derives = { path = "pshcompile-custom-derives" }
+pshcompile-custom-derive = { path = "pshcompile-custom-derive" }
