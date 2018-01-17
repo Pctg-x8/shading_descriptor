@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["S.Percentage <Syn.Tri.Naga@gmail.com>"]
 
 [lib]
-crate-type = ["proc-macro"]
+proc-macro = true
 
 [dependencies]
 syn = "0.11"
