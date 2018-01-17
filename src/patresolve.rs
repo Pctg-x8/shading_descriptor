@@ -21,6 +21,37 @@ impl<'s: 't, 't> GenSource<'s, 't>
 {
     fn paint_ctor<'d, CE: ConstructorEnvironment<'s, 't>>(&'d self, cenv: &CE) -> PaintedIdentifier<'s, 't, 'd> where 't: 'd
     {
-        cenv.lookup_dctor(self.text()).map_or_else(|| PaintedIdentifier::Normal(self), |_| PaintedIdentifier::DataConstructor(self))
+        cenv.lookup_dctor_index(self.text()).map_or_else(|| PaintedIdentifier::Normal(self), |_| PaintedIdentifier::DataConstructor(self))
+    }
+}
+
+#[cfg(test)]
+mod test
+{
+    use super::*;
+
+    #[test] fn paint_ctor()
+    {
+        let mut ctors = ::ConstructorEnv::new();
+        ctors.dctor_map.insert("TestCtor1".to_owned(), DataConstructorIndex { scope: 0, ctor: 0 });
+        ctors.dctor_map.insert("TestCtor2".to_owned(), DataConstructorIndex { scope: 0, ctor: 1 });
+        ctors.data.place_back() <- ::TypedDataConstructorScope
+        {
+            name: ::GenSource::Generated("TestData".to_owned()), ty: ::TyDeformerIntermediate::symref(::GenSource::Generated("t".to_owned())),
+            ctors: vec![::TypedDataConstructor
+            {
+                name: ::GenSource::Generated("TestCtor1".to_owned()),
+                param_count: 0, ty: ::TyDeformerIntermediate::symref(::GenSource::Generated("TestData".to_owned())),
+                expressed: ::Lambda::Unit(&Location::EMPTY)
+            }, ::TypedDataConstructor
+            {
+                name: ::GenSource::Generated("TestCtor2".to_owned()),
+                param_count: 0, ty: ::TyDeformerIntermediate::symref(::GenSource::Generated("TestData".to_owned())),
+                expressed: ::Lambda::Unit(&Location::EMPTY)
+            }]
+        };
+        let c1 = ::GenSource::Generated("TestCtor1".to_owned()); assert_eq!(c1.paint_ctor(&ctors), PaintedIdentifier::DataConstructor(&c1));
+        let c1 = ::GenSource::Generated("TestCtor2".to_owned()); assert_eq!(c1.paint_ctor(&ctors), PaintedIdentifier::DataConstructor(&c1));
+        let c1 = ::GenSource::Generated("TestCtor3".to_owned()); assert_eq!(c1.paint_ctor(&ctors), PaintedIdentifier::Normal(&c1));
     }
 }

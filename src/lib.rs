@@ -3,10 +3,12 @@
 
 extern crate regex;
 #[macro_use] extern crate lazy_static;
+#[macro_use] extern crate pshcompile_custom_derive;
 
 mod tokparse;
 mod parser;
 mod deformer;
+mod symbol;
 mod typepaint;
 mod patresolve;
 
@@ -31,9 +33,12 @@ pub use deformer::{DeformedExprPat, deform_expr_pat};
 
 pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
 pub use typepaint::{ConstructorEnv, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
-pub use typepaint::{TypedDataConstructorScope, TypedDataConstructor};
+pub use typepaint::{TypedDataConstructorScope, TypedDataConstructor, DataConstructorIndex};
 
 pub use lambda::{Numeric, Lambda};
+
+// interlibs
+use deformer::GenSource;
 
 // use typepaint::{RcMut, WeakMut};
 use std::cell::RefCell;
