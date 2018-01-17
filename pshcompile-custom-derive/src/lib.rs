@@ -1,3 +1,5 @@
+#![recursion_limit="128"]
+
 extern crate proc_macro;
 extern crate syn;
 #[macro_use] extern crate quote;
@@ -11,7 +13,7 @@ pub fn impl_symbol_scope(input: TokenStream) -> TokenStream
     let ref tyname = ast.ident;
     let referer = ast.attrs.iter().filter_map(|a| match a.interpret_meta()
     {
-        Some(syn::Meta::NameValue(syn::MetaNameValue { ident: "SymbolMapReferer", ref lit, .. })) => match lit
+        Some(syn::Meta::NameValue(syn::MetaNameValue { ident: "SymbolMapReferer", ref lit, .. })) => match *lit
         {
             syn::Lit::Str(ref l) => Some(l.value()),
             syn::Lit::Int(ref n) => Some(n.value().to_string()),
