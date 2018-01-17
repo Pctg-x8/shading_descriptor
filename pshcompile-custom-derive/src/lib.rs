@@ -12,7 +12,7 @@ pub fn impl_symbol_scope(input: TokenStream) -> TokenStream
 {
     let s = input.to_string();
     let ast = syn::parse_derive_input(&s).unwrap();
-    let referer = ast.attrs.iter().filter_map(|a| match a.value
+    let referer_str = ast.attrs.iter().filter_map(|a| match a.value
     {
         MetaItem::NameValue(ref ident, ref lit) if ident == "SymbolMapReferer" => match *lit
         {
@@ -21,6 +21,7 @@ pub fn impl_symbol_scope(input: TokenStream) -> TokenStream
         }
         _ => None
     }).next().unwrap_or("0".to_string());
+    let referer = syn::Ident::new(referer_str);
     let ref tyname = ast.ident;
     let gen = quote!{
         impl<'s: 't, 't> ::symbol::SymbolScope<'s, 't> for #tyname<'s, 't>
