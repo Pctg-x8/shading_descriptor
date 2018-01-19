@@ -80,7 +80,7 @@ impl<'s: 't, 't> BoundMap<'s, 't>
 fn nth_tuple<'s: 't, 't>(index: deformer::Expr<'s, 't>, target: deformer::Expr<'s, 't>) -> deformer::Expr<'s, 't>
 {
     static FUNC_IDENT: Source<'static> = Source { slice: "nth_tuple", pos: Location::EMPTY };
-    deformer::Expr::Apply(GenSource::from(&FUNC_IDENT), vec![index, target])
+    deformer::Expr::Apply(box deformer::Expr::SymReference(GenSource::from(&FUNC_IDENT)), vec![index, target])
 }
 
 impl<'s> parser::ShaderStageDefinition<'s>
@@ -169,7 +169,7 @@ fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &Associ
 
             let decons_name = format!("#tup_({},{})", b0.text(), bs.iter().map(OptionalSpan::text).collect::<Vec<_>>().join(","));
             bindings.register(decons_name.clone(), Binding { type_hint, tree: BindingTree::Expr(rhs) });
-            let decons_t = deformer::Expr::Apply(GenSource::Generated(decons_name), Vec::new());
+            let decons_t = deformer::Expr::SymReference(GenSource::Generated(decons_name));
             if let OptionalSpan::Some(b0) = b0
             {
                 let index = deformer::Expr::Numeric(GenNumeric::from(0));

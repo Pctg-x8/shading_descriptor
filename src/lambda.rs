@@ -52,7 +52,7 @@ impl<'s: 't, 't> Lambda<'s, 't>
         {
             Expr::Garbage => unreachable!("Accessing Garbage"),
             // a b c => (a b) c
-            Expr::Apply(ref lhs, ref args) => args.iter().map(Lambda::from_expr).fold(Lambda::SymRef(lhs.clone()), Lambda::apply),
+            Expr::Apply(ref lhs, ref args) => args.iter().map(Lambda::from_expr).fold(Lambda::from_expr(lhs), Lambda::apply),
             Expr::Numeric(ref n) => Lambda::Numeric(n.clone()),
             Expr::ArrayLiteral(ref p, ref xs) => Lambda::ArrayLiteral(p, xs.iter().map(Lambda::from_expr).collect()),
             Expr::Conditional { ref cond, ref then, ref else_, .. } => Lambda::Apply

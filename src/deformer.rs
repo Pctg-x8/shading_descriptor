@@ -204,11 +204,8 @@ impl<'s: 't, 't> From<Expr<'s, 't>> for BlockContent<'s, 't> { fn from(v: Expr<'
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr<'s: 't, 't>
 {
-    Garbage,
-    Apply(GenSource<'s, 't>, Vec<Expr<'s, 't>>), Numeric(GenNumeric<'s, 't>),
-    ArrayLiteral(&'t Location, Vec<Expr<'s, 't>>),
-    ArrayRef(Box<Expr<'s, 't>>, Box<Expr<'s, 't>>),
-    PathRef(Box<Expr<'s, 't>>, Vec<GenSource<'s, 't>>),
+    Garbage, SymReference(GenSource<'s, 't>), Numeric(GenNumeric<'s, 't>), PathRef(Box<Expr<'s, 't>>, Vec<GenSource<'s, 't>>),
+    Apply(Box<Expr<'s, 't>>, Vec<Expr<'s, 't>>), ArrayLiteral(&'t Location, Vec<Expr<'s, 't>>), ArrayRef(Box<Expr<'s, 't>>, Box<Expr<'s, 't>>),
     Unit(&'t Location), Tuple1(Box<Expr<'s, 't>>, Vec<Expr<'s, 't>>),
     // full //
     Conditional
@@ -232,19 +229,19 @@ impl<'s: 't, 't> Expr<'s, 't>
     {
         if let Expr::Apply(_, _) = *self { Ok(self) } else { Err(self) }
     }
+    fn applicable(self) -> Self
+    {
+        if let Expr::Apply(_, _) = self { self } else { Expr::Apply(box self, vec![]) }
+    }
     fn append_args(&mut self, args: &mut Vec<Self>)
     {
-        if let Expr::Apply(_, ref mut a) = *self { a.append(args); }
-        else { unreachable!("invalid usage") }
+        *self = replace(self, Expr::Garbage).applicable();
+        if let Expr::Apply(_, ref mut a) = *self { a.append(args); } else { unreachable!() }
     }
-    fn combine(self, new_lhs: GenSource<'s, 't>, new_arg: Self) -> Self
+    fn combine(self, new_lhs: Expr<'s, 't>, new_arg: Self) -> Self { Expr::Apply(box new_lhs, vec![self, new_arg]) }
+    fn combine_inplace(&mut self, new_lhs: Expr<'s, 't>, new_arg: Self)
     {
-        Expr::Apply(new_lhs, vec![self, new_arg])
-    }
-    fn combine_inplace(&mut self, new_lhs: GenSource<'s, 't>, new_arg: Self)
-    {
-        let old = replace(self, Expr::Garbage);
-        *self = old.combine(new_lhs, new_arg);
+        *self = replace(self, Expr::Garbage).combine(new_lhs, new_arg);
     }
 }
 
@@ -255,12 +252,11 @@ impl<'s: 't, 't> Position for Expr<'s, 't>
         match *self
         {
             Expr::Garbage => unreachable!(),
-            Expr::Apply(ref s, _) => s.position(),
+            Expr::SymReference(ref s) => s.position(),
             Expr::Numeric(ref n) => n.position(),
             Expr::ArrayLiteral(p, _) | Expr::Unit(p) => p,
-            Expr::ArrayRef(ref x, _) | Expr::PathRef(ref x, _) | Expr::Tuple1(ref x, _) => x.position(),
-            Expr::Conditional { head, .. } | Expr::Lettings { head, .. } | Expr::Block(head, ..) |
-            Expr::CaseOf { head, .. } => head
+            Expr::Apply(ref x, _) | Expr::ArrayRef(ref x, _) | Expr::PathRef(ref x, _) | Expr::Tuple1(ref x, _) => x.position(),
+            Expr::Conditional { head, .. } | Expr::Lettings { head, .. } | Expr::Block(head, ..) | Expr::CaseOf { head, .. } => head
         }
     }
 }
@@ -286,7 +282,7 @@ impl<'s: 't, 't> EqNoloc for Expr<'s, 't>
 
         match (self, other)
         {
-            (&Apply(ref s, ref v), &Apply(ref s_, ref v_)) => s.text() == s_.text() && v.eq_nolocation(v_),
+            (&Apply(ref s, ref v), &Apply(ref s_, ref v_)) => s.eq_nolocation(s_) && v.eq_nolocation(v_),
             (&Numeric(ref n), &Numeric(ref n_)) => n.eq_nolocation(n_),
             (&ArrayLiteral(_, ref v), &ArrayLiteral(_, ref v_)) => v.eq_nolocation(v_),
             (&Tuple1(ref x, ref v), &Tuple1(ref x_, ref v_)) => x.eq_nolocation(x_) && v.eq_nolocation(v_),
@@ -327,38 +323,36 @@ impl<'s: 't, 't> Deformable<'s, 't> for parser::ExpressionSynTree<'s>
     fn deform(&'t self, assoc_env: &AssociativityEnv<'s>) -> Result<Self::Deformed>
     {
         use parser::ExpressionSynTree::*;
-        match *self
+        Ok(match *self
         {
             Prefix(ref v0, ref v) =>
             {
                 let mut lhs = v0.deform(assoc_env)?;
                 lhs.assume_application().map_err(|lhs| DeformationError::UnableToApply(lhs.position().clone()))?;
-                lhs.append_args(&mut v.deform(assoc_env)?);
-                Ok(lhs)
+                lhs.append_args(&mut v.deform(assoc_env)?); lhs
             },
             Infix { ref lhs, ref mods } =>
             {
-                let mut mods: Vec<_> = mods.iter().map(|&(ref op, ref rhs)| Ok(InfixIntermediate
-                {
-                    op, assoc: assoc_env.lookup(op.slice), ir: rhs.deform(assoc_env)?
-                })).collect::<Result<_>>()?;
+                let mut mods: Vec<_> = mods.iter()
+                    .map(|&(ref op, ref rhs)| Ok(InfixIntermediate { op, assoc: assoc_env.lookup(op.slice), ir: rhs.deform(assoc_env)? }))
+                    .collect::<Result<_>>()?;
                 let mut lhs = lhs.deform(assoc_env)?;
                 while !mods.is_empty()
                 {
                     let agg = extract_most_precedences(&mods).map_err(|p| DeformationError::UnresolvedAssociation(p.clone()))?.unwrap();
                     let ir = mods.remove(agg.index);
                     let cell = if agg.index >= 1 { &mut mods[agg.index - 1].ir } else { &mut lhs };
-                    cell.combine_inplace(GenSource::Sliced(&ir.op), ir.ir);
+                    cell.combine_inplace(Expr::SymReference(ir.op.into()), ir.ir);
                 }
-                Ok(lhs)
+                lhs
             },
-            SymReference(ref s) => Ok(Expr::Apply(GenSource::Sliced(s), Vec::new())),
-            Numeric(ref s) => Ok(Expr::Numeric(s.into())),
-            ArrayLiteral(ref p, ref a) => Ok(Expr::ArrayLiteral(p, a.deform(assoc_env)?)),
-            Tuple(ref p, ref a) => if let Some(a1) = a.first() { Ok(Expr::Tuple1(box a1.deform(assoc_env)?, a.deform(assoc_env)?)) } else { Ok(Expr::Unit(p)) },
-            ArrayRef(ref base, ref index) => Ok(Expr::ArrayRef(box base.deform(assoc_env)?, box index.deform(assoc_env)?)),
-            RefPath(ref base, ref path) => Ok(Expr::PathRef(box base.deform(assoc_env)?, path.iter().map(From::from).collect()))
-        }
+            SymReference(ref s) => Expr::SymReference(s.into()),
+            Numeric(ref s) => Expr::Numeric(s.into()),
+            RefPath(ref base, ref path) => Expr::PathRef(box base.deform(assoc_env)?, path.iter().map(From::from).collect()),
+            ArrayLiteral(ref p, ref a) => Expr::ArrayLiteral(p, a.deform(assoc_env)?),
+            ArrayRef(ref base, ref index) => Expr::ArrayRef(box base.deform(assoc_env)?, box index.deform(assoc_env)?),
+            Tuple(ref p, ref a) => if let Some(a1) = a.first() { Expr::Tuple1(box a1.deform(assoc_env)?, a.deform(assoc_env)?) } else { Expr::Unit(p) }
+        })
     }
 }
 impl<'s: 't, 't> Deformable<'s, 't> for parser::FullExpression<'s>
@@ -370,7 +364,7 @@ impl<'s: 't, 't> Deformable<'s, 't> for parser::FullExpression<'s>
         fn not<'s: 't, 't>(e: Expr<'s, 't>) -> Expr<'s, 't>
         {
             static FUNC_IDENT: Source = Source { slice: "not", pos: Location::EMPTY };
-            Expr::Apply(GenSource::from(&FUNC_IDENT), vec![e])
+            Expr::Apply(box Expr::SymReference(GenSource::from(&FUNC_IDENT)), vec![e])
         }
         match *self
         {
