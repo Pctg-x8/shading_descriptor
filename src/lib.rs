@@ -5,17 +5,21 @@ extern crate regex;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate pshcompile_custom_derive;
 
+#[macro_use] mod macros;
 mod tokparse;
 mod parser;
 mod deformer;
 mod symbol;
+mod rewrite_expr;
 mod typepaint;
 mod patresolve;
 
 mod lambda;
 
 pub use tokparse::TokenStream;
-pub use tokparse::{Location, Source, Token, TokenKind, NumericTy, EnclosureKind, TokenizerCache, Semantics, Keyword, BType, TokenizerState, PreanalyzedTokenStream};
+pub use tokparse::{Location, Source, GenSource, GenNumeric};
+pub use tokparse::{Token, TokenKind, NumericTy, EnclosureKind, Semantics, Keyword, BType};
+pub use tokparse::{TokenizerState, TokenizerCache, PreanalyzedTokenStream};
 pub use parser::{Success, Failed, NotConsumed, Parser, FreeParser, BlockParser, BlockParserM};
 pub use parser::{Associativity, AssociativityEnv};
 pub use parser::{SemanticInput, SemanticOutput, UniformDeclaration, ConstantDeclaration, ValueDeclaration};
@@ -26,19 +30,16 @@ pub use parser::{ExpressionSynTree, FullExpression, BlockContent, ExprPatSynTree
 pub use parser::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, TypeDeclarable, InferredArrayDim};
 pub use parser::utils::Leftmost;
 
-pub use deformer::EqNoloc;
-pub use deformer::{TyDeformerIntermediate, deform_ty};
-pub use deformer::{ExprDeformerIntermediate, deform_expr, deform_expr_full};
-pub use deformer::{DeformedExprPat, deform_expr_pat};
+pub use rewrite_expr::{PipelineDeformed, StageDeformed};
+pub use rewrite_expr::ComplexDeformationError;
+
+pub use deformer::{EqNoloc, Deformable, DeformationError};
 
 pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
 pub use typepaint::{ConstructorEnv, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
 pub use typepaint::{TypedDataConstructorScope, TypedDataConstructor, DataConstructorIndex};
 
 pub use lambda::{Numeric, Lambda};
-
-// interlibs
-use deformer::GenSource;
 
 // use typepaint::{RcMut, WeakMut};
 use std::cell::RefCell;

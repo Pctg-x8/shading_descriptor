@@ -1,7 +1,7 @@
 //! ラムダ抽象
 
-use {NumericTy, Source, ExprDeformerIntermediate, Location};
-use deformer::GenSource;
+use deformer::Expr;
+use {NumericTy, Source, Location, GenSource, GenNumeric};
 
 /// 数値
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10,10 +10,17 @@ impl<'s: 't, 't> From<&'t Numeric<'s>> for NumericRef<'s, 't>
 {
     fn from(r: &'t Numeric<'s>) -> Self { NumericRef { floating: r.floating, text: GenSource::Sliced(&r.text), ty: r.ty.clone() } }
 }
+impl<'s> ::EqNoloc for Numeric<'s>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool
+    {
+        self.floating == other.floating && self.ty == other.ty && self.text.eq_nolocation(&other.text)
+    }
+}
 /// 数値
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NumericRef<'s: 't, 't> { pub floating: bool, pub text: GenSource<'s, 't>, pub ty: Option<NumericTy> }
-impl<'s: 't, 't> NumericRef<'s, 't> { pub fn position(&self) -> &'t ::Location { self.text.position() } }
+impl<'s: 't, 't> NumericRef<'s, 't> { pub fn position(&self) -> &Location { self.text.position() } }
 impl<'s: 't, 't> ::EqNoloc for NumericRef<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool { self.floating == other.floating && self.ty == other.ty && self.text.eq_nolocation(&other.text) }
@@ -24,7 +31,7 @@ pub enum Lambda<'s: 't, 't>
 {
     Fun { arg: GenSource<'s, 't>, expr: Box<Lambda<'s, 't>> },
     Apply { applier: Box<Lambda<'s, 't>>, param: Box<Lambda<'s, 't>> },
-    SymRef(GenSource<'s, 't>), Numeric(NumericRef<'s, 't>), ArrayLiteral(&'t Location, Vec<Lambda<'s, 't>>),
+    SymRef(GenSource<'s, 't>), Numeric(GenNumeric<'s, 't>), ArrayLiteral(&'t Location, Vec<Lambda<'s, 't>>),
     DontCare, Unit(&'t Location)
 }
 
@@ -40,16 +47,16 @@ impl<'s: 't, 't> Lambda<'s, 't>
     const TCONS: Self = Lambda::SymRef(GenSource::Sliced(&BF_TCONS));
 
     /// Deformed Expressionのラムダ抽象化
-    pub fn from_expr(x: &ExprDeformerIntermediate<'s, 't>) -> Self
+    pub fn from_expr(x: &Expr<'s, 't>) -> Self
     {
         match *x
         {
-            ExprDeformerIntermediate::Garbage => unreachable!("Accessing Garbage"),
+            Expr::Garbage => unreachable!("Accessing Garbage"),
             // a b c => (a b) c
-            ExprDeformerIntermediate::Apply(ref lhs, ref args) => args.iter().map(Lambda::from_expr).fold(Lambda::SymRef(lhs.clone()), Lambda::apply),
-            ExprDeformerIntermediate::Numeric(ref n) => Lambda::Numeric(n.clone()),
-            ExprDeformerIntermediate::ArrayLiteral(ref p, ref xs) => Lambda::ArrayLiteral(p, xs.iter().map(Lambda::from_expr).collect()),
-            ExprDeformerIntermediate::Conditional { ref cond, ref then, ref else_, .. } => Lambda::Apply
+            Expr::Apply(ref lhs, ref args) => args.iter().map(Lambda::from_expr).fold(Lambda::SymRef(lhs.clone()), Lambda::apply),
+            Expr::Numeric(ref n) => Lambda::Numeric(n.clone()),
+            Expr::ArrayLiteral(ref p, ref xs) => Lambda::ArrayLiteral(p, xs.iter().map(Lambda::from_expr).collect()),
+            Expr::Conditional { ref cond, ref then, ref else_, .. } => Lambda::Apply
             {
                 // if <cond> then <then> [else <else_>] => (<cond> <then>) <else_>
                 applier: box Lambda::from_expr(cond).apply(Lambda::from_expr(then)),
@@ -57,14 +64,12 @@ impl<'s: 't, 't> Lambda<'s, 't>
                 param: box else_.as_ref().map_or(Lambda::DontCare, |e| Lambda::from_expr(e))
             },
             // Applyの形にする: a.b.c => c (b a)
-            ExprDeformerIntermediate::PathRef(ref base, ref members) =>
-                members.iter().fold(Lambda::from_expr(base), |x, p| Lambda::SymRef(GenSource::Sliced(p)).apply(x)),
+            Expr::PathRef(ref base, ref members) => members.iter().fold(Lambda::from_expr(base), |x, p| Lambda::SymRef(p.clone()).apply(x)),
             // $indexofをapply: a[2] => $indexof 2 a
-            ExprDeformerIntermediate::ArrayRef(ref base, ref index) => Lambda::INDEXOF.apply(Lambda::from_expr(index)).apply(Lambda::from_expr(base)),
+            Expr::ArrayRef(ref base, ref index) => Lambda::INDEXOF.apply(Lambda::from_expr(index)).apply(Lambda::from_expr(base)),
             // () => Unit, (a, b) => $TCons a b, (a, b, c) => $TCons ($TCons a b) c
-            ExprDeformerIntermediate::Tuple1(ref x1, ref xs) =>
-                xs[1..].iter().map(Lambda::from_expr).fold(Lambda::from_expr(x1), |x, xr| Lambda::TCONS.apply(x).apply(xr)),
-            ExprDeformerIntermediate::Unit(p) => Lambda::Unit(p),
+            Expr::Tuple1(ref x1, ref xs) => xs[1..].iter().map(Lambda::from_expr).fold(Lambda::from_expr(x1), |x, xr| Lambda::TCONS.apply(x).apply(xr)),
+            Expr::Unit(p) => Lambda::Unit(p),
             _ => unimplemented!()
         }
     }
@@ -96,7 +101,7 @@ impl<'s: 't, 't> ::PrettyPrint for Lambda<'s, 't>
             },
             Lambda::DontCare => sink.write(b"?").map(drop),
             Lambda::SymRef(ref s) => sink.write(s.text().as_bytes()).map(drop),
-            Lambda::Numeric(ref n) => sink.write(n.text.text().as_bytes()).map(drop),
+            Lambda::Numeric(ref n) => sink.write(n.to_string().as_bytes()).map(drop),
             Lambda::Unit(_) => sink.write(b"()").map(drop),
             Lambda::ArrayLiteral(_, ref items) =>
             {

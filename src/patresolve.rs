@@ -1,8 +1,7 @@
 //! Pattern Resolver
 
-use deformer::GenSource;
 use lambda::NumericRef;
-use {Location, DeformedExprPat, ConstructorEnvironment};
+use {Location, GenSource, ConstructorEnvironment};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PaintedIdentifier<'s: 't, 't: 'd, 'd> { Normal(&'d GenSource<'s, 't>), DataConstructor(&'d GenSource<'s, 't>) }

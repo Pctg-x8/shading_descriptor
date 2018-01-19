@@ -9,7 +9,7 @@ use super::{Parser, BlockParser};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeSynTree<'s>
 {
-    Prefix(Vec<TypeSynTree<'s>>), Infix { lhs: Box<TypeSynTree<'s>>, mods: Vec<(Source<'s>, TypeSynTree<'s>)> },
+    Prefix(Box<TypeSynTree<'s>>, Vec<TypeSynTree<'s>>), Infix { lhs: Box<TypeSynTree<'s>>, mods: Vec<(Source<'s>, TypeSynTree<'s>)> },
     ArrowInfix { op_pos: Location, lhs: Box<TypeSynTree<'s>>, rhs: Box<TypeSynTree<'s>> },
     Basic(Location, BType), SymReference(Source<'s>), Placeholder(Location),
     ArrayDim { lhs: Box<TypeSynTree<'s>>, num: InferredArrayDim<'s> },
@@ -19,15 +19,20 @@ impl<'s> TypeSynTree<'s>
 {
     pub fn position(&self) -> &Location
     {
+        use TypeSynTree::*;
         match *self
         {
-            TypeSynTree::Prefix(ref v) => v.first().expect("Prefix TypeExpr").position(),
-            TypeSynTree::Infix { ref lhs, .. } | TypeSynTree::ArrowInfix { ref lhs, .. } | TypeSynTree::ArrayDim { ref lhs, .. } | TypeSynTree::PathRef(ref lhs, _) => lhs.position(),
-            TypeSynTree::Basic(ref l, _) | TypeSynTree::SymReference(Source { pos: ref l, .. }) | TypeSynTree::Placeholder(ref l) | TypeSynTree::Tuple(ref l, _) => l
+            Prefix(ref lhs, _) | Infix { ref lhs, .. } | ArrowInfix { ref lhs, .. } | ArrayDim { ref lhs, .. } | PathRef(ref lhs, _) => lhs.position(),
+            Basic(ref l, _) | SymReference(Source { pos: ref l, .. }) | Placeholder(ref l) | Tuple(ref l, _) => l
         }
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)] pub enum InferredArrayDim<'s> { Unsized, Inferred(Location), Fixed(FullExpression<'s>) }
+fn shift_satisfy_leftmost<'s: 't, 't, S, F, T>(stream: &mut S, leftmost: Leftmost, shifter: F) -> Result<T, &'t Location>
+    where S: TokenStream<'s, 't>, F: FnOnce(&mut S) -> Result<T, &'t Location>
+{
+    if leftmost.satisfy(stream.current(), false) { shifter(stream) } else { Err(stream.current().position()) }
+}
 /// Arrow <- Infix (-> Infix)*
 fn arrow_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
@@ -37,7 +42,7 @@ fn arrow_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmo
     }
     let mut lhs = BreakParsing!(infix_ty(stream, leftmost));
     let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
-    while let Ok(p) = shift_arrow(stream, leftmost)
+    while let Ok(p) = shift_satisfy_leftmost(stream, leftmost, S::shift_arrow)
     {
         lhs = TypeSynTree::ArrowInfix
         {
@@ -62,10 +67,10 @@ fn infix_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmo
 /// Prefix <- Term Term*
 fn prefix_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
-    let mut lhs = vec![BreakParsing!(term_ty(stream, leftmost))];
-    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs[0].position().column)).into_exclusive();
-    while let Some(p) = term_ty(stream, leftmost).into_result_opt()? { lhs.push(p); }
-    Success(if lhs.len() == 1 { lhs.pop().unwrap() } else { TypeSynTree::Prefix(lhs) })
+    let (lhs, mut rhs) = (BreakParsing!(term_ty(stream, leftmost)), Vec::new());
+    let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
+    while let Some(p) = term_ty(stream, leftmost).into_result_opt()? { rhs.push(p); }
+    Success(if rhs.is_empty() { lhs } else { TypeSynTree::Prefix(box lhs, rhs) })
 }
 /// Term <- Factor (. ident / [ FullEx? ])*
 fn term_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
@@ -256,7 +261,8 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
         {
             let name = BreakParsing!(shift_prefix_declarator(stream, leftmost));
             let leftmost = leftmost.into_exclusive();
-            let mut ap_list = vec![TypeSynTree::SymReference(name.clone())];
+            let name = TypeSynTree::SymReference(name.clone());
+            let mut ap_list = Vec::new();
             while leftmost.satisfy(stream.current(), true)
             {
                 match term_ty(stream, leftmost)
@@ -264,7 +270,11 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
                    Success(v) => ap_list.push(v), Failed(e) => return Failed(e), NotConsumed => break
                 }
             }
-            Success(DataConstructor { location: name.pos.clone(), tree: TypeSynTree::Prefix(ap_list) })
+            Success(DataConstructor
+            {
+                location: name.position().clone(),
+                tree: if ap_list.is_empty() { name } else { TypeSynTree::Prefix(box name, ap_list) }
+            })
         }
         // term op term
         fn infix<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DataConstructor<'s>>
@@ -273,7 +283,7 @@ impl<'s> BlockParser<'s> for TypeDeclaration<'s>
             let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(arg1.position().column)).into_exclusive();
             let name = shift_infix_ops(stream, leftmost).map_err(|p| ParseError::Expecting(ExpectingKind::Operator, p))?;
             let arg2 = term_ty(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Argument, stream.current().position()))?;
-            Success(DataConstructor { location: arg1.position().clone(), tree: TypeSynTree::Prefix(vec![TypeSynTree::SymReference(name.clone()), arg1, arg2]) })
+            Success(DataConstructor { location: arg1.position().clone(), tree: TypeSynTree::Prefix(box TypeSynTree::SymReference(name.clone()), vec![arg1, arg2]) })
         }
         let location = TMatch!(stream; TokenKind::Keyword(ref p, Keyword::Data) => p, |p| ParseError::Expecting(ExpectingKind::Keyword(Keyword::Data), p));
         let block_start = take_current_block_begin(stream);

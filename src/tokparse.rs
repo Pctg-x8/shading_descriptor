@@ -32,12 +32,76 @@ impl Display for Location
 {
     fn fmt(&self, fmt: &mut Formatter) -> FmtResult { write!(fmt, "line {}, column {}", self.line, self.column) }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Source<'s> { pub pos: Location, pub slice: &'s str }
 impl<'s> Source<'s>
 {
     pub fn new(s: &'s str) -> Self { Source { pos: Location::default(), slice: s } }
 }
+/// Generated Text or ref to span
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum GenSource<'s: 't, 't> { Generated(String), GeneratedSlice(Source<'s>), Sliced(&'t Source<'s>) }
+impl<'s: 't, 't> GenSource<'s, 't>
+{
+    pub fn text(&self) -> &str
+    {
+        match self
+        {
+            &GenSource::Generated(ref t) => t, &GenSource::Sliced(&Source { slice, .. }) => slice,
+            &GenSource::GeneratedSlice(ref s) => &s.slice
+        }
+    }
+    pub fn position(&self) -> &Location
+    {
+        match self
+        {
+            &GenSource::Generated(_) => &Location::EMPTY, &GenSource::Sliced(&Source { ref pos, .. }) => pos,
+            &GenSource::GeneratedSlice(Source { ref pos, .. }) => pos
+        }
+    }
+}
+impl<'s: 't, 't> From<&'t Source<'s>> for GenSource<'s, 't> { fn from(s: &'t Source<'s>) -> Self { GenSource::Sliced(s) } }
+impl<'s: 't, 't> From<String> for GenSource<'s, 't> { fn from(s: String) -> Self { GenSource::Generated(s) } }
+impl<'s: 't, 't> ::deformer::EqNoloc for GenSource<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool { self.text() == other.text() }
+}
+/// Generatd Numeric or ref to span
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GenNumeric<'s: 't, 't> { GeneratedInt(u64), Ref(&'t ::lambda::Numeric<'s>) }
+impl<'s: 't, 't> From<u64> for GenNumeric<'s, 't> { fn from(v: u64) -> Self { GenNumeric::GeneratedInt(v) } }
+impl<'s: 't, 't> From<&'t ::lambda::Numeric<'s>> for GenNumeric<'s, 't> { fn from(v: &'t ::lambda::Numeric<'s>) -> Self { GenNumeric::Ref(v) } }
+impl<'s: 't, 't> GenNumeric<'s, 't>
+{
+    pub fn position(&self) -> &Location
+    {
+        match *self { GenNumeric::Ref(s) => &s.text.pos, GenNumeric::GeneratedInt(_) => &Location::EMPTY }
+    }
+}
+impl<'s: 't, 't> ::deformer::EqNoloc for GenNumeric<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool
+    {
+        match *self
+        {
+            GenNumeric::Ref(n) => if let GenNumeric::Ref(n2) = *other { n.eq_nolocation(n2) } else { false },
+            GenNumeric::GeneratedInt(n) => if let GenNumeric::GeneratedInt(n2) = *other { n == n2 } else { false }
+        }
+    }
+}
+impl<'s: 't, 't> ::std::fmt::Display for GenNumeric<'s, 't>
+{
+    fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result
+    {
+        match *self
+        {
+            GenNumeric::GeneratedInt(n) => write!(fmt, "{}u64", n),
+            GenNumeric::Ref(n) => n.text.slice.fmt(fmt)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token<'s> { pub line_head: bool, pub kind: TokenKind<'s> }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,10 +184,10 @@ pub enum Keyword
     Keep, Zero, Replace, IncrWrap, IncrClamp, DecrWrap, DecrClamp, Invert
 }
 /// セマンティクス
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Semantics { Position(usize), SVPosition, Texcoord(usize), Color(usize), SVTarget }
 /// 基本型/組み込み型
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BType
 {
     Bool, Uint, Int, Float, Double, FVec(u8), IVec(u8), UVec(u8), DVec(u8),

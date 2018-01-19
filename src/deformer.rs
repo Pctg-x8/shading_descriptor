@@ -1,9 +1,8 @@
 
-use {Location, Source, GenSource, BType, Associativity, AssociativityEnv};
+use {Location, Source, GenSource, BType, Associativity, AssociativityEnv, GenNumeric};
 use {TypeSynTree, InferredArrayDim};
 use std::mem::replace;
 use std::ops::Deref;
-use lambda::NumericRef;
 use parser;
 use std::result::Result as StdResult;
 
@@ -206,7 +205,7 @@ impl<'s: 't, 't> From<Expr<'s, 't>> for BlockContent<'s, 't> { fn from(v: Expr<'
 pub enum Expr<'s: 't, 't>
 {
     Garbage,
-    Apply(GenSource<'s, 't>, Vec<Expr<'s, 't>>), Numeric(NumericRef<'s, 't>),
+    Apply(GenSource<'s, 't>, Vec<Expr<'s, 't>>), Numeric(GenNumeric<'s, 't>),
     ArrayLiteral(&'t Location, Vec<Expr<'s, 't>>),
     ArrayRef(Box<Expr<'s, 't>>, Box<Expr<'s, 't>>),
     PathRef(Box<Expr<'s, 't>>, Vec<GenSource<'s, 't>>),
@@ -223,7 +222,7 @@ pub enum Expr<'s: 't, 't>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprPat<'s: 't, 't>
 {
-    Garbage, SymBinding(GenSource<'s, 't>), Numeric(NumericRef<'s, 't>), PathRef(GenSource<'s, 't>, Vec<GenSource<'s, 't>>),
+    Garbage, SymBinding(GenSource<'s, 't>), Numeric(GenNumeric<'s, 't>), PathRef(GenSource<'s, 't>, Vec<GenSource<'s, 't>>),
     ArrayLiteral(&'t Location, Vec<ExprPat<'s, 't>>), Unit(&'t Location), Tuple(Box<ExprPat<'s, 't>>, Vec<ExprPat<'s, 't>>),
     Apply(SymPath<'s, 't>, Vec<ExprPat<'s, 't>>), Placeholder(&'t Location)
 }
@@ -268,8 +267,9 @@ impl<'s: 't, 't> ExprPat<'s, 't>
     {
         match *self
         {
-            ExprPat::SymBinding(ref s) | ExprPat::Numeric(NumericRef { text: ref s, .. }) | ExprPat::PathRef(ref s, ..) => s.position(),
+            ExprPat::SymBinding(ref s) | ExprPat::PathRef(ref s, ..) => s.position(),
             ExprPat::ArrayLiteral(ref p, _) | ExprPat::Unit(ref p) | ExprPat::Placeholder(ref p) => p,
+            ExprPat::Numeric(ref n) => n.position(),
             ExprPat::Apply(ref p0, _) => p0.position(), ExprPat::Tuple(ref p0, _) => p0.position(),
             ExprPat::Garbage => unreachable!("internal garbage")
         }

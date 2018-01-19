@@ -1,9 +1,10 @@
 //! Type Painter
 
+use {GenSource, Deformable, DeformationError};
 use std::collections::{HashSet, HashMap};
 use super::parser::*;
 use super::Location;
-use deformer::*;
+use deformer;
 use {RcMut, WeakMut, new_rcmut};
 use std::rc::Rc;
 
@@ -32,14 +33,14 @@ impl<'s> AssociativityDebugPrinter for ::ShaderStageDefinition<'s>
 }
 
 #[derive(Debug)]
-pub enum ConstructorCollectionError<'t>
+pub enum ConstructorCollectionError
 {
-    DeformingError(DeformationError<'t>), ConstructorNotFound(&'t Location), ArrowNotAllowed(&'t Location), PathRefNotAllowed(&'t Location),
-    InvalidConstructor(&'t Location)
+    DeformingError(DeformationError), ConstructorNotFound(Location), ArrowNotAllowed(Location), PathRefNotAllowed(Location),
+    InvalidConstructor(Location)
 }
-impl<'t> From<DeformationError<'t>> for ConstructorCollectionError<'t>
+impl From<DeformationError> for ConstructorCollectionError
 {
-    fn from(t: DeformationError<'t>) -> Self { ConstructorCollectionError::DeformingError(t) }
+    fn from(t: DeformationError) -> Self { ConstructorCollectionError::DeformingError(t) }
 }
 
 /// Common DataStore for Constructor Environment
@@ -81,14 +82,14 @@ pub struct DataConstructorIndex { pub scope: usize, pub ctor: usize }
 #[derive(Debug)]
 pub struct TypedDataConstructorScope<'s: 't, 't>
 {
-    pub name: GenSource<'s, 't>, pub ty: TyDeformerIntermediate<'s, 't>,
+    pub name: GenSource<'s, 't>, pub ty: deformer::Ty<'s, 't>,
     pub ctors: Vec<TypedDataConstructor<'s, 't>>
 }
 #[derive(Debug)]
 pub struct TypedDataConstructor<'s: 't, 't>
 {
     pub name: GenSource<'s, 't>, pub param_count: usize,
-    pub ty: TyDeformerIntermediate<'s, 't>, pub expressed: ::Lambda<'s, 't>
+    pub ty: deformer::Ty<'s, 't>, pub expressed: ::Lambda<'s, 't>
 }
 
 // specialized constructor envs //
@@ -115,21 +116,21 @@ impl<'s: 't, 't> ConstructorEnvironment<'s, 't> for ConstructorEnvPerShader<'s, 
     fn symbol_set(&self) -> &ConstructorEnv<'s, 't> { &self.set }
     fn symbol_set_mut(&mut self) -> &mut ConstructorEnv<'s, 't> { &mut self.set }
 
-    fn lookup_dctor_index(&self, name: &str) -> Option<DataConstructorIndex>
+    /*fn lookup_dctor_index(&self, name: &str) -> Option<DataConstructorIndex>
     {
         self.set.lookup_dctor_index(name).or_else(|| self.parent.upgrade().unwrap().borrow().lookup_dctor_index(name))
-    }
+    }*/
 }
 
 pub trait ConstructorCollector<'s: 't, 't>
 {
     type Env: 't;
-    fn collect_ctors(&'t self) -> Result<(), Vec<ConstructorCollectionError<'t>>>;
+    fn collect_ctors(&'t self) -> Result<(), Vec<ConstructorCollectionError>>;
 }
 impl<'s: 't, 't> ConstructorCollector<'s, 't> for ShadingPipeline<'s>
 {
     type Env = ShadingPipelineConstructorEnv<'s, 't>;
-    fn collect_ctors(&'t self) -> Result<(), Vec<ConstructorCollectionError<'t>>>
+    fn collect_ctors(&'t self) -> Result<(), Vec<ConstructorCollectionError>>
     {
         let mut errors = Vec::new();
         let vsh = match self.vsh.as_ref().map(collect_for_type_decls)
@@ -165,23 +166,17 @@ impl<'s: 't, 't> ConstructorCollector<'s, 't> for ShadingPipeline<'s>
         if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 }
-macro_rules! CollectErrors
-{
-    { $e: expr =>? $collector: expr; continue } => { match $e { Err(e) => { $collector.push(e.into()); continue; }, Ok(v) => v } };
-    { $e: expr =>? $collector: expr; continue $lp: tt } => { match $e { Err(e) => { $collector.push(e.into()); continue $lp; }, Ok(v) => v } };
-    { $e: expr =>[?] $collector: expr; continue } => { match $e { Err(e) => { $collector.append(&mut e.into_iter().map(From::from).collect()); continue; }, Ok(v) => v } };
-}
-struct DeformedDataConstructor<'s: 't, 't> { pub name: GenSource<'s, 't>, args: Vec<TyDeformerIntermediate<'s, 't>> }
+struct DeformedDataConstructor<'s: 't, 't> { pub name: GenSource<'s, 't>, args: Vec<deformer::Ty<'s, 't>> }
 impl<'s: 't, 't> DeformedDataConstructor<'s, 't>
 {
-    pub fn from_ir(ir: TyDeformerIntermediate<'s, 't>) -> Result<Self, &'t Location>
+    pub fn from_ir(ir: deformer::Ty<'s, 't>) -> Result<Self, Location>
     {
-        if let TyDeformerIntermediate::Expressed(Prefix::User(name), args) = ir { Ok(DeformedDataConstructor { name, args }) }
-        else { Err(ir.position()) }
+        if let deformer::Ty::Expressed(deformer::Prefix::User(name), args) = ir { Ok(DeformedDataConstructor { name, args }) }
+        else { Err(ir.position().clone()) }
     }
 }
-fn generate_ctor_arrows<'s: 't, 't>(ctors: &[DeformedDataConstructor<'s, 't>], cont_placeholder: &TyDeformerIntermediate<'s, 't>)
-    -> TyDeformerIntermediate<'s, 't>
+fn generate_ctor_arrows<'s: 't, 't>(ctors: &[DeformedDataConstructor<'s, 't>], cont_placeholder: &deformer::Ty<'s, 't>)
+    -> deformer::Ty<'s, 't>
 {
     ctors.iter().map(|&DeformedDataConstructor { ref args, .. }|
     {
@@ -199,7 +194,7 @@ fn express_ctor<'s: 't, 't>(ctor: &DeformedDataConstructor<'s, 't>, selector: &G
     ctor_fns.iter().cloned().rev().chain(ctor.args.iter().enumerate().map(|(ax, _)| GenSource::Generated(format!("#a{}", ax))).rev())
         .fold(xf, |x, a| ::Lambda::Fun { arg: a, expr: box x })
 }
-fn collect_for_type_decls<'s: 't, 't, T>(tree: &'t T) -> Result<ConstructorEnv<'s, 't>, Vec<ConstructorCollectionError<'t>>>
+fn collect_for_type_decls<'s: 't, 't, T>(tree: &'t T) -> Result<ConstructorEnv<'s, 't>, Vec<ConstructorCollectionError>>
     where T: TypeDeclarable<'s> + AssociativityEnvironment<'s>
 {
     let mut env = ConstructorEnv::new();
@@ -207,23 +202,23 @@ fn collect_for_type_decls<'s: 't, 't, T>(tree: &'t T) -> Result<ConstructorEnv<'
     let mut errors = Vec::new();
     for &(ref ty, ref defs) in tree.type_decls().iter().flat_map(|td| &td.defs)
     {
-        let dty = CollectErrors!{ deform_ty(ty, &aenv) =>? errors; continue };
+        let dty = CollectErrors!{ ty.deform(&aenv) =>? errors; continue };
         let ty_ctor_name = match dty.leftmost_symbol()
         {
-            Some(&Prefix::User(ref s)) => s,
-            Some(&Prefix::Arrow(p)) => { errors.place_back() <- ConstructorCollectionError::ArrowNotAllowed(p); continue; },
-            Some(&Prefix::PathRef(ref p, _)) => { errors.place_back() <- ConstructorCollectionError::PathRefNotAllowed(p.position()); continue; },
-            None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position()); continue; }
+            Some(&deformer::Prefix::User(ref s)) => s,
+            Some(&deformer::Prefix::Arrow(p)) => { errors.place_back() <- ConstructorCollectionError::ArrowNotAllowed(p.clone()); continue; },
+            Some(&deformer::Prefix::PathRef(ref p, _)) => { errors.place_back() <- ConstructorCollectionError::PathRefNotAllowed(p.position().clone()); continue; },
+            None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position().clone()); continue; }
         };
         let mut deformed_ctors = Vec::with_capacity(defs.len());
         for &DataConstructor { ref tree, .. } in defs
         {
-            let deformed = CollectErrors!{ deform_ty(tree, &aenv) =>? errors; continue };
+            let deformed = CollectErrors!{ tree.deform(&aenv) =>? errors; continue };
             deformed_ctors.place_back() <- CollectErrors!{
-                DeformedDataConstructor::from_ir(deformed).map_err(ConstructorCollectionError::InvalidConstructor) =>? errors; continue
+                DeformedDataConstructor::from_ir(deformed).map_err(|p| ConstructorCollectionError::InvalidConstructor(p.clone())) =>? errors; continue
             };
         }
-        let cont_placeholder_ty = TyDeformerIntermediate::symref(GenSource::Generated("#r".into()));
+        let cont_placeholder_ty = deformer::Ty::symref(GenSource::Generated("#r".into()));
         let cont_placeholders_fn: Vec<_> = (0 .. deformed_ctors.len()).map(|n| GenSource::Generated(format!("#f{}", n))).collect();
 
         let cont_arrow_tys = generate_ctor_arrows(&deformed_ctors, &cont_placeholder_ty);
@@ -241,16 +236,16 @@ fn collect_for_type_decls<'s: 't, 't, T>(tree: &'t T) -> Result<ConstructorEnv<'
     }
     for &(ref tys, _) in tree.type_fns().iter().flat_map(|tf| &tf.defs)
     {
-        let dty = match deform_ty(tys, &aenv).map_err(ConstructorCollectionError::DeformingError)
+        let dty = match tys.deform(&aenv)
         {
-            Ok(t) => t, Err(e) => { errors.push(e); continue; }
+            Ok(t) => t, Err(e) => { errors.push(e.into()); continue; }
         };
         let ty_ctor = match dty.leftmost_symbol()
         {
-            Some(&Prefix::User(ref s)) => s.clone(),
-            Some(&Prefix::Arrow(p)) => { errors.place_back() <- ConstructorCollectionError::ArrowNotAllowed(p); continue; },
-            Some(&Prefix::PathRef(ref p, _)) => { errors.place_back() <- ConstructorCollectionError::PathRefNotAllowed(p.position()); continue; },
-            None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position()); continue; }
+            Some(&deformer::Prefix::User(ref s)) => s.clone(),
+            Some(&deformer::Prefix::Arrow(p)) => { errors.place_back() <- ConstructorCollectionError::ArrowNotAllowed(p.clone()); continue; },
+            Some(&deformer::Prefix::PathRef(ref p, _)) => { errors.place_back() <- ConstructorCollectionError::PathRefNotAllowed(p.position().clone()); continue; },
+            None => { errors.place_back() <- ConstructorCollectionError::ConstructorNotFound(dty.position().clone()); continue; }
         };
         // println!("**dbg** Found Type Constructor: {:?}", ty_ctor);
         env.ty.insert(ty_ctor);
@@ -260,7 +255,7 @@ fn collect_for_type_decls<'s: 't, 't, T>(tree: &'t T) -> Result<ConstructorEnv<'
 
 /// データコンストラクタの型の抽出 今回はGADTsは考慮しない
 /// Ctor a :: a -> Data a
-fn dcons_ty<'s: 't, 't>(dtree: &DeformedDataConstructor<'s, 't>, data_ty: &TyDeformerIntermediate<'s, 't>) -> TyDeformerIntermediate<'s, 't>
+fn dcons_ty<'s: 't, 't>(dtree: &DeformedDataConstructor<'s, 't>, data_ty: &deformer::Ty<'s, 't>) -> deformer::Ty<'s, 't>
 {
     dtree.args.iter().cloned().rev().fold(data_ty.clone(), |t, a| a.arrow(t))
 }
@@ -273,30 +268,31 @@ pub enum TyConsKind { Star, Arrow(Box<TyConsKind>, Box<TyConsKind>), Constraint 
 #[cfg(test)]
 mod test
 {
-    use deformer::{GenSource, TyDeformerIntermediate, Prefix, EqNoloc};
+    use deformer;
+    use deformer::{GenSource, Prefix, EqNoloc};
     use PrettyPrint;
     use std::str::from_utf8;
 
     #[test] fn dcons_ty()
     {
-        let ctor = super::DeformedDataConstructor { name: GenSource::Generated("Ctor".to_string()), args: vec![TyDeformerIntermediate::symref(GenSource::Generated("a".to_string()))] };
-        let final_ty = TyDeformerIntermediate::Expressed(Prefix::User(GenSource::Generated("Data".to_string())),
-            vec![TyDeformerIntermediate::symref(GenSource::Generated("a".to_string()))]);
+        let ctor = super::DeformedDataConstructor { name: GenSource::Generated("Ctor".to_string()), args: vec![deformer::Ty::symref(GenSource::Generated("a".to_string()))] };
+        let final_ty = deformer::Ty::Expressed(Prefix::User(GenSource::Generated("Data".to_string())),
+            vec![deformer::Ty::symref(GenSource::Generated("a".to_string()))]);
         let r = super::dcons_ty(&ctor, &final_ty);
-        assert!(r.eq_nolocation(&TyDeformerIntermediate::symref(GenSource::Generated("a".to_string())).arrow(final_ty.clone())));
+        assert!(r.eq_nolocation(&deformer::Ty::symref(GenSource::Generated("a".to_string())).arrow(final_ty.clone())));
     }
     #[test] fn generate_ctor_arrows()
     {
         let ctors = vec![
-            super::DeformedDataConstructor { name: GenSource::Generated("Ok".to_string()), args: vec![TyDeformerIntermediate::symref(GenSource::Generated("t".to_string()))] },
-            super::DeformedDataConstructor { name: GenSource::Generated("Err".to_string()), args: vec![TyDeformerIntermediate::symref(GenSource::Generated("e".to_string()))] },
+            super::DeformedDataConstructor { name: GenSource::Generated("Ok".to_string()), args: vec![deformer::Ty::symref(GenSource::Generated("t".to_string()))] },
+            super::DeformedDataConstructor { name: GenSource::Generated("Err".to_string()), args: vec![deformer::Ty::symref(GenSource::Generated("e".to_string()))] },
             super::DeformedDataConstructor { name: GenSource::Generated("Void".to_string()), args: Vec::new() }
         ];
-        let cont_placeholder = TyDeformerIntermediate::symref(GenSource::Generated("r".to_string()));
+        let cont_placeholder = deformer::Ty::symref(GenSource::Generated("r".to_string()));
         let r = super::generate_ctor_arrows(&ctors, &cont_placeholder);
 
-        let ok_arrow = TyDeformerIntermediate::symref(GenSource::Generated("t".to_string())).arrow(cont_placeholder.clone());
-        let err_arrow = TyDeformerIntermediate::symref(GenSource::Generated("e".to_string())).arrow(cont_placeholder.clone());
+        let ok_arrow = deformer::Ty::symref(GenSource::Generated("t".to_string())).arrow(cont_placeholder.clone());
+        let err_arrow = deformer::Ty::symref(GenSource::Generated("e".to_string())).arrow(cont_placeholder.clone());
         let rsuc = ok_arrow.arrow(err_arrow.arrow(cont_placeholder.clone().arrow(cont_placeholder.clone())));
         let mut s = Vec::new(); r.pretty_print(&mut s).unwrap();
         let mut s2 = Vec::new(); rsuc.pretty_print(&mut s2).unwrap();
@@ -309,7 +305,7 @@ mod test
 // (X _) -> Int => (->) (X _) Int => (->) (forall t0. X t0) Int または forall t0. (->) (X t0) Int
 // (X _)[] -> Int => (->) [X _] Int => (->) [forall t0. X t0] Int (forall t0. (->) [X t0] Intとすると意味が変わる)
 
-// pub fn quantize_ty<'s: 't, 't>(tree: &TyDeformerIntermediate<'s, 't>) -> 
+// pub fn quantize_ty<'s: 't, 't>(tree: &deformer::Ty<'s, 't>) -> 
 
 /*
 #[derive(Debug, Clone, PartialEq, Eq)]
