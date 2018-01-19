@@ -36,10 +36,6 @@ fn shift_satisfy_leftmost<'s: 't, 't, S, F, T>(stream: &mut S, leftmost: Leftmos
 /// Arrow <- Infix (-> Infix)*
 fn arrow_ty<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, TypeSynTree<'s>>
 {
-    fn shift_arrow<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> Result<&'t Location, &'t Location>
-    {
-        if leftmost.satisfy(stream.current(), false) { stream.shift_arrow() } else { Err(stream.current().position()) }
-    }
     let mut lhs = BreakParsing!(infix_ty(stream, leftmost));
     let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
     while let Ok(p) = shift_satisfy_leftmost(stream, leftmost, S::shift_arrow)
