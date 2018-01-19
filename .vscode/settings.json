@@ -1,4 +1,5 @@
 {
     // "rust.mode": "legacy",
     // "rust.actionOnSave": "check"
+    "rust.cfg_test": true
 }

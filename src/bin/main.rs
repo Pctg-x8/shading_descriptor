@@ -17,11 +17,12 @@ fn main()
     println!("ast: {:?}", p);
     println!("assocs: ");
     p.dbg_print_assoc(1);
-    let ctors = ShadingPipelineConstructorEnv::new();
+    /*let ctors = ShadingPipelineConstructorEnv::new();
     p.collect_ctors(&ctors).expect("Failure in collecting type constructors");
-    ctors.borrow().print_ctor_env();
+    ctors.borrow().print_ctor_env();*/
 }
 
+/*
 trait ConstructorEnvPrint
 {
     fn print_ctor_env(&self);
@@ -95,3 +96,4 @@ impl<'s: 't, 't> ConstructorEnvPrint for ConstructorEnvPerShader<'s, 't>
         }
     }
 }
+*/

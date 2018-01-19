@@ -663,8 +663,8 @@ impl<'s: 't, 't> ::PrettyPrint for Prefix<'s, 't>
             let c1 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::Nothing).expect(&format!("in case infix({})", infix));
             let c2 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::Nothing).expect(&format!("in case prefix({})", prefix));
             let assoc_env = AssociativityEnv::new(None);
-            let c1d = deform_ty(&c1, &assoc_env).expect("in deforming case infix");
-            let c2d = deform_ty(&c2, &assoc_env).expect("in deforming case prefix");
+            let c1d = c1.deform(&assoc_env).expect("in deforming case infix");
+            let c2d = c2.deform(&assoc_env).expect("in deforming case prefix");
             assert!(c1d.eq_nolocation(&c2d), "not matching: {:?} and {:?}", c1d, c2d);
         }
         test_unify("a `Cons` b", "Cons a b");
@@ -680,8 +680,8 @@ impl<'s: 't, 't> ::PrettyPrint for Prefix<'s, 't>
             let c1 = ExpressionSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::Nothing).expect(&format!("in case infix({})", infix));
             let c2 = ExpressionSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::Nothing).expect(&format!("in case prefix({})", prefix));
             let assoc_env = AssociativityEnv::new(None);
-            let c1d = deform_expr_full(&c1, &assoc_env).expect("in deforming case infix");
-            let c2d = deform_expr_full(&c2, &assoc_env).expect("in deforming case prefix");
+            let c1d = c1.deform(&assoc_env).expect("in deforming case infix");
+            let c2d = c2.deform(&assoc_env).expect("in deforming case prefix");
             assert!(c1d.eq_nolocation(&c2d), "not matching: {:?} and {:?}", c1d, c2d);
         }
         test_unify("2", "2");

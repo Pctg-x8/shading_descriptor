@@ -29,7 +29,7 @@ mod test
 {
     use super::*;
 
-    #[test] fn paint_ctor()
+    /*#[test] fn paint_ctor()
     {
         let mut ctors = ::ConstructorEnv::new();
         ctors.dctor_map.insert("TestCtor1".to_owned(), DataConstructorIndex { scope: 0, ctor: 0 });
@@ -52,5 +52,5 @@ mod test
         let c1 = ::GenSource::Generated("TestCtor1".to_owned()); assert_eq!(c1.paint_ctor(&ctors), PaintedIdentifier::DataConstructor(&c1));
         let c1 = ::GenSource::Generated("TestCtor2".to_owned()); assert_eq!(c1.paint_ctor(&ctors), PaintedIdentifier::DataConstructor(&c1));
         let c1 = ::GenSource::Generated("TestCtor3".to_owned()); assert_eq!(c1.paint_ctor(&ctors), PaintedIdentifier::Normal(&c1));
-    }
+    }*/
 }

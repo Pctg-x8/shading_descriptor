@@ -151,8 +151,7 @@ pub fn generate_datactor_matcher<'s: 't, 't>(env: &ConstructorEnv<'s, 't>) -> Fn
 #[cfg(test)]
 mod test
 {
-    use {PrettyPrint, Lambda};
-    use deformer::GenSource;
+    use {PrettyPrint, Lambda, GenSource};
     use std::str::from_utf8;
 
     #[test] pub fn pretty_lambda_mix_precedence()
