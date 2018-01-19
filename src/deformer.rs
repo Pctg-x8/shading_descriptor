@@ -367,13 +367,17 @@ impl<'s: 't, 't> Deformable<'s, 't> for parser::FullExpression<'s>
     fn deform(&'t self, assoc_env: &AssociativityEnv<'s>) -> Result<Self::Deformed>
     {
         use parser::FullExpression::*;
+        fn not<'s: 't, 't>(e: Expr<'s, 't>) -> Expr<'s, 't>
+        {
+            static FUNC_IDENT: Source = Source { slice: "not", pos: Location::EMPTY };
+            Expr::Apply(GenSource::from(&FUNC_IDENT), vec![e])
+        }
         match *self
         {
             Expression(ref e) => e.deform(assoc_env),
             Conditional { ref location, inv, ref cond, ref then, ref else_ } =>
             {
-                let mut cond = cond.deform(assoc_env)?;
-                if inv { cond = Expr::Apply(GenSource::Sliced(&NOT_TOKEN), vec![cond]); }
+                let mut cond = cond.deform(assoc_env)?; if inv { cond = not(cond); }
                 let (then, else_) = (then.deform(assoc_env)?, reverse_opt_res(else_.as_ref().map(|e| e.deform(assoc_env)))?);
                 Ok(Expr::Conditional { head: location, cond: box cond, then: box then, else_: else_.map(Box::new) })
             },
@@ -484,8 +488,6 @@ impl<'s: 't, 't> EqNoloc for SymPath<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool { self.base.eq_nolocation(&other.base) && self.desc.eq_nolocation(&other.desc) }
 }
-
-static NOT_TOKEN: Source<'static> = Source { pos: Location { column: 0, line: 0 }, slice: "not" };
 
 // deformer utils //
 fn ap_2options<A, F: FnOnce(A, A) -> bool>(cond: F, t: Option<A>, f: Option<A>) -> Option<bool>
