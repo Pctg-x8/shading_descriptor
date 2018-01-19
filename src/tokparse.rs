@@ -63,10 +63,16 @@ impl<'s: 't, 't> GenSource<'s, 't>
 }
 impl<'s: 't, 't> From<&'t Source<'s>> for GenSource<'s, 't> { fn from(s: &'t Source<'s>) -> Self { GenSource::Sliced(s) } }
 impl<'s: 't, 't> From<String> for GenSource<'s, 't> { fn from(s: String) -> Self { GenSource::Generated(s) } }
-impl<'s: 't, 't> ::deformer::EqNoloc for GenSource<'s, 't>
+impl<'s> ::Position for Source<'s> { fn position(&self) -> &Location { &self.pos } }
+impl<'s: 't, 't> ::Position for GenSource<'s, 't>
 {
-    fn eq_nolocation(&self, other: &Self) -> bool { self.text() == other.text() }
+    fn position(&self) -> &Location
+    {
+        match *self { GenSource::Generated(_) => &Location::EMPTY, GenSource::Sliced(s) => s.position(), GenSource::GeneratedSlice(ref s) => s.position() }
+    }
 }
+impl<'s> ::EqNoloc for Source<'s> { fn eq_nolocation(&self, other: &Self) -> bool { self.slice == other.slice } }
+impl<'s: 't, 't> ::EqNoloc for GenSource<'s, 't> { fn eq_nolocation(&self, other: &Self) -> bool { self.text() == other.text() } }
 /// Generatd Numeric or ref to span
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenNumeric<'s: 't, 't> { GeneratedInt(u64), Ref(&'t ::lambda::Numeric<'s>) }

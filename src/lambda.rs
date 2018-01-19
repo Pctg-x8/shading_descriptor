@@ -6,21 +6,20 @@ use {NumericTy, Source, Location, GenSource, GenNumeric};
 /// 数値
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Numeric<'s> { pub floating: bool, pub text: Source<'s>, pub ty: Option<NumericTy> }
-impl<'s: 't, 't> From<&'t Numeric<'s>> for NumericRef<'s, 't>
-{
-    fn from(r: &'t Numeric<'s>) -> Self { NumericRef { floating: r.floating, text: GenSource::Sliced(&r.text), ty: r.ty.clone() } }
-}
-impl<'s> ::EqNoloc for Numeric<'s>
-{
-    fn eq_nolocation(&self, other: &Self) -> bool
-    {
-        self.floating == other.floating && self.ty == other.ty && self.text.eq_nolocation(&other.text)
-    }
-}
 /// 数値
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NumericRef<'s: 't, 't> { pub floating: bool, pub text: GenSource<'s, 't>, pub ty: Option<NumericTy> }
-impl<'s: 't, 't> NumericRef<'s, 't> { pub fn position(&self) -> &Location { self.text.position() } }
+
+impl<'s: 't, 't> From<&'t Numeric<'s>> for NumericRef<'s, 't>
+{
+    fn from(r: &'t Numeric<'s>) -> Self { NumericRef { floating: r.floating, text: GenSource::from(&r.text), ty: r.ty.clone() } }
+}
+impl<'s> ::Position for Numeric<'s> { fn position(&self) -> &Location { self.text.position() } }
+impl<'s: 't, 't> ::Position for NumericRef<'s, 't> { fn position(&self) -> &Location { self.text.position() } }
+impl<'s> ::EqNoloc for Numeric<'s>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool { self.floating == other.floating && self.ty == other.ty && self.text.eq_nolocation(&other.text) }
+}
 impl<'s: 't, 't> ::EqNoloc for NumericRef<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool { self.floating == other.floating && self.ty == other.ty && self.text.eq_nolocation(&other.text) }

@@ -291,8 +291,6 @@ impl<T: EqNoloc> EqNoloc for Option<T>
     fn eq_nolocation(&self, other: &Option<T>) -> bool { self.as_ref().map_or(other.is_none(), |a| other.as_ref().map_or(false, |b| a.eq_nolocation(b))) }
 }
 impl<T: EqNoloc> EqNoloc for Box<T> { fn eq_nolocation(&self, other: &Box<T>) -> bool { self.deref().eq_nolocation(other.deref()) } }
-impl<'s> EqNoloc for Source<'s> { fn eq_nolocation(&self, other: &Self) -> bool { self.slice == other.slice } }
-impl<'s: 't, 't> EqNoloc for &'t Source<'s> { fn eq_nolocation(&self, other: &Self) -> bool { self.slice == other.slice } }
 impl<'s: 't, 't> EqNoloc for Expr<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool

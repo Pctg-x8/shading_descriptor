@@ -9,10 +9,10 @@ extern crate regex;
 mod tokparse;
 mod parser;
 mod deformer;
-mod symbol;
+// mod symbol;
 mod rewrite_expr;
 mod typepaint;
-mod patresolve;
+// mod patresolve;
 
 mod lambda;
 
@@ -65,3 +65,6 @@ impl<W: std::io::Write> PrettyPrintSink for W
     fn pretty_sink<P: ::PrettyPrint>(&mut self, target: &P) -> std::io::Result<&mut Self> { target.pretty_print(self).map(|_| self) }
     fn print(&mut self, text: &[u8]) -> std::io::Result<&mut Self> { self.write(text).map(|_| self) }
 }
+
+/// The leftmost position on source of the syntax tree
+pub trait Position { fn position(&self) -> &Location; }
