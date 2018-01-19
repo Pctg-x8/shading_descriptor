@@ -6,7 +6,7 @@ use std::ops::Deref;
 use parser;
 use std::result::Result as StdResult;
 
-#[derive(Debug)] pub enum DeformationError
+#[derive(Debug, Clone)] pub enum DeformationError
 {
     ArgumentRequired(Location), UnresolvedAssociation(Location), ConstructorRequired(Location),
     ApplicationProhibited(Location), UnableToApply(Location)

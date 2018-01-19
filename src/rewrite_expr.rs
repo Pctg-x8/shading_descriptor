@@ -6,6 +6,7 @@ use {Location, Semantics, BType, GenSource, Source, GenNumeric};
 use deformer::SymPath;
 use std::collections::HashMap;
 use std::borrow::Cow;
+use parser::AssociativityEnv;
 
 pub struct PipelineDeformed<'s: 't, 't>
 {
@@ -76,7 +77,11 @@ impl<'s: 't, 't> BoundMap<'s, 't>
     }
 }
 
-static NTH_TUPLE: Source<'static> = Source { slice: "nth_tuple", pos: Location::EMPTY };
+fn nth_tuple<'s: 't, 't>(index: deformer::Expr<'s, 't>, target: deformer::Expr<'s, 't>) -> deformer::Expr<'s, 't>
+{
+    static FUNC_IDENT: Source<'static> = Source { slice: "nth_tuple", pos: Location::EMPTY };
+    deformer::Expr::Apply(GenSource::from(&FUNC_IDENT), vec![index, target])
+}
 
 impl<'s> parser::ShaderStageDefinition<'s>
 {
@@ -118,67 +123,79 @@ impl<'s> parser::ShaderStageDefinition<'s>
                 errors.place_back() <- ComplexDeformationError::UniformNameConflict(name, u.location.clone());
             }
         }
-        for v in &self.values
-        {
-            let mut lhs = CollectErrors!(v.pat.deform(assoc) =>? errors; continue);
-            let mut rhs = BindingTree::Expr(CollectErrors!(v.value.deform(assoc) =>? errors; continue));
-            let type_hint = CollectErrors!(opt v._type.as_ref().map(|x| x.deform(assoc)) =>? errors; continue);
-
-            fn boundable<'s: 't, 't, 'd>(t: &'d deformer::ExprPat<'s, 't>) -> Result<Option<&'d GenSource<'s, 't>>, &'d Location>
-            {
-                match *t
-                {
-                    deformer::ExprPat::SymBinding(ref s) => Ok(Some(s)),
-                    deformer::ExprPat::Placeholder(_) => Ok(None),
-                    _ => Err(t.position())
-                }
-            }
-            match lhs
-            {
-                // tuple pattern: (a, b) = f x => #tup_(a,b) = f x; a = first #tup_(a,b); b = second #tup_(a,b)
-                deformer::ExprPat::Tuple(t0, ts) =>
-                {
-                    let (b0, bs) = (boundable(&t0), ts.iter().map(boundable).collect::<Result<Vec<_>, _>>());
-                    if let Err(p) = b0 { errors.place_back() <- ComplexDeformationError::Unboundable(p.clone()); }
-                    if let Err(p) = bs { errors.place_back() <- ComplexDeformationError::Unboundable(p.clone()); }
-                    if b0.is_err() || bs.is_err() { continue; }
-                    let (b0, bs) = (b0.unwrap(), bs.unwrap());
-                    let decons_name =
-                        format!("#tup_({},{})", b0.map_or("_", |x| x.text()), bs.iter().map(|b| b.map_or("_", |x| x.text())).collect::<Vec<&str>>().join(","));
-                    bindings.register(decons_name.clone(), Binding { type_hint, tree: rhs });
-                    let decons_t = deformer::Expr::Apply(GenSource::Generated(decons_name), Vec::new());
-                    if let Some(b0) = b0
-                    {
-                        let index = deformer::Expr::Numeric(GenNumeric::from(0));
-                        bindings.register(b0.text().to_owned(), Binding
-                        {
-                            type_hint: None, tree: BindingTree::Expr(deformer::Expr::Apply(GenSource::from(&NTH_TUPLE), vec![index, decons_t.clone()]))
-                        });
-                    }
-                    for (i, n) in bs.iter().enumerate().filter_map(|(i, n)| n.map(|n| (i, n)))
-                    {
-                        let index = deformer::Expr::Numeric(GenNumeric::from(i as u64 + 1));
-                        bindings.register(n.text().to_owned(), Binding
-                        {
-                            type_hint: None, tree: BindingTree::Expr(deformer::Expr::Apply(GenSource::from(&NTH_TUPLE), vec![index, decons_t.clone()]))
-                        });
-                    }
-                },
-                // simple applying pattern: a n = n + 2 => a = \n. n + 2
-                deformer::ExprPat::Apply(SymPath { base, desc }, args) => if desc.is_empty()
-                {
-                    let rhs = args.into_iter().rev().fold(rhs, |r, a| BindingTree::WithArgument(a, box r));
-                    bindings.register(base.text().to_owned(), Binding { type_hint, tree: rhs });
-                }
-                else { errors.place_back() <- ComplexDeformationError::Unboundable(base.position().clone()); },
-                // simple binding pattern: a = 2
-                // deformer::ExprPat::SymBinding(name) => { bindings.register(name.text(), Binding { type_hint, tree: rhs }); },
-                _ => { errors.place_back() <- ComplexDeformationError::Unboundable(lhs.position().clone()); }
-            }
-        }
+        for v in &self.values { errors.append(&mut parse_binding(v, assoc, &mut bindings)); }
 
         if errors.is_empty() { Ok(StageDeformed { ast: self, bindings, io }) } else { Err(errors) }
     }
+}
+
+enum OptionalSpan<'s: 't, 't> { None(&'t Location), Some(GenSource<'s, 't>) }
+impl<'s: 't, 't> OptionalSpan<'s, 't>
+{
+    fn text(&self) -> &str
+    {
+        match *self { OptionalSpan::None(_) => "_", OptionalSpan::Some(ref s) => s.text() }
+    }
+}
+fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &AssociativityEnv<'s>, bindings: &mut BoundMap<'s, 't>) -> Vec<ComplexDeformationError<'s>>
+{
+    let mut errors = Vec::new();
+    let (lhs, rhs, type_hint) = (v.pat.deform(assoc), v.value.deform(assoc), v._type.as_ref().map(|x| x.deform(assoc)));
+    if let Err(ref e) = lhs { errors.place_back() <- e.clone().into(); }
+    if let Err(ref e) = rhs { errors.place_back() <- e.clone().into(); }
+    if let Some(Err(ref e)) = type_hint { errors.place_back() <- e.clone().into(); }
+    if !errors.is_empty() { return errors; }
+    let (lhs, rhs, type_hint) = (lhs.unwrap(), rhs.unwrap(), match type_hint { Some(Ok(v)) => Some(v), None => None, _ => unreachable!() });
+
+    fn boundable<'s: 't, 't, 'd>(t: &'d deformer::ExprPat<'s, 't>) -> Result<OptionalSpan<'s, 't>, &'d Location>
+    {
+        match *t
+        {
+            deformer::ExprPat::SymBinding(ref s) => Ok(OptionalSpan::Some(s.clone())),
+            deformer::ExprPat::Placeholder(p) => Ok(OptionalSpan::None(p)),
+            _ => Err(t.position())
+        }
+    }
+    match lhs
+    {
+        // tuple pattern: (a, b) = f x => #tup_(a,b) = f x; a = nth_tuple 0 #tup_(a,b); b = nth_tuple 1 #tup_(a,b)
+        deformer::ExprPat::Tuple(t0, ts) =>
+        {
+            let (b0, bs) = (boundable(&t0), ts.iter().map(boundable).collect::<Result<Vec<_>, _>>());
+            if let Err(p) = b0 { errors.place_back() <- ComplexDeformationError::Unboundable(p.clone()); }
+            if let Err(p) = bs { errors.place_back() <- ComplexDeformationError::Unboundable(p.clone()); }
+            if !errors.is_empty() { return errors; }
+            let (b0, bs) = (b0.unwrap(), bs.unwrap());
+
+            let decons_name = format!("#tup_({},{})", b0.text(), bs.iter().map(OptionalSpan::text).collect::<Vec<_>>().join(","));
+            bindings.register(decons_name.clone(), Binding { type_hint, tree: BindingTree::Expr(rhs) });
+            let decons_t = deformer::Expr::Apply(GenSource::Generated(decons_name), Vec::new());
+            if let OptionalSpan::Some(b0) = b0
+            {
+                let index = deformer::Expr::Numeric(GenNumeric::from(0));
+                bindings.register(b0.text().to_owned(), Binding { type_hint: None, tree: BindingTree::Expr(nth_tuple(index, decons_t.clone())) });
+            }
+            for (i, n) in bs.into_iter().enumerate()
+            {
+                if let OptionalSpan::Some(n) = n
+                {
+                    let index = deformer::Expr::Numeric(GenNumeric::from(i as u64 + 1));
+                    bindings.register(n.text().to_owned(), Binding { type_hint: None, tree: BindingTree::Expr(nth_tuple(index, decons_t.clone())) });
+                }
+            }
+        },
+        // simple applying pattern: a n = n + 2 => a = \n. n + 2
+        deformer::ExprPat::Apply(SymPath { base, desc }, args) => if desc.is_empty()
+        {
+            let rhs = args.into_iter().rev().fold(BindingTree::Expr(rhs), |r, a| BindingTree::WithArgument(a, box r));
+            bindings.register(base.text().to_owned(), Binding { type_hint, tree: rhs });
+        }
+        else { errors.place_back() <- ComplexDeformationError::Unboundable(base.position().clone()); },
+        // simple binding pattern: a = 2
+        deformer::ExprPat::SymBinding(name) => { bindings.register(name.text().to_owned(), Binding { type_hint, tree: BindingTree::Expr(rhs) }); },
+        _ => { errors.place_back() <- ComplexDeformationError::Unboundable(lhs.position().clone()); }
+    }
+    errors
 }
 
 pub enum ComplexDeformationError<'s>
