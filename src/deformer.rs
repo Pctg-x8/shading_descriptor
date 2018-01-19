@@ -1,8 +1,8 @@
 
+use {Position, EqNoloc};
 use {Location, Source, GenSource, BType, Associativity, AssociativityEnv, GenNumeric};
 use {TypeSynTree, InferredArrayDim};
 use std::mem::replace;
-use std::ops::Deref;
 use parser;
 use std::result::Result as StdResult;
 
@@ -246,8 +246,11 @@ impl<'s: 't, 't> Expr<'s, 't>
         let old = replace(self, Expr::Garbage);
         *self = old.combine(new_lhs, new_arg);
     }
+}
 
-    pub fn position(&self) -> &Location
+impl<'s: 't, 't> Position for Expr<'s, 't>
+{
+    fn position(&self) -> &Location
     {
         match *self
         {
@@ -261,9 +264,9 @@ impl<'s: 't, 't> Expr<'s, 't>
         }
     }
 }
-impl<'s: 't, 't> ExprPat<'s, 't>
+impl<'s: 't, 't> Position for ExprPat<'s, 't>
 {
-    pub fn position(&self) -> &Location
+    fn position(&self) -> &Location
     {
         match *self
         {
@@ -275,62 +278,29 @@ impl<'s: 't, 't> ExprPat<'s, 't>
         }
     }
 }
-pub trait EqNoloc { fn eq_nolocation(&self, other: &Self) -> bool; }
-/// and
-impl<A: EqNoloc, B: EqNoloc> EqNoloc for (A, B)
-{
-    fn eq_nolocation(&self, other: &(A, B)) -> bool { self.0.eq_nolocation(&other.0) && self.1.eq_nolocation(&other.1) }
-}
-/// all
-impl<T: EqNoloc> EqNoloc for [T]
-{
-    fn eq_nolocation(&self, other: &[T]) -> bool { self.len() == other.len() && self.iter().zip(other.iter()).all(|(a, b)| a.eq_nolocation(b)) }
-}
-impl<T: EqNoloc> EqNoloc for Option<T>
-{
-    fn eq_nolocation(&self, other: &Option<T>) -> bool { self.as_ref().map_or(other.is_none(), |a| other.as_ref().map_or(false, |b| a.eq_nolocation(b))) }
-}
-impl<T: EqNoloc> EqNoloc for Box<T> { fn eq_nolocation(&self, other: &Box<T>) -> bool { self.deref().eq_nolocation(other.deref()) } }
 impl<'s: 't, 't> EqNoloc for Expr<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool
     {
-        match *self
+        use self::Expr::*;
+
+        match (self, other)
         {
-            Expr::Garbage => false,
-            Expr::Apply(ref s, ref v) =>
-                if let Expr::Apply(ref s_, ref v_) = *other { s.text() == s_.text() && v.eq_nolocation(v_) } else { false },
-            Expr::Numeric(ref n) => if let Expr::Numeric(ref n_) = *other { n.eq_nolocation(n_) } else { false },
-            Expr::ArrayLiteral(_, ref v) => if let Expr::ArrayLiteral(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
-            Expr::Tuple1(ref x, ref v) => if let Expr::Tuple1(ref x_, ref v_) = *other
-            {
-                x.eq_nolocation(x_) && v.eq_nolocation(v_)
-            }
-            else { false },
-            Expr::Unit(_) => if let Expr::Unit(_) = *other { true } else { false },
-            Expr::ArrayRef(ref b, ref x) =>
-                if let Expr::ArrayRef(ref b_, ref x_) = *other { b.eq_nolocation(b_) && x.eq_nolocation(x_) } else { false },
-            Expr::PathRef(ref b, ref v) =>
-                if let Expr::PathRef(ref b_, ref v_) = *other { b.eq_nolocation(b_) && v.eq_nolocation(v_) } else { false },
-            Expr::Conditional { ref cond, ref then, ref else_, .. } =>
-                if let Expr::Conditional { cond: ref cond_, then: ref then_, else_: ref else__, .. } = *other
-                {
-                    cond.eq_nolocation(cond_) && then.eq_nolocation(then_) && else_.eq_nolocation(else__)
-                }
-                else { false },
-            Expr::Block(_, ref v) => if let Expr::Block(_, ref v_) = *other { v.eq_nolocation(v_) } else { false },
-            Expr::Lettings { ref vars, ref subexpr, .. } =>
-                if let Expr::Lettings { vars: ref vars_, subexpr: ref subexpr_, .. } = *other
-                {
-                    vars.eq_nolocation(vars_) && subexpr.eq_nolocation(subexpr_)
-                }
-                else { false },
-            Expr::CaseOf { ref expr, ref matchers, .. } =>
-                if let Expr::CaseOf { expr: ref expr_, matchers: ref matchers_, .. } = *other
-                {
-                    expr.eq_nolocation(expr_) && matchers.eq_nolocation(matchers_)
-                }
-                else { false }
+            (&Apply(ref s, ref v), &Apply(ref s_, ref v_)) => s.text() == s_.text() && v.eq_nolocation(v_),
+            (&Numeric(ref n), &Numeric(ref n_)) => n.eq_nolocation(n_),
+            (&ArrayLiteral(_, ref v), &ArrayLiteral(_, ref v_)) => v.eq_nolocation(v_),
+            (&Tuple1(ref x, ref v), &Tuple1(ref x_, ref v_)) => x.eq_nolocation(x_) && v.eq_nolocation(v_),
+            (&Unit(_), &Unit(_)) => true,
+            (&ArrayRef(ref b, ref x), &ArrayRef(ref b_, ref x_)) => b.eq_nolocation(b_) && x.eq_nolocation(x_),
+            (& PathRef(ref b, ref x), & PathRef(ref b_, ref x_)) => b.eq_nolocation(b_) && x.eq_nolocation(x_),
+            (&Conditional { ref cond, ref then, ref else_, .. }, &Conditional { cond: ref cond_, then: ref then_, else_: ref else__, .. }) =>
+                cond.eq_nolocation(cond_) && then.eq_nolocation(then_) && else_.eq_nolocation(else__),
+            (&Block(_, ref v), &Block(_, ref v_)) => v.eq_nolocation(v_),
+            (&Lettings { ref vars, ref subexpr, .. }, &Lettings { vars: ref vars_, subexpr: ref subexpr_, .. }) =>
+                vars.eq_nolocation(vars_) && subexpr.eq_nolocation(subexpr_),
+            (&CaseOf { ref expr, ref matchers, .. }, &CaseOf { expr: ref expr_, matchers: ref matchers_, .. }) =>
+                expr.eq_nolocation(expr_) && matchers.eq_nolocation(matchers_),
+            _ => false
         }
     }
 }
@@ -338,10 +308,12 @@ impl<'s: 't, 't> EqNoloc for BlockContent<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool
     {
-        match *self
+        use self::BlockContent::*;
+        match (self, other)
         {
-            BlockContent::Vars(ref v) => if let BlockContent::Vars(ref v_) = *other { v.eq_nolocation(v_) } else { false },
-            BlockContent::Expr(ref x) => if let BlockContent::Expr(ref x_) = *other { x.eq_nolocation(x_) } else { false }
+            (&Vars(ref v), &Vars(ref v_)) => v.eq_nolocation(v_),
+            (&Expr(ref x), &Expr(ref x_)) => x.eq_nolocation(x_),
+            _ => false
         }
     }
 }
@@ -493,38 +465,24 @@ impl<'s: 't, 't> EqNoloc for ExprPat<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool
     {
-        match *self
+        use self::ExprPat::*;
+
+        match (self, other)
         {
-            ExprPat::Apply(ref p, ref sv) => if let ExprPat::Apply(ref p_, ref sv_) = *other
-            {
-                p.eq_nolocation(p_) && sv.eq_nolocation(sv_)
-            }
-            else { false },
-            ExprPat::SymBinding(ref s) => if let ExprPat::SymBinding(ref s_) = *other { s.eq_nolocation(s_) } else { false },
-            ExprPat::Numeric(ref n) => if let ExprPat::Numeric(ref n_) = *other { n.eq_nolocation(n_) } else { false },
-            ExprPat::Unit(_) => if let ExprPat::Unit(_) = *other { true } else { false },
-            ExprPat::Placeholder(_) => if let ExprPat::Placeholder(_) = *other { true } else { false },
-            ExprPat::PathRef(ref sb, ref sv) => if let ExprPat::PathRef(ref sb_, ref sv_) = *other
-            {
-                sb.eq_nolocation(sb_) && sv.eq_nolocation(sv_)
-            }
-            else { false },
-            ExprPat::Tuple(ref x0, ref xv) => if let ExprPat::Tuple(ref x0_, ref xv_) = *other
-            {
-                x0.eq_nolocation(x0_) && xv.eq_nolocation(xv_)
-            }
-            else { false },
-            ExprPat::ArrayLiteral(_, ref xv) => if let ExprPat::ArrayLiteral(_, ref xv_) = *other { xv.eq_nolocation(xv_) } else { false },
-            ExprPat::Garbage => false
+            (&Apply(ref p, ref sv), &Apply(ref p_, ref sv_)) => p.eq_nolocation(p_) && sv.eq_nolocation(sv_),
+            (&SymBinding(ref s), &SymBinding(ref s_)) => s.eq_nolocation(s_),
+            (&Numeric(ref n), &Numeric(ref n_)) => n.eq_nolocation(n_),
+            (&Unit(_), &Unit(_)) | (&Placeholder(_), &Placeholder(_)) => true,
+            (&PathRef(ref sb, ref sv), &PathRef(ref sb_, ref sv_)) => sb.eq_nolocation(sb_) && sv.eq_nolocation(sv_),
+            (&Tuple(ref x0, ref xv), &Tuple(ref x0_, ref xv_)) => x0.eq_nolocation(x0_) && xv.eq_nolocation(xv_),
+            (&ArrayLiteral(_, ref xv), &ArrayLiteral(_, ref xv_)) => xv.eq_nolocation(xv_),
+            _ => false
         }
     }
 }
 impl<'s: 't, 't> EqNoloc for SymPath<'s, 't>
 {
-    fn eq_nolocation(&self, other: &Self) -> bool
-    {
-        self.base.eq_nolocation(&other.base) && self.desc.eq_nolocation(&other.desc)
-    }
+    fn eq_nolocation(&self, other: &Self) -> bool { self.base.eq_nolocation(&other.base) && self.desc.eq_nolocation(&other.desc) }
 }
 
 static NOT_TOKEN: Source<'static> = Source { pos: Location { column: 0, line: 0 }, slice: "not" };

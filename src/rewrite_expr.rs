@@ -1,6 +1,6 @@
 // Expression Rewriter/Simplizer
 
-use {parser, deformer};
+use {parser, deformer, Position};
 use {Deformable, DeformationError};
 use {Location, Semantics, BType, GenSource, Source, GenNumeric};
 use deformer::SymPath;

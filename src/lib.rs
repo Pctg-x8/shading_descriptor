@@ -33,7 +33,7 @@ pub use parser::utils::Leftmost;
 pub use rewrite_expr::{PipelineDeformed, StageDeformed};
 pub use rewrite_expr::ComplexDeformationError;
 
-pub use deformer::{EqNoloc, Deformable, DeformationError};
+pub use deformer::{Deformable, DeformationError};
 
 pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
 pub use typepaint::{ConstructorEnv, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
@@ -66,5 +66,22 @@ impl<W: std::io::Write> PrettyPrintSink for W
     fn print(&mut self, text: &[u8]) -> std::io::Result<&mut Self> { self.write(text).map(|_| self) }
 }
 
+/// Equation without position
+pub trait EqNoloc { fn eq_nolocation(&self, other: &Self) -> bool; }
+/// and
+impl<A: EqNoloc, B: EqNoloc> EqNoloc for (A, B)
+{
+    fn eq_nolocation(&self, other: &(A, B)) -> bool { self.0.eq_nolocation(&other.0) && self.1.eq_nolocation(&other.1) }
+}
+/// all
+impl<T: EqNoloc> EqNoloc for [T]
+{
+    fn eq_nolocation(&self, other: &[T]) -> bool { self.len() == other.len() && self.iter().zip(other.iter()).all(|(a, b)| a.eq_nolocation(b)) }
+}
+impl<T: EqNoloc> EqNoloc for Option<T>
+{
+    fn eq_nolocation(&self, other: &Option<T>) -> bool { self.as_ref().map_or(other.is_none(), |a| other.as_ref().map_or(false, |b| a.eq_nolocation(b))) }
+}
+impl<T: EqNoloc> EqNoloc for Box<T> { fn eq_nolocation(&self, other: &Box<T>) -> bool { T::eq_nolocation(self, other) } }
 /// The leftmost position on source of the syntax tree
 pub trait Position { fn position(&self) -> &Location; }

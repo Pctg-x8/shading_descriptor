@@ -269,8 +269,8 @@ pub enum TyConsKind { Star, Arrow(Box<TyConsKind>, Box<TyConsKind>), Constraint 
 mod test
 {
     use deformer;
-    use deformer::{Prefix, EqNoloc};
-    use {GenSource, PrettyPrint};
+    use deformer::Prefix;
+    use {GenSource, PrettyPrint, EqNoloc};
     use std::str::from_utf8;
 
     #[test] fn dcons_ty()

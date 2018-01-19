@@ -78,14 +78,14 @@ impl<'s: 't, 't> ::EqNoloc for GenSource<'s, 't> { fn eq_nolocation(&self, other
 pub enum GenNumeric<'s: 't, 't> { GeneratedInt(u64), Ref(&'t ::lambda::Numeric<'s>) }
 impl<'s: 't, 't> From<u64> for GenNumeric<'s, 't> { fn from(v: u64) -> Self { GenNumeric::GeneratedInt(v) } }
 impl<'s: 't, 't> From<&'t ::lambda::Numeric<'s>> for GenNumeric<'s, 't> { fn from(v: &'t ::lambda::Numeric<'s>) -> Self { GenNumeric::Ref(v) } }
-impl<'s: 't, 't> GenNumeric<'s, 't>
+impl<'s: 't, 't> ::Position for GenNumeric<'s, 't>
 {
-    pub fn position(&self) -> &Location
+    fn position(&self) -> &Location
     {
-        match *self { GenNumeric::Ref(s) => &s.text.pos, GenNumeric::GeneratedInt(_) => &Location::EMPTY }
+        match *self { GenNumeric::Ref(s) => s.position(), GenNumeric::GeneratedInt(_) => &Location::EMPTY }
     }
 }
-impl<'s: 't, 't> ::deformer::EqNoloc for GenNumeric<'s, 't>
+impl<'s: 't, 't> ::EqNoloc for GenNumeric<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool
     {
