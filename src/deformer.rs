@@ -208,10 +208,7 @@ pub enum Expr<'s: 't, 't>
     Apply(Box<Expr<'s, 't>>, Vec<Expr<'s, 't>>), ArrayLiteral(&'t Location, Vec<Expr<'s, 't>>), ArrayRef(Box<Expr<'s, 't>>, Box<Expr<'s, 't>>),
     Unit(&'t Location), Tuple1(Box<Expr<'s, 't>>, Vec<Expr<'s, 't>>),
     // full //
-    Conditional
-    {
-        head: &'t Location, cond: Box<Expr<'s, 't>>, then: Box<Expr<'s, 't>>, else_: Option<Box<Expr<'s, 't>>>
-    },
+    Conditional { head: &'t Location, cond: Box<Expr<'s, 't>>, then: Box<Expr<'s, 't>>, else_: Option<Box<Expr<'s, 't>>> },
     Block(&'t Location, Vec<BlockContent<'s, 't>>),
     Lettings { head: &'t Location, vars: Vec<Binding<'s, 't>>, subexpr: Box<Expr<'s, 't>> },
     CaseOf { head: &'t Location, expr: Box<Expr<'s, 't>>, matchers: Vec<(ExprPat<'s, 't>, Expr<'s, 't>)> }
@@ -492,10 +489,10 @@ fn reverse_opt_res<A, E>(opt: Option<StdResult<A, E>>) -> StdResult<Option<A>, E
 
 #[derive(Clone)]
 pub struct AggPointer { prec: usize, index: usize }
-fn extract_most_precedences1<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s, 't, IR>])
-    -> StdResult<(Option<AggPointer>, Option<AggPointer>, Option<AggPointer>), &'t Location>
+pub struct Aggregated { left: Option<AggPointer>, none: Option<AggPointer>, right: Option<AggPointer> }
+fn extract_most_precedences1<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s, 't, IR>]) -> StdResult<Aggregated, &'t Location>
 {
-    let (mut left, mut right, mut none): (Option<AggPointer>, Option<AggPointer>, Option<AggPointer>) = (None, None, None);
+    let (mut left, mut right, mut none) = (None, None, None);
     let mut none_last_prec = None;
     for (i, ir) in mods.iter().enumerate()
     {
@@ -503,34 +500,34 @@ fn extract_most_precedences1<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s, '
         {
             Associativity::Left(prec) =>
             {
-                if left.as_ref().map_or(true, |t| prec > t.prec) { left = Some(AggPointer { prec, index: i }); }
+                if left.as_ref().map_or(true, |t: &AggPointer| prec > t.prec) { left = Some(AggPointer { prec, index: i }); }
                 none_last_prec = None;
             },
             Associativity::Right(prec) =>
             {
-                if right.as_ref().map_or(true, |t| prec >= t.prec) { right = Some(AggPointer { prec, index: i }); }
+                if right.as_ref().map_or(true, |t: &AggPointer| prec >= t.prec) { right = Some(AggPointer { prec, index: i }); }
                 none_last_prec = None;
             },
             Associativity::None(prec) if none_last_prec == Some(prec) => return Err(&ir.op.pos),
             Associativity::None(prec) =>
             {
-                if none.as_ref().map_or(true, |t| prec > t.prec) { none = Some(AggPointer { prec, index: i }); }
+                if none.as_ref().map_or(true, |t: &AggPointer| prec > t.prec) { none = Some(AggPointer { prec, index: i }); }
                 none_last_prec = Some(prec);
             }
         }
     }
-    Ok((left, right, none))
+    Ok(Aggregated { left, right, none })
 }
 pub fn extract_most_precedences<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s, 't, IR>]) -> StdResult<Option<AggPointer>, &'t Location>
 {
-    let (l, r, n) = extract_most_precedences1(mods)?;
-    Ok(ap_2options(|l, r| l.prec > r.prec, l.as_ref(), r.as_ref()).map_or(n.clone(), |llarge| if llarge
+    let agg = extract_most_precedences1(mods)?;
+    Ok(ap_2options(|l, r| l.prec > r.prec, agg.left.as_ref(), agg.right.as_ref()).map_or(agg.none.clone(), |llarge| if llarge
     {
-        ap_2options(|n, l| n.prec > l.prec, n.as_ref(), l.as_ref()).map(|nlarge| if nlarge { n.unwrap() } else { l.unwrap() })
+        ap_2options(|n, l| n.prec > l.prec, agg.none.as_ref(), agg.left.as_ref()).and_then(|nlarge| if nlarge { agg.none } else { agg.left })
     }
     else
     {
-        ap_2options(|n, r| n.prec > r.prec, n.as_ref(), r.as_ref()).map(|nlarge| if nlarge { n.unwrap() } else { r.unwrap() })
+        ap_2options(|n, r| n.prec > r.prec, agg.none.as_ref(), agg.right.as_ref()).and_then(|nlarge| if nlarge { agg.none } else { agg.right })
     }))
 }
 
