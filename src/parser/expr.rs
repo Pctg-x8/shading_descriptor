@@ -366,12 +366,13 @@ fn case_of<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmos
     let mut matchers = Vec::new();
     while block_start.satisfy(stream.current(), true)
     {
+        // pat -> fullex
         if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
         let defbegin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
         let pat = ExprPatSynTree::parse(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::ExpressionPattern, stream.current().position()))?;
         let defbegin = defbegin.into_exclusive();
         stream.shift_arrow().map_err(|p| ParseError::Expecting(ExpectingKind::Arrow1, p))?;
-        let xp = FullExpression::parse(stream.shift(), defbegin).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
+        let xp = FullExpression::parse(stream, defbegin).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         matchers.place_back() <- (pat, xp);
         while let TokenKind::StatementDelimiter(_) = *stream.current() { stream.shift(); }
     }
