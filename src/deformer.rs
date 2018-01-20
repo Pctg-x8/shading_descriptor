@@ -74,6 +74,11 @@ impl<'s: 't, 't> Ty<'s, 't>
 }
 
 pub struct InfixIntermediate<'s: 't, 't, IR: 't> { op: &'t Source<'s>, assoc: Associativity, ir: IR }
+fn build_infix_ir<'s: 't, 't, Tree: Deformable<'s, 't>>(mods: &'t [(Source<'s>, Tree)], assoc: &AssociativityEnv<'s>)
+    -> Result<Vec<InfixIntermediate<'s, 't, <Tree as Deformable<'s, 't>>::Deformed>>>
+{
+    mods.iter().map(|&(ref op, ref x)| Ok(InfixIntermediate { op, assoc: assoc.lookup(op.slice), ir: x.deform(assoc)? })).collect()
+}
 impl<'s: 't, 't> Ty<'s, 't>
 {
     /// self <+> (new_lhs new_arg) = (new_lhs self new_arg)
@@ -138,59 +143,6 @@ impl<'s: 't, 't> EqNoloc for Prefix<'s, 't>
             Prefix::User(ref s) => if let Prefix::User(ref s_) = *other { s.text() == s_.text() } else { false },
             Prefix::PathRef(ref p, ref v) => if let Prefix::PathRef(ref p_, ref v_) = *other { p.eq_nolocation(&p_) && v.eq_nolocation(v_) } else { false }
         }
-    }
-}
-
-/// Deforming(Resolving infix operators to prefix style) a TypeSynTree using current AssociativityEnv
-impl<'s: 't, 't> Deformable<'s, 't> for TypeSynTree<'s>
-{
-    type Deformed = Ty<'s, 't>;
-    fn deform(&'t self, assoc_env: &AssociativityEnv<'s>) -> Result<Self::Deformed>
-    {
-        use TypeSynTree::*; use self::Prefix as PrefixKind;
-        match *self
-        {
-            // a b... => (deform(a), sym_placeholder(b...))
-            Prefix(ref v1, ref vs) =>
-            {
-                let mut lhs = v1.deform(assoc_env)?;
-                lhs.append_args(&mut vs.deform(assoc_env)?);
-                Ok(lhs)
-            },
-            Infix { ref lhs, ref mods } =>
-            {
-                let mut mods: Vec<_> = mods.iter().map(|&(ref op, ref rhs)| Ok(InfixIntermediate
-                {
-                    op, assoc: assoc_env.lookup(op.slice), ir: rhs.deform(assoc_env)?
-                })).collect::<Result<_>>()?;
-                let mut lhs = lhs.deform(assoc_env)?;
-                while !mods.is_empty()
-                {
-                    let agg = extract_most_precedences(&mods).map_err(|p| DeformationError::UnresolvedAssociation(p.clone()))?.unwrap();
-                    let ir = mods.remove(agg.index);
-                    let cell = if agg.index >= 1 { &mut mods[agg.index - 1].ir } else { &mut lhs };
-                    cell.combine_inplace(PrefixKind::User(ir.op.into()), ir.ir);
-                }
-                Ok(lhs)
-            },
-            // a => a, []
-            SymReference(ref sym) => Ok(Ty::symref(sym.into())),
-            PathRef(ref base, ref v) => Ok(Ty::Expressed(PrefixKind::PathRef(box base.deform(assoc_env)?, v.iter().map(GenSource::from).collect()), Vec::new())),
-            Placeholder(ref p) => Ok(Ty::Placeholder(p)),
-            Basic(ref p, bt) => Ok(Ty::Basic(p, bt)),
-            Tuple(ref p, ref v) => Ok(Ty::Tuple(p, v.deform(assoc_env)?)),
-            ArrowInfix { ref op_pos, ref lhs, ref rhs } => Ok(Ty::Expressed(PrefixKind::Arrow(op_pos), vec![lhs.deform(assoc_env)?, rhs.deform(assoc_env)?])),
-            ArrayDim { ref lhs, ref num } => Ok(Ty::ArrayDim(box lhs.deform(assoc_env)?, num))
-        }
-    }
-}
-impl<'s: 't, 't> Deformable<'s, 't> for parser::FullTypeDesc<'s>
-{
-    type Deformed = FullTy<'s, 't>;
-    fn deform(&'t self, assoc_env: &AssociativityEnv<'s>) -> Result<Self::Deformed>
-    {
-        let constraints = self.constraints.iter().map(|c| c.deform(assoc_env)).collect::<Result<_>>()?;
-        Ok(FullTy { quantified: self.quantified.iter().map(From::from).collect(), constraints, def: self.tree.deform(assoc_env)? })
     }
 }
 
@@ -310,6 +262,56 @@ impl<'s: 't, 't> EqNoloc for Binding<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool { self.pat.eq_nolocation(&other.pat) && self.expr.eq_nolocation(&other.expr) }
 }
+
+/// Deforming(Resolving infix operators to prefix style) a TypeSynTree using current AssociativityEnv
+impl<'s: 't, 't> Deformable<'s, 't> for TypeSynTree<'s>
+{
+    type Deformed = Ty<'s, 't>;
+    fn deform(&'t self, assoc_env: &AssociativityEnv<'s>) -> Result<Self::Deformed>
+    {
+        use TypeSynTree::*; use self::Prefix as PrefixKind;
+        match *self
+        {
+            // a b... => (deform(a), deform(b...))
+            Prefix(ref v1, ref vs) =>
+            {
+                let mut lhs = v1.deform(assoc_env)?;
+                lhs.append_args(&mut vs.deform(assoc_env)?);
+                Ok(lhs)
+            },
+            Infix { ref lhs, ref mods } =>
+            {
+                let mut mods = build_infix_ir(mods, assoc_env)?;
+                let mut lhs = lhs.deform(assoc_env)?;
+                while !mods.is_empty()
+                {
+                    let agg = extract_most_precedences(&mods).map_err(|p| DeformationError::UnresolvedAssociation(p.clone()))?.unwrap();
+                    let ir = mods.remove(agg.index);
+                    let cell = if agg.index >= 1 { &mut mods[agg.index - 1].ir } else { &mut lhs };
+                    cell.combine_inplace(PrefixKind::User(ir.op.into()), ir.ir);
+                }
+                Ok(lhs)
+            },
+            // a => a, []
+            SymReference(ref sym) => Ok(Ty::symref(sym.into())),
+            PathRef(ref base, ref v) => Ok(Ty::Expressed(PrefixKind::PathRef(box base.deform(assoc_env)?, v.iter().map(GenSource::from).collect()), Vec::new())),
+            Placeholder(ref p) => Ok(Ty::Placeholder(p)),
+            Basic(ref p, bt) => Ok(Ty::Basic(p, bt)),
+            Tuple(ref p, ref v) => Ok(Ty::Tuple(p, v.deform(assoc_env)?)),
+            ArrowInfix { ref op_pos, ref lhs, ref rhs } => Ok(Ty::Expressed(PrefixKind::Arrow(op_pos), vec![lhs.deform(assoc_env)?, rhs.deform(assoc_env)?])),
+            ArrayDim { ref lhs, ref num } => Ok(Ty::ArrayDim(box lhs.deform(assoc_env)?, num))
+        }
+    }
+}
+impl<'s: 't, 't> Deformable<'s, 't> for parser::FullTypeDesc<'s>
+{
+    type Deformed = FullTy<'s, 't>;
+    fn deform(&'t self, assoc_env: &AssociativityEnv<'s>) -> Result<Self::Deformed>
+    {
+        let constraints = self.constraints.iter().map(|c| c.deform(assoc_env)).collect::<Result<_>>()?;
+        Ok(FullTy { quantified: self.quantified.iter().map(From::from).collect(), constraints, def: self.tree.deform(assoc_env)? })
+    }
+}
 impl<'s: 't, 't> Deformable<'s, 't> for parser::ExpressionSynTree<'s>
 {
     type Deformed = Expr<'s, 't>;
@@ -325,9 +327,7 @@ impl<'s: 't, 't> Deformable<'s, 't> for parser::ExpressionSynTree<'s>
             },
             Infix { ref lhs, ref mods } =>
             {
-                let mut mods: Vec<_> = mods.iter()
-                    .map(|&(ref op, ref rhs)| Ok(InfixIntermediate { op, assoc: assoc_env.lookup(op.slice), ir: rhs.deform(assoc_env)? }))
-                    .collect::<Result<_>>()?;
+                let mut mods = build_infix_ir(mods, assoc_env)?;
                 let mut lhs = lhs.deform(assoc_env)?;
                 while !mods.is_empty()
                 {
