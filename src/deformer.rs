@@ -222,10 +222,6 @@ pub enum ExprPat<'s: 't, 't>
 }
 impl<'s: 't, 't> Expr<'s, 't>
 {
-    fn assume_application(&self) -> StdResult<&Self, &Self>
-    {
-        if let Expr::Apply(_, _) = *self { Ok(self) } else { Err(self) }
-    }
     fn applicable(self) -> Self
     {
         if let Expr::Apply(_, _) = self { self } else { Expr::Apply(box self, vec![]) }
@@ -325,7 +321,6 @@ impl<'s: 't, 't> Deformable<'s, 't> for parser::ExpressionSynTree<'s>
             Prefix(ref v0, ref v) =>
             {
                 let mut lhs = v0.deform(assoc_env)?;
-                lhs.assume_application().map_err(|lhs| DeformationError::UnableToApply(lhs.position().clone()))?;
                 lhs.append_args(&mut v.deform(assoc_env)?); lhs
             },
             Infix { ref lhs, ref mods } =>
