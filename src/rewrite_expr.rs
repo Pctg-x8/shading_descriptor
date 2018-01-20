@@ -220,6 +220,7 @@ fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &Associ
     errors
 }
 
+#[derive(Debug)]
 pub enum ComplexDeformationError<'s>
 {
     Inherit(DeformationError), SemanticsConflict(Semantics, Location),
