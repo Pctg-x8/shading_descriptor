@@ -12,16 +12,7 @@ pub fn impl_symbol_scope(input: TokenStream) -> TokenStream
 {
     let s = input.to_string();
     let ast = syn::parse_derive_input(&s).unwrap();
-    let referer_str = ast.attrs.iter().filter_map(|a| match a.value
-    {
-        MetaItem::NameValue(ref ident, ref lit) if ident == "SymbolMapReferer" => match *lit
-        {
-            Lit::Str(ref l, _) => Some(l.to_owned()), Lit::Int(n, _) => Some(n.to_string()),
-            _ => panic!("`SymbolMapReferer` requires a string literal or an integer literal")
-        }
-        _ => None
-    }).next().unwrap_or("0".to_string());
-    let referer = syn::Ident::new(referer_str);
+    let referer = syn::Ident::new(query_attribute(&ast.attrs, "SymbolMapReferer").unwrap_or("0".to_string()));
     let ref tyname = ast.ident;
     let gen = quote!{
         impl<'s: 't, 't> ::symbol::SymbolScope<'s, 't> for #tyname<'s, 't>
@@ -37,4 +28,32 @@ pub fn impl_symbol_scope(input: TokenStream) -> TokenStream
         }
     };
     gen.parse().unwrap()
+}
+#[proc_macro_derive(ConstructorEnvironment, attributes(ConstructorSet))]
+pub fn impl_ctor_env(input: TokenStream) -> TokenStream
+{
+    let s = input.to_string();
+    let ast = syn::parse_derive_input(&s).unwrap();
+    let referer = syn::Ident::new(query_attribute(&ast.attrs, "ConstructorSet").unwrap_or("0".to_string()));
+    let ref target = ast.ident;
+    let gen = quote!{
+        impl<'t> ::ctor::ConstructorEnvironment<'t> for #target<'t>
+        {
+            fn symbol_set(&self) -> &::ctor::ConstructorSet<'t> { &self.#referer }
+            fn symbol_set_mut(&mut self) -> &mut ::ctor::ConstructorSet<'t> { &mut self.#referer }
+        }
+    };
+    gen.parse().unwrap()
+}
+
+fn query_attribute(attrs: &[syn::Attribute], name: &str) -> Option<String>
+{
+    attrs.iter().filter_map(|a| match a.value
+    {
+        MetaItem::NameValue(ref ident, ref lit) if ident == name => match *lit
+        {
+            Lit::Str(ref l, _) => Some(l.to_owned()), Lit::Int(n, _) => Some(n.to_string()),
+            _ => panic!("`{}` requires a string literal or an integer literal", name)
+        }, _ => None
+    }).next()
 }
