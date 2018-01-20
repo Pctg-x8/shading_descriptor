@@ -8,20 +8,24 @@ use std::collections::HashMap;
 use std::borrow::Cow;
 use parser::AssociativityEnv;
 
+#[derive(Debug)]
 pub struct PipelineDeformed<'s: 't, 't>
 {
     pub ast: &'t parser::ShadingPipeline<'s>, pub bindings: BoundMap<'s, 't>,
     pub vsh: Option<StageDeformed<'s, 't>>, pub fsh: Option<StageDeformed<'s, 't>>, pub gsh: Option<StageDeformed<'s, 't>>,
     pub hsh: Option<StageDeformed<'s, 't>>, pub dsh: Option<StageDeformed<'s, 't>>
 }
+#[derive(Debug)]
 pub struct StageDeformed<'s: 't, 't>
 {
     pub ast: &'t parser::ShaderStageDefinition<'s>, pub bindings: BoundMap<'s, 't>, pub io: IOSemanticsMap<'s, 't>
 }
+#[derive(Debug)]
 pub struct ConstantDef<'s: 't, 't>
 {
     pub type_hint: Option<deformer::FullTy<'s, 't>>, pub default_expr: Option<deformer::Expr<'s, 't>>
 }
+#[derive(Debug)]
 pub enum BindingTree<'s: 't, 't>
 {
     /// x...
@@ -29,15 +33,18 @@ pub enum BindingTree<'s: 't, 't>
     /// \<pat>. x...
     WithArgument(deformer::ExprPat<'s, 't>, Box<BindingTree<'s, 't>>)
 }
+#[derive(Debug)]
 pub struct Binding<'s: 't, 't> { pub type_hint: Option<deformer::FullTy<'s, 't>>, pub tree: BindingTree<'s, 't> }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)] pub enum RegisterResult { Success, Exists }
 
+#[derive(Debug)]
 pub struct IOSemanticsMap<'s: 't, 't>
 {
     pub inputs: HashMap<Semantics, (&'s str, BType)>,
     pub outputs: HashMap<Semantics, (&'s str, Option<BType>, deformer::Expr<'s, 't>)>
 }
+#[derive(Debug)]
 pub struct BoundMap<'s: 't, 't>
 {
     pub uniforms: HashMap<&'s str, deformer::FullTy<'s, 't>>,
@@ -128,14 +135,29 @@ impl<'s> parser::ShaderStageDefinition<'s>
         if errors.is_empty() { Ok(StageDeformed { ast: self, bindings, io }) } else { Err(errors) }
     }
 }
+impl<'s> parser::ShadingPipeline<'s>
+{
+    pub fn deform<'t>(&'t self) -> Result<PipelineDeformed<'s, 't>, Vec<ComplexDeformationError<'s>>> where 's: 't
+    {
+        let mut errors = Vec::new();
+        let mut bindings = BoundMap::new();
+        let assoc = self.assoc.borrow();
+
+        let vsh = ::reverse_opt_res(self.vsh.as_ref().map(|x| x.deform()))?;
+        let hsh = ::reverse_opt_res(self.hsh.as_ref().map(|x| x.deform()))?;
+        let dsh = ::reverse_opt_res(self.dsh.as_ref().map(|x| x.deform()))?;
+        let gsh = ::reverse_opt_res(self.gsh.as_ref().map(|x| x.deform()))?;
+        let fsh = ::reverse_opt_res(self.fsh.as_ref().map(|x| x.deform()))?;
+        for v in &self.values { errors.append(&mut parse_binding(v, &assoc, &mut bindings)); }
+
+        if errors.is_empty() { Ok(PipelineDeformed { ast: self, bindings, vsh, hsh, dsh, gsh, fsh }) } else { Err(errors) }
+    }
+}
 
 enum OptionalSpan<'s: 't, 't> { None(&'t Location), Some(GenSource<'s, 't>) }
 impl<'s: 't, 't> OptionalSpan<'s, 't>
 {
-    fn text(&self) -> &str
-    {
-        match *self { OptionalSpan::None(_) => "_", OptionalSpan::Some(ref s) => s.text() }
-    }
+    fn text(&self) -> &str { match *self { OptionalSpan::None(_) => "_", OptionalSpan::Some(ref s) => s.text() } }
 }
 fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &AssociativityEnv<'s>, bindings: &mut BoundMap<'s, 't>) -> Vec<ComplexDeformationError<'s>>
 {

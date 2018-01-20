@@ -25,7 +25,7 @@ pub struct ShadingPipeline<'s>
 	pub vsh: Option<ShaderStageDefinition<'s>>,
 	pub hsh: Option<ShaderStageDefinition<'s>>, pub dsh: Option<ShaderStageDefinition<'s>>,
 	pub gsh: Option<ShaderStageDefinition<'s>>, pub fsh: Option<ShaderStageDefinition<'s>>,
-	values: Vec<ValueDeclaration<'s>>, types: Vec<TypeDeclaration<'s>>, typefns: Vec<TypeFn<'s>>,
+	pub values: Vec<ValueDeclaration<'s>>, types: Vec<TypeDeclaration<'s>>, typefns: Vec<TypeFn<'s>>,
 	pub assoc: RcMut<AssociativityEnv<'s>>
 }
 pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>

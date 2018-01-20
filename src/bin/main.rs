@@ -17,6 +17,8 @@ fn main()
     println!("ast: {:?}", p);
     println!("assocs: ");
     p.dbg_print_assoc(1);
+    let pd = p.deform().expect("Failed to deforming");
+    println!("{:?}", pd);
     /*let ctors = ShadingPipelineConstructorEnv::new();
     p.collect_ctors(&ctors).expect("Failure in collecting type constructors");
     ctors.borrow().print_ctor_env();*/

@@ -85,3 +85,5 @@ impl<T: EqNoloc> EqNoloc for Option<T>
 impl<T: EqNoloc> EqNoloc for Box<T> { fn eq_nolocation(&self, other: &Box<T>) -> bool { T::eq_nolocation(self, other) } }
 /// The leftmost position on source of the syntax tree
 pub trait Position { fn position(&self) -> &Location; }
+
+fn reverse_opt_res<A, E>(opt: Option<Result<A, E>>) -> Result<Option<A>, E> { opt.map_or(Ok(None), |e| e.map(Some)) }

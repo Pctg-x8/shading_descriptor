@@ -1,7 +1,7 @@
 
 use {Position, EqNoloc};
 use {Location, Source, GenSource, BType, Associativity, AssociativityEnv, GenNumeric};
-use {TypeSynTree, InferredArrayDim};
+use InferredArrayDim;
 use std::mem::replace;
 use parser;
 use std::result::Result as StdResult;
@@ -264,7 +264,7 @@ impl<'s: 't, 't> EqNoloc for Binding<'s, 't>
 }
 
 /// Deforming(Resolving infix operators to prefix style) a TypeSynTree using current AssociativityEnv
-impl<'s: 't, 't> Deformable<'s, 't> for TypeSynTree<'s>
+impl<'s: 't, 't> Deformable<'s, 't> for parser::TypeSynTree<'s>
 {
     type Deformed = Ty<'s, 't>;
     fn deform(&'t self, assoc_env: &AssociativityEnv<'s>) -> Result<Self::Deformed>
@@ -364,7 +364,7 @@ impl<'s: 't, 't> Deformable<'s, 't> for parser::FullExpression<'s>
             Conditional { ref location, inv, ref cond, ref then, ref else_ } =>
             {
                 let mut cond = cond.deform(assoc_env)?; if inv { cond = not(cond); }
-                let (then, else_) = (then.deform(assoc_env)?, reverse_opt_res(else_.as_ref().map(|e| e.deform(assoc_env)))?);
+                let (then, else_) = (then.deform(assoc_env)?, ::reverse_opt_res(else_.as_ref().map(|e| e.deform(assoc_env)))?);
                 Ok(Expr::Conditional { head: location, cond: box cond, then: box then, else_: else_.map(Box::new) })
             },
             Block(ref p, ref elist) => elist.iter().map(|x| match *x
@@ -480,7 +480,6 @@ fn ap_2options<A, F: FnOnce(A, A) -> bool>(cond: F, t: Option<A>, f: Option<A>) 
 {
     if t.is_none() && f.is_none() { None } else { Some(t.map_or(false, |t| f.map_or(true, |f| cond(t, f)))) }
 }
-fn reverse_opt_res<A, E>(opt: Option<StdResult<A, E>>) -> StdResult<Option<A>, E> { opt.map_or(Ok(None), |e| e.map(Some)) }
 
 #[derive(Clone)]
 pub struct AggPointer { prec: usize, index: usize }
