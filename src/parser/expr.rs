@@ -6,14 +6,14 @@ use parser::{ExpectingKind, Leftmost, take_current_block_begin, get_definition_l
 use parser::utils::*;
 use lambda::Numeric;
 
-#[derive(Debug, Clone, PartialEq, Eq)] pub enum ExpressionSynTree<'s>
+#[derive(Debug, Clone, PartialEq, Eq, Hash)] pub enum ExpressionSynTree<'s>
 {
     SymReference(Source<'s>), Numeric(Numeric<'s>), ArrayLiteral(Location, Vec<FullExpression<'s>>),
     RefPath(Box<FullExpression<'s>>, Vec<Source<'s>>), ArrayRef(Box<FullExpression<'s>>, Box<FullExpression<'s>>),
     Prefix(Box<FullExpression<'s>>, Vec<FullExpression<'s>>), Infix { lhs: Box<FullExpression<'s>>, mods: Vec<(Source<'s>, FullExpression<'s>)> },
     Tuple(Location, Vec<FullExpression<'s>>)
 }
-#[derive(Debug, Clone, PartialEq, Eq)] pub enum ExprPatSynTree<'s>
+#[derive(Debug, Clone, PartialEq, Eq, Hash)] pub enum ExprPatSynTree<'s>
 {
     SymBinding(Source<'s>), Placeholder(Location), Numeric(Numeric<'s>), ArrayLiteral(Location, Vec<ExprPatSynTree<'s>>),
     SymPath(Source<'s>, Vec<Source<'s>>), Prefix(Box<ExprPatSynTree<'s>>, Vec<ExprPatSynTree<'s>>),
@@ -235,17 +235,17 @@ impl<'s> Into<FullExpression<'s>> for ExpressionSynTree<'s>
 }
 
 /// Let Binding(pat = expr)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Binding<'s> { pub pat: ExprPatSynTree<'s>, pub expr: FullExpression<'s> }
 pub type Bindings<'s> = Vec<Binding<'s>>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BlockContent<'s>
 {
     BlockVars { location: Location, vals: Bindings<'s> }, Expression(FullExpression<'s>)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FullExpression<'s>
 {
     Lettings { location: Location, vals: Bindings<'s>, subexpr: Box<FullExpression<'s>> },

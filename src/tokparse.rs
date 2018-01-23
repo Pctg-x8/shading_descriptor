@@ -168,7 +168,7 @@ impl<'s> TokenKind<'s>
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NumericTy { Float, Double, Long, Unsigned, UnsignedLong }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnclosureKind { Parenthese, Bracket, Brace }

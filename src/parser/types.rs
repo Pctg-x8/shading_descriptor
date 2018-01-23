@@ -27,7 +27,7 @@ impl<'s> TypeSynTree<'s>
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq)] pub enum InferredArrayDim<'s> { Unsized, Inferred(Location), Fixed(FullExpression<'s>) }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)] pub enum InferredArrayDim<'s> { Unsized, Inferred(Location), Fixed(FullExpression<'s>) }
 fn shift_satisfy_leftmost<'s: 't, 't, S, F, T>(stream: &mut S, leftmost: Leftmost, shifter: F) -> Result<T, &'t Location>
     where S: TokenStream<'s, 't>, F: FnOnce(&mut S) -> Result<T, &'t Location>
 {

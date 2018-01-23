@@ -1,10 +1,11 @@
 //! ラムダ抽象
 
+use deformer;
 use deformer::Expr;
 use {NumericTy, Source, Location, GenSource, GenNumeric};
 
 /// 数値
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Numeric<'s> { pub floating: bool, pub text: Source<'s>, pub ty: Option<NumericTy> }
 /// 数値
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +33,14 @@ pub enum Lambda<'s: 't, 't>
     Apply { applier: Box<Lambda<'s, 't>>, param: Box<Lambda<'s, 't>> },
     SymRef(GenSource<'s, 't>), Numeric(GenNumeric<'s, 't>), ArrayLiteral(&'t Location, Vec<Lambda<'s, 't>>),
     DontCare, Unit(&'t Location)
+}
+/// 型付きラムダ抽象
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypedLambda<'s: 't, 't>
+{
+    Fun { arg: GenSource<'s, 't>, arg_type: Option<deformer::FullTy<'s, 't>>, expr: Box<TypedLambda<'s, 't>> },
+    Apply { applier: Box<TypedLambda<'s, 't>>, param: Box<TypedLambda<'s, 't>> },
+    SymRef(GenSource<'s, 't>), Numeric(GenNumeric<'s, 't>), ArrayLiteral(&'t Location, Vec<TypedLambda<'s, 't>>), DontCare, Unit(&'t Location)
 }
 
 // 組み込み関数とか(Builtin Functions)
@@ -75,6 +84,11 @@ impl<'s: 't, 't> Lambda<'s, 't>
 
     /// combinator: application <x>
     pub fn apply(self, x: Self) -> Self { Lambda::Apply { applier: box self, param: box x } }
+}
+impl<'s: 't, 't> TypedLambda<'s, 't>
+{
+    /// combinator: application <x>
+    pub fn apply(self, x: Self) -> Self { TypedLambda::Apply { applier: box self, param: box x } }
 }
 
 use std::io::{Write, Result as IOResult};

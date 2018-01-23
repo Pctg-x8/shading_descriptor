@@ -9,9 +9,9 @@ extern crate regex;
 mod tokparse;
 mod parser;
 mod deformer;
-// mod symbol;
 mod rewrite_expr;
-mod typepaint;
+// mod symbol;
+// mod ctor;
 // mod patresolve;
 
 mod lambda;
@@ -35,11 +35,11 @@ pub use rewrite_expr::ComplexDeformationError;
 
 pub use deformer::{Deformable, DeformationError};
 
-pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
-pub use typepaint::{ConstructorEnv, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
-pub use typepaint::{TypedDataConstructorScope, TypedDataConstructor, DataConstructorIndex};
+/*pub use typepaint::{AssociativityDebugPrinter, ConstructorCollector};
+pub use typepaint::{ConstructorSet, ConstructorEnvironment, ShadingPipelineConstructorEnv, ConstructorEnvPerShader};
+pub use typepaint::{TypedDataConstructorScope, TypedDataConstructor, DataConstructorIndex};*/
 
-pub use lambda::{Numeric, Lambda};
+pub use lambda::{Numeric, Lambda, TypedLambda};
 
 // use typepaint::{RcMut, WeakMut};
 use std::cell::RefCell;
@@ -83,6 +83,7 @@ impl<T: EqNoloc> EqNoloc for Option<T>
     fn eq_nolocation(&self, other: &Option<T>) -> bool { self.as_ref().map_or(other.is_none(), |a| other.as_ref().map_or(false, |b| a.eq_nolocation(b))) }
 }
 impl<T: EqNoloc> EqNoloc for Box<T> { fn eq_nolocation(&self, other: &Box<T>) -> bool { T::eq_nolocation(self, other) } }
+impl<'a, T: EqNoloc> EqNoloc for &'a T { fn eq_nolocation(&self, other: &&'a T) -> bool { T::eq_nolocation(*self, *other) } }
 /// The leftmost position on source of the syntax tree
 pub trait Position { fn position(&self) -> &Location; }
 

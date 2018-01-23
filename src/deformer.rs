@@ -30,15 +30,15 @@ impl<'s: 't, 't, A: Deformable<'s, 't>, B: Deformable<'s, 't>> Deformable<'s, 't
     fn deform(&'t self, assoc: &AssociativityEnv<'s>) -> Result<Self::Deformed> { Ok((self.0.deform(assoc)?, self.1.deform(assoc)?)) }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Prefix<'s: 't, 't> { Arrow(&'t Location), User(GenSource<'s, 't>), PathRef(Box<Ty<'s, 't>>, Vec<GenSource<'s, 't>>) }
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum Prefix<'s: 't, 't> { Arrow(&'t Location), User(&'t Source<'s>), PathRef(Box<Ty<'s, 't>>, Vec<&'t Source<'s>>) }
 impl<'s: 't, 't> Prefix<'s, 't>
 {
     pub fn position(&self) -> &Location
     {
         match *self
         {
-            Prefix::Arrow(p) => p, Prefix::User(ref s) => s.position(), Prefix::PathRef(ref p, _) => p.position()
+            Prefix::Arrow(p) => p, Prefix::User(s) => s.position(), Prefix::PathRef(ref p, _) => p.position()
         }
     }
 }
@@ -46,7 +46,7 @@ impl<'s: 't, 't> Prefix<'s, 't>
 pub struct SymPath<'s: 't, 't> { pub base: GenSource<'s, 't>, pub desc: Vec<GenSource<'s, 't>> }
 impl<'s: 't, 't> SymPath<'s, 't> { pub fn position(&self) -> &Location { self.base.position() } }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Ty<'s: 't, 't>
 {
     Placeholder(&'t Location), Expressed(Prefix<'s, 't>, Vec<Ty<'s, 't>>),
@@ -54,10 +54,10 @@ pub enum Ty<'s: 't, 't>
     ArrayDim(Box<Ty<'s, 't>>, &'t InferredArrayDim<'s>)
 }
 /// forall (quanitified...). constraints => def
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FullTy<'s: 't, 't>
 {
-    pub quantified: Vec<GenSource<'s, 't>>, pub constraints: Vec<Ty<'s, 't>>, pub def: Ty<'s, 't>
+    pub quantified: Vec<&'t Source<'s>>, pub constraints: Vec<Ty<'s, 't>>, pub def: Ty<'s, 't>
 }
 impl<'s: 't, 't> Ty<'s, 't>
 {
@@ -103,7 +103,7 @@ impl<'s: 't, 't> Ty<'s, 't>
     /// self -> x
     pub fn arrow(self, x: Self) -> Self { Ty::Expressed(Prefix::Arrow(&Location::EMPTY), vec![self, x]) }
     /// x
-    pub fn symref(x: GenSource<'s, 't>) -> Self { Ty::Expressed(Prefix::User(x), Vec::new()) }
+    pub fn symref(x: &'t Source<'s>) -> Self { Ty::Expressed(Prefix::User(x), Vec::new()) }
 
     pub fn leftmost_symbol(&self) -> Option<&Prefix<'s, 't>>
     {
@@ -137,11 +137,12 @@ impl<'s: 't, 't> EqNoloc for Prefix<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool
     {
-        match *self
+        match (self, other)
         {
-            Prefix::Arrow(p) => *other == Prefix::Arrow(p),
-            Prefix::User(ref s) => if let Prefix::User(ref s_) = *other { s.text() == s_.text() } else { false },
-            Prefix::PathRef(ref p, ref v) => if let Prefix::PathRef(ref p_, ref v_) = *other { p.eq_nolocation(&p_) && v.eq_nolocation(v_) } else { false }
+            (&Prefix::Arrow(_), &Prefix::Arrow(_)) => true,
+            (&Prefix::User(s), &Prefix::User(s_)) => s.slice == s_.slice,
+            (&Prefix::PathRef(ref p, ref v), &Prefix::PathRef(ref p_, ref v_)) => p.eq_nolocation(p_) && v.eq_nolocation(v_),
+            _ => false
         }
     }
 }
@@ -294,7 +295,7 @@ impl<'s: 't, 't> Deformable<'s, 't> for parser::TypeSynTree<'s>
             },
             // a => a, []
             SymReference(ref sym) => Ok(Ty::symref(sym.into())),
-            PathRef(ref base, ref v) => Ok(Ty::Expressed(PrefixKind::PathRef(box base.deform(assoc_env)?, v.iter().map(GenSource::from).collect()), Vec::new())),
+            PathRef(ref base, ref v) => Ok(Ty::Expressed(PrefixKind::PathRef(box base.deform(assoc_env)?, v.iter().collect()), Vec::new())),
             Placeholder(ref p) => Ok(Ty::Placeholder(p)),
             Basic(ref p, bt) => Ok(Ty::Basic(p, bt)),
             Tuple(ref p, ref v) => Ok(Ty::Tuple(p, v.deform(assoc_env)?)),
@@ -583,11 +584,11 @@ impl<'s: 't, 't> ::PrettyPrint for Prefix<'s, 't>
         match *self
         {
             Prefix::Arrow(_) => dest.write(b"(->)").map(drop),
-            Prefix::User(ref s) => dest.write(s.text().as_bytes()).map(drop),
+            Prefix::User(s) => dest.write(s.slice.as_bytes()).map(drop),
             Prefix::PathRef(ref base, ref sv) =>
             {
                 base.pretty_print(dest)?;
-                for s in sv { write!(dest, ".{}", s.text())?; }
+                for s in sv { write!(dest, ".{}", s.slice)?; }
                 Ok(())
             }
         }

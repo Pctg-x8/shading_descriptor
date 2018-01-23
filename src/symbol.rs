@@ -1,8 +1,8 @@
 //! Symbol Collector
 
-use {parser, deformer};
-use {Location, GenSource, Source, Lambda};
-use std::collections::HashMap;
+use {parser, rewrite_expr, deformer};
+use {Location, GenSource, Source, Lambda, TypedLambda};
+use std::collections::{HashMap, HashSet};
 use std::borrow::{Borrow, Cow};
 use std::hash::Hash;
 
@@ -96,15 +96,15 @@ pub trait SymbolCollector<'s: 't, 't>
     type Map: 't;
     fn collect_symbols(&'t self) -> Result<Self::Map, Vec<SymbolDuplicateError<'s, 't>>>;
 }
-impl<'s: 't, 't> SymbolCollector<'s, 't> for parser::ShaderStageDefinition<'s>
+impl<'s: 't, 't> SymbolCollector<'s, 't> for rewrite_expr::StageDeformed<'s, 't>
 {
     type Map = ShaderStageSymbols<'s, 't>;
     fn collect_symbols(&'t self) -> Result<Self::Map, Vec<SymbolDuplicateError<'s, 't>>>
     {
         let (mut symbols, mut errors) = (ShaderStageSymbols::new(), Vec::new());
         for (name, location) in
-            self.constants.iter().filter_map(|c| c.name.map(|n| (n, &c.location)))
-            .chain(self.uniforms.iter().filter_map(|u| u.name.map(|n| (n, &u.location))))
+            self.bindings.constants.iter().filter_map(|c| c.name.map(|n| (n, &c.location)))
+            .chain(self.bindings.uniforms.iter().filter_map(|u| u.name.map(|n| (n, &u.location))))
             .chain(self.inputs.iter().filter_map(|i| i.name.map(|n| (n, &i.location))))
             .chain(self.outputs.iter().filter_map(|o| o.name.map(|n| (n, &o.location))))
         {

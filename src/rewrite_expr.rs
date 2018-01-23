@@ -9,78 +9,104 @@ use std::borrow::Cow;
 use parser::AssociativityEnv;
 
 #[derive(Debug)]
-pub struct PipelineDeformed<'s: 't, 't>
+pub struct PipelineDeformed<'t>
 {
-    pub ast: &'t parser::ShadingPipeline<'s>, pub bindings: BoundMap<'s, 't>,
-    pub vsh: Option<StageDeformed<'s, 't>>, pub fsh: Option<StageDeformed<'s, 't>>, pub gsh: Option<StageDeformed<'s, 't>>,
-    pub hsh: Option<StageDeformed<'s, 't>>, pub dsh: Option<StageDeformed<'s, 't>>
+    pub bindings: BoundMap<'t>, pub types: DeformedTypes<'t>,
+    pub vsh: Option<StageDeformed<'t>>, pub fsh: Option<StageDeformed<'t>>, pub gsh: Option<StageDeformed<'t>>,
+    pub hsh: Option<StageDeformed<'t>>, pub dsh: Option<StageDeformed<'t>>
 }
 #[derive(Debug)]
-pub struct StageDeformed<'s: 't, 't>
+pub struct StageDeformed<'t>
 {
-    pub ast: &'t parser::ShaderStageDefinition<'s>, pub bindings: BoundMap<'s, 't>, pub io: IOSemanticsMap<'s, 't>
+    pub bindings: BoundMap<'t>, pub io: IOSemanticsMap<'t>, pub types: DeformedTypes<'t>
 }
 #[derive(Debug)]
-pub struct ConstantDef<'s: 't, 't>
+pub struct ConstantDef<'t>
 {
-    pub type_hint: Option<deformer::FullTy<'s, 't>>, pub default_expr: Option<deformer::Expr<'s, 't>>
+    pub type_hint: Option<deformer::FullTy<'t, 't>>, pub default_expr: Option<deformer::Expr<'t, 't>>
 }
 #[derive(Debug)]
-pub enum BindingTree<'s: 't, 't>
+pub enum BindingTree<'t>
 {
     /// x...
-    Expr(deformer::Expr<'s, 't>),
+    Expr(deformer::Expr<'t, 't>),
     /// \<pat>. x...
-    WithArgument(deformer::ExprPat<'s, 't>, Box<BindingTree<'s, 't>>)
+    WithArgument(deformer::ExprPat<'t, 't>, Box<BindingTree<'t>>)
 }
 #[derive(Debug)]
-pub struct Binding<'s: 't, 't> { pub type_hint: Option<deformer::FullTy<'s, 't>>, pub tree: BindingTree<'s, 't> }
+pub struct Binding<'t> { pub type_hint: Option<deformer::FullTy<'t, 't>>, pub tree: BindingTree<'t> }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)] pub enum RegisterResult { Success, Exists }
 
 #[derive(Debug)]
-pub struct IOSemanticsMap<'s: 't, 't>
+pub struct IOSemanticsMap<'t>
 {
-    pub inputs: HashMap<Semantics, (&'s str, BType)>,
-    pub outputs: HashMap<Semantics, (&'s str, Option<BType>, deformer::Expr<'s, 't>)>
+    pub inputs: HashMap<Semantics, (&'t str, BType)>,
+    pub outputs: HashMap<Semantics, (&'t str, Option<BType>, deformer::Expr<'t, 't>)>
 }
 #[derive(Debug)]
-pub struct BoundMap<'s: 't, 't>
+pub struct BoundMap<'t>
 {
-    pub uniforms: HashMap<&'s str, deformer::FullTy<'s, 't>>,
-    pub constants: HashMap<&'s str, ConstantDef<'s, 't>>,
-    pub defs: HashMap<Cow<'s, str>, Vec<Binding<'s, 't>>>,
+    pub uniforms: HashMap<&'t str, deformer::FullTy<'t, 't>>,
+    pub constants: HashMap<&'t str, ConstantDef<'t>>,
+    pub defs: HashMap<Cow<'t, str>, Vec<Binding<'t>>>,
 }
-impl<'s: 't, 't> IOSemanticsMap<'s, 't>
+#[derive(Debug)]
+pub struct DeformedTypes<'t>
+{
+    pub fns: HashMap<&'t str, (deformer::Ty<'t, 't>, Option<deformer::FullTy<'t, 't>>)>,
+    pub data: HashMap<&'t str, HashMap<&'t str, deformer::Ty<'t, 't>>>
+}
+impl<'t> IOSemanticsMap<'t>
 {
     fn new() -> Self { IOSemanticsMap { inputs: HashMap::new(), outputs: HashMap::new() } }
-    fn register_input(&mut self, sem: Semantics, name: &'s str, type_: BType) -> RegisterResult
+    fn register_input(&mut self, sem: Semantics, name: &'t str, type_: BType) -> RegisterResult
     {
         if self.inputs.contains_key(&sem) { RegisterResult::Exists }
         else { self.inputs.insert(sem, (name, type_)); RegisterResult::Success }
     }
-    fn register_output(&mut self, sem: Semantics, name: &'s str, type_hint: Option<BType>, expr: deformer::Expr<'s, 't>) -> RegisterResult
+    fn register_output(&mut self, sem: Semantics, name: &'t str, type_hint: Option<BType>, expr: deformer::Expr<'t, 't>) -> RegisterResult
     {
         if self.outputs.contains_key(&sem) { RegisterResult::Exists }
         else { self.outputs.insert(sem, (name, type_hint, expr)); RegisterResult::Success }
     }
 }
-impl<'s: 't, 't> BoundMap<'s, 't>
+impl<'t> BoundMap<'t>
 {
     fn new() -> Self { BoundMap { uniforms: HashMap::new(), constants: HashMap::new(), defs: HashMap::new() } }
-    fn register_uniform(&mut self, name: &'s str, type_: deformer::FullTy<'s, 't>) -> RegisterResult
+    fn register_uniform(&mut self, name: &'t str, type_: deformer::FullTy<'t, 't>) -> RegisterResult
     {
         if self.uniforms.contains_key(name) { RegisterResult::Exists }
         else { self.uniforms.insert(name, type_); RegisterResult::Success }
     }
-    fn register_constant(&mut self, name: &'s str, details: ConstantDef<'s, 't>) -> RegisterResult
+    fn register_constant(&mut self, name: &'t str, details: ConstantDef<'t>) -> RegisterResult
     {
         if self.constants.contains_key(name) { RegisterResult::Exists }
         else { self.constants.insert(name, details); RegisterResult::Success }
     }
-    fn register<N: Into<Cow<'s, str>>>(&mut self, name: N, tree: Binding<'s, 't>)
+    fn register<N: Into<Cow<'t, str>>>(&mut self, name: N, tree: Binding<'t>)
     {
         self.defs.entry(name.into()).or_insert_with(Vec::new).push(tree);
+    }
+}
+impl<'t> DeformedTypes<'t>
+{
+    fn new() -> Self { DeformedTypes { fns: HashMap::new(), data: HashMap::new() } }
+    fn register_fn(&mut self, name: &'t str, left: deformer::Ty<'t, 't>, right: deformer::FullTy<'t, 't>) -> RegisterResult
+    {
+        if self.fns.contains_key(name) { RegisterResult::Exists }
+        else { self.fns.insert(name, (left, Some(right))); RegisterResult::Success }
+    }
+    fn register(&mut self, name: &'t str, left: deformer::Ty<'t, 't>) -> RegisterResult
+    {
+        if self.fns.contains_key(name) { RegisterResult::Exists }
+        else { self.fns.insert(name, (left, None)); RegisterResult::Success }
+    }
+    fn register_data_ctor(&mut self, tyname: &'t str, ctor_name: &'t str, ctor: deformer::Ty<'t, 't>) -> RegisterResult
+    {
+        let ref mut dscope = self.data.entry(tyname).or_insert(HashMap::new());
+        if dscope.contains_key(ctor_name) { RegisterResult::Exists }
+        else { dscope.insert(ctor_name, ctor); RegisterResult::Success }
     }
 }
 
@@ -92,7 +118,7 @@ fn nth_tuple<'s: 't, 't>(index: deformer::Expr<'s, 't>, target: deformer::Expr<'
 
 impl<'s> parser::ShaderStageDefinition<'s>
 {
-    pub fn deform<'t>(&'t self) -> Result<StageDeformed<'s, 't>, Vec<ComplexDeformationError<'s>>> where 's: 't
+    pub fn deform(&'s self) -> Result<StageDeformed<'s>, Vec<ComplexDeformationError<'s>>>
     {
         let mut errors = Vec::new();
         let (mut io, mut bindings) = (IOSemanticsMap::new(), BoundMap::new());
@@ -119,7 +145,7 @@ impl<'s> parser::ShaderStageDefinition<'s>
             let default_expr = CollectErrors!(opt c.value.as_ref().map(|x| x.deform(assoc)) =>? errors; continue);
             if bindings.register_constant(name, ConstantDef { type_hint, default_expr }) == RegisterResult::Exists
             {
-                errors.place_back() <- ComplexDeformationError::ConstantNameConflict(name, c.location.clone());
+                errors.place_back() <- ComplexDeformationError::SymbolConflict(SymbolDomain::ConstantName, name, c.location.clone());
             }
         }
         for (name, u) in self.uniforms.iter().filter_map(|u| u.name.map(|n| (n, u)))
@@ -127,17 +153,18 @@ impl<'s> parser::ShaderStageDefinition<'s>
             let type_ = CollectErrors!(u._type.deform(assoc) =>? errors; continue);
             if bindings.register_uniform(name, type_) == RegisterResult::Exists
             {
-                errors.place_back() <- ComplexDeformationError::UniformNameConflict(name, u.location.clone());
+                errors.place_back() <- ComplexDeformationError::SymbolConflict(SymbolDomain::UniformName, name, u.location.clone());
             }
         }
         for v in &self.values { errors.append(&mut parse_binding(v, assoc, &mut bindings)); }
+        let types = match parse_types(self, assoc) { Ok(v) => v, Err(mut es) => { errors.append(&mut es); return Err(errors); } };
 
-        if errors.is_empty() { Ok(StageDeformed { ast: self, bindings, io }) } else { Err(errors) }
+        if errors.is_empty() { Ok(StageDeformed { bindings, io, types }) } else { Err(errors) }
     }
 }
 impl<'s> parser::ShadingPipeline<'s>
 {
-    pub fn deform<'t>(&'t self) -> Result<PipelineDeformed<'s, 't>, Vec<ComplexDeformationError<'s>>> where 's: 't
+    pub fn deform(&'s self) -> Result<PipelineDeformed<'s>, Vec<ComplexDeformationError<'s>>>
     {
         let mut errors = Vec::new();
         let mut bindings = BoundMap::new();
@@ -149,8 +176,9 @@ impl<'s> parser::ShadingPipeline<'s>
         let gsh = ::reverse_opt_res(self.gsh.as_ref().map(|x| x.deform()))?;
         let fsh = ::reverse_opt_res(self.fsh.as_ref().map(|x| x.deform()))?;
         for v in &self.values { errors.append(&mut parse_binding(v, &assoc, &mut bindings)); }
+        let types = match parse_types(self, &assoc) { Ok(v) => v, Err(mut es) => { errors.append(&mut es); return Err(errors); } };
 
-        if errors.is_empty() { Ok(PipelineDeformed { ast: self, bindings, vsh, hsh, dsh, gsh, fsh }) } else { Err(errors) }
+        if errors.is_empty() { Ok(PipelineDeformed { bindings, vsh, hsh, dsh, gsh, fsh, types }) } else { Err(errors) }
     }
 }
 
@@ -159,7 +187,7 @@ impl<'s: 't, 't> OptionalSpan<'s, 't>
 {
     fn text(&self) -> &str { match *self { OptionalSpan::None(_) => "_", OptionalSpan::Some(ref s) => s.text() } }
 }
-fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &AssociativityEnv<'s>, bindings: &mut BoundMap<'s, 't>) -> Vec<ComplexDeformationError<'s>>
+fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &AssociativityEnv<'s>, bindings: &mut BoundMap<'t>) -> Vec<ComplexDeformationError<'s>>
 {
     let mut errors = Vec::new();
     let (lhs, rhs, type_hint) = (v.pat.deform(assoc), v.value.deform(assoc), v._type.as_ref().map(|x| x.deform(assoc)));
@@ -219,12 +247,64 @@ fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &Associ
     }
     errors
 }
+fn parse_types<'t, Tree: parser::TypeDeclarable<'t>>(tree: &'t Tree, assoc: &AssociativityEnv<'t>) -> Result<DeformedTypes<'t>, Vec<ComplexDeformationError<'t>>>
+{
+    let (mut set, mut errors) = (DeformedTypes::new(), Vec::new());
+
+    for t in tree.type_fns()
+    {
+        for &(ref left, ref right) in &t.defs
+        {
+            let left_d = CollectErrors!(left.deform(assoc) =>? errors; continue);
+            let right = CollectErrors!(right.deform(assoc) =>? errors; continue);
+            let name = if let deformer::Ty::Expressed(deformer::Prefix::User(ref s), _) = left_d { s.slice }
+            else { errors.place_back() <- ComplexDeformationError::Unboundable(left.position().clone()); continue; };
+            if set.register_fn(name, left_d, right) == RegisterResult::Exists
+            {
+                errors.place_back() <- ComplexDeformationError::SymbolConflict(SymbolDomain::TypeSynonymName, name, left.position().clone());
+            }
+        }
+    }
+    for d in tree.type_decls()
+    {
+        for &(ref dt, ref ds) in &d.defs
+        {
+            let ty = CollectErrors!(dt.deform(assoc) =>? errors; continue);
+            let tyname = match ty.leftmost_symbol()
+            {
+                Some(&deformer::Prefix::User(s)) => s.slice,
+                _ => { errors.place_back() <- ComplexDeformationError::Undefineable(ty.position().clone()); continue; }
+            };
+            if set.register(tyname, ty) == RegisterResult::Exists
+            {
+                errors.place_back() <- ComplexDeformationError::SymbolConflict(SymbolDomain::TypeName, tyname, dt.position().clone());
+            }
+
+            for c in ds
+            {
+                let ctor = CollectErrors!(c.tree.deform(assoc) =>? errors; continue);
+                let ctor_name = match ctor
+                {
+                    deformer::Ty::Expressed(deformer::Prefix::User(name), _) => name.slice,
+                    _ => { errors.place_back() <- ComplexDeformationError::Undefineable(ctor.position().clone()); continue; }
+                };
+                if set.register_data_ctor(tyname, ctor_name, ctor) == RegisterResult::Exists
+                {
+                    errors.place_back() <- ComplexDeformationError::SymbolConflict(SymbolDomain::DataConstructorName, ctor_name, c.tree.position().clone());
+                }
+            }
+        }
+    }
+
+    if errors.is_empty() { Ok(set) } else { Err(errors) }
+}
 
 #[derive(Debug)]
 pub enum ComplexDeformationError<'s>
 {
-    Inherit(DeformationError), SemanticsConflict(Semantics, Location),
-    ConstantNameConflict(&'s str, Location), UniformNameConflict(&'s str, Location),
-    Unboundable(Location)
+    Inherit(DeformationError), SemanticsConflict(Semantics, Location), SymbolConflict(SymbolDomain, &'s str, Location), Unboundable(Location),
+    Undefineable(Location)
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolDomain { ConstantName, UniformName, TypeSynonymName, TypeName, DataConstructorName }
 impl<'s> From<DeformationError> for ComplexDeformationError<'s> { fn from(v: DeformationError) -> Self { ComplexDeformationError::Inherit(v) } }
