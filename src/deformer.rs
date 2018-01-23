@@ -230,6 +230,7 @@ impl<'s: 't, 't> EqNoloc for Expr<'s, 't>
         {
             (&Apply(ref s, ref v), &Apply(ref s_, ref v_)) => s.eq_nolocation(s_) && v.eq_nolocation(v_),
             (&Numeric(ref n), &Numeric(ref n_)) => n.eq_nolocation(n_),
+            (&SymReference(ref s), &SymReference(ref s_)) => s.eq_nolocation(s_),
             (&ArrayLiteral(_, ref v), &ArrayLiteral(_, ref v_)) => v.eq_nolocation(v_),
             (&Tuple1(ref x, ref v), &Tuple1(ref x_, ref v_)) => x.eq_nolocation(x_) && v.eq_nolocation(v_),
             (&Unit(_), &Unit(_)) => true,
