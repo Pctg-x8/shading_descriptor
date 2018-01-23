@@ -118,11 +118,11 @@ fn nth_tuple<'s: 't, 't>(index: deformer::Expr<'s, 't>, target: deformer::Expr<'
 
 impl<'s> parser::ShaderStageDefinition<'s>
 {
-    pub fn deform(&'s self) -> Result<StageDeformed<'s>, Vec<ComplexDeformationError<'s>>>
+    pub fn deform<'t>(&'t self) -> Result<StageDeformed<'t>, Vec<ComplexDeformationError<'t>>> where 's: 't
     {
         let mut errors = Vec::new();
         let (mut io, mut bindings) = (IOSemanticsMap::new(), BoundMap::new());
-        let ref assoc = self.assoc.borrow();
+        let assoc = self.assoc.borrow();
         
         for (name, si) in self.inputs.iter().filter_map(|si| si.name.map(|n| (n, si)))
         {
@@ -133,7 +133,7 @@ impl<'s> parser::ShaderStageDefinition<'s>
         }
         for (name, so) in self.outputs.iter().filter_map(|so| so.name.map(|n| (n, so)))
         {
-            let expr = CollectErrors!(so.expr.deform(assoc) =>? errors; continue);
+            let expr = CollectErrors!(so.expr.deform(&assoc) =>? errors; continue);
             if io.register_output(so.semantics, name, so._type.clone(), expr) == RegisterResult::Exists
             {
                 errors.place_back() <- ComplexDeformationError::SemanticsConflict(so.semantics, so.location.clone());
@@ -141,8 +141,8 @@ impl<'s> parser::ShaderStageDefinition<'s>
         }
         for (name, c) in self.constants.iter().filter_map(|c| c.name.map(|n| (n, c)))
         {
-            let type_hint = CollectErrors!(opt c._type.as_ref().map(|x| x.deform(assoc)) =>? errors; continue);
-            let default_expr = CollectErrors!(opt c.value.as_ref().map(|x| x.deform(assoc)) =>? errors; continue);
+            let type_hint = CollectErrors!(opt c._type.as_ref().map(|x| x.deform(&assoc)) =>? errors; continue);
+            let default_expr = CollectErrors!(opt c.value.as_ref().map(|x| x.deform(&assoc)) =>? errors; continue);
             if bindings.register_constant(name, ConstantDef { type_hint, default_expr }) == RegisterResult::Exists
             {
                 errors.place_back() <- ComplexDeformationError::SymbolConflict(SymbolDomain::ConstantName, name, c.location.clone());
@@ -150,21 +150,21 @@ impl<'s> parser::ShaderStageDefinition<'s>
         }
         for (name, u) in self.uniforms.iter().filter_map(|u| u.name.map(|n| (n, u)))
         {
-            let type_ = CollectErrors!(u._type.deform(assoc) =>? errors; continue);
+            let type_ = CollectErrors!(u._type.deform(&assoc) =>? errors; continue);
             if bindings.register_uniform(name, type_) == RegisterResult::Exists
             {
                 errors.place_back() <- ComplexDeformationError::SymbolConflict(SymbolDomain::UniformName, name, u.location.clone());
             }
         }
-        for v in &self.values { errors.append(&mut parse_binding(v, assoc, &mut bindings)); }
-        let types = match parse_types(self, assoc) { Ok(v) => v, Err(mut es) => { errors.append(&mut es); return Err(errors); } };
+        for v in &self.values { errors.append(&mut parse_binding(v, &assoc, &mut bindings)); }
+        let types = match parse_types(self, &assoc) { Ok(v) => v, Err(mut es) => { errors.append(&mut es); return Err(errors); } };
 
         if errors.is_empty() { Ok(StageDeformed { bindings, io, types }) } else { Err(errors) }
     }
 }
 impl<'s> parser::ShadingPipeline<'s>
 {
-    pub fn deform(&'s self) -> Result<PipelineDeformed<'s>, Vec<ComplexDeformationError<'s>>>
+    pub fn deform<'t>(&'t self) -> Result<PipelineDeformed<'t>, Vec<ComplexDeformationError<'t>>> where 's: 't
     {
         let mut errors = Vec::new();
         let mut bindings = BoundMap::new();
@@ -187,7 +187,7 @@ impl<'s: 't, 't> OptionalSpan<'s, 't>
 {
     fn text(&self) -> &str { match *self { OptionalSpan::None(_) => "_", OptionalSpan::Some(ref s) => s.text() } }
 }
-fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &AssociativityEnv<'s>, bindings: &mut BoundMap<'t>) -> Vec<ComplexDeformationError<'s>>
+fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &AssociativityEnv<'s>, bindings: &mut BoundMap<'t>) -> Vec<ComplexDeformationError<'t>>
 {
     let mut errors = Vec::new();
     let (lhs, rhs, type_hint) = (v.pat.deform(assoc), v.value.deform(assoc), v._type.as_ref().map(|x| x.deform(assoc)));
@@ -247,7 +247,7 @@ fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &Associ
     }
     errors
 }
-fn parse_types<'t, Tree: parser::TypeDeclarable<'t>>(tree: &'t Tree, assoc: &AssociativityEnv<'t>) -> Result<DeformedTypes<'t>, Vec<ComplexDeformationError<'t>>>
+fn parse_types<'s: 't, 't, Tree: parser::TypeDeclarable<'s> + 't>(tree: &'t Tree, assoc: &AssociativityEnv<'s>) -> Result<DeformedTypes<'t>, Vec<ComplexDeformationError<'t>>>
 {
     let (mut set, mut errors) = (DeformedTypes::new(), Vec::new());
 
