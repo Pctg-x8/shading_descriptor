@@ -16,7 +16,7 @@ fn main()
     if !cache.current().is_eof() { println!("Error: Compilation was not completed, remaining since {}", cache.current().position()); }
     println!("ast: {:?}", p);
     println!("assocs: ");
-    p.dbg_print_assoc(1);
+    // p.dbg_print_assoc(1);
     let pd = p.deform().expect("Failed to deforming");
     println!("{:?}", pd);
     /*let ctors = ShadingPipelineConstructorEnv::new();
