@@ -1,7 +1,6 @@
 
 use {Position, EqNoloc};
 use {Location, Source, GenSource, BType, Associativity, AssociativityEnv, GenNumeric};
-use InferredArrayDim;
 use std::mem::replace;
 use parser;
 use std::result::Result as StdResult;
@@ -42,16 +41,22 @@ impl<'s: 't, 't> Prefix<'s, 't>
         }
     }
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct SymPath<'s: 't, 't> { pub base: GenSource<'s, 't>, pub desc: Vec<GenSource<'s, 't>> }
 impl<'s: 't, 't> SymPath<'s, 't> { pub fn position(&self) -> &Location { self.base.position() } }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DeformedArrayDim<'s: 't, 't>
+{
+    Unsized, Inferred(&'t Location), Fixed(Expr<'s, 't>)
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Ty<'s: 't, 't>
 {
     Placeholder(&'t Location), Expressed(Prefix<'s, 't>, Vec<Ty<'s, 't>>),
     SafetyGarbage, Basic(&'t Location, BType), Tuple(&'t Location, Vec<Ty<'s, 't>>),
-    ArrayDim(Box<Ty<'s, 't>>, &'t InferredArrayDim<'s>)
+    ArrayDim(Box<Ty<'s, 't>>, DeformedArrayDim<'s, 't>)
 }
 /// forall (quanitified...). constraints => def
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -147,14 +152,14 @@ impl<'s: 't, 't> EqNoloc for Prefix<'s, 't>
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Binding<'s: 't, 't> { pub pat: ExprPat<'s, 't>, pub expr: Expr<'s, 't> }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BlockContent<'s: 't, 't> { Vars(Vec<Binding<'s, 't>>), Expr(Expr<'s, 't>) }
 impl<'s: 't, 't> From<Vec<Binding<'s, 't>>> for BlockContent<'s, 't> { fn from(v: Vec<Binding<'s, 't>>) -> Self { BlockContent::Vars(v) } }
 impl<'s: 't, 't> From<Expr<'s, 't>> for BlockContent<'s, 't> { fn from(v: Expr<'s, 't>) -> Self { BlockContent::Expr(v) } }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr<'s: 't, 't>
 {
     Garbage, SymReference(GenSource<'s, 't>), Numeric(GenNumeric<'s, 't>), PathRef(Box<Expr<'s, 't>>, Vec<GenSource<'s, 't>>),
@@ -166,7 +171,7 @@ pub enum Expr<'s: 't, 't>
     Lettings { head: &'t Location, vars: Vec<Binding<'s, 't>>, subexpr: Box<Expr<'s, 't>> },
     CaseOf { head: &'t Location, expr: Box<Expr<'s, 't>>, matchers: Vec<(ExprPat<'s, 't>, Expr<'s, 't>)> }
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExprPat<'s: 't, 't>
 {
     Garbage, SymBinding(GenSource<'s, 't>), Numeric(GenNumeric<'s, 't>), PathRef(GenSource<'s, 't>, Vec<GenSource<'s, 't>>),
@@ -265,6 +270,33 @@ impl<'s: 't, 't> EqNoloc for Binding<'s, 't>
     fn eq_nolocation(&self, other: &Self) -> bool { self.pat.eq_nolocation(&other.pat) && self.expr.eq_nolocation(&other.expr) }
 }
 
+impl<'s: 't, 't> EqNoloc for DeformedArrayDim<'s, 't>
+{
+    fn eq_nolocation(&self, other: &Self) -> bool
+    {
+        match (self, other)
+        {
+            (&DeformedArrayDim::Unsized, &DeformedArrayDim::Unsized) | (&DeformedArrayDim::Inferred(_), &DeformedArrayDim::Inferred(_)) => true,
+            (&DeformedArrayDim::Fixed(ref x), &DeformedArrayDim::Fixed(ref x_)) => x.eq_nolocation(x_),
+            _ => false
+        }
+    }
+}
+impl<'s: 't, 't> Deformable<'s, 't> for parser::InferredArrayDim<'s>
+{
+    type Deformed = DeformedArrayDim<'s, 't>;
+    fn deform(&'t self, assoc_env: &AssociativityEnv<'s>) -> Result<Self::Deformed>
+    {
+        use parser::InferredArrayDim::*;
+        match *self
+        {
+            Unsized => Ok(DeformedArrayDim::Unsized),
+            Inferred(ref p) => Ok(DeformedArrayDim::Inferred(p)),
+            Fixed(ref x) => x.deform(assoc_env).map(DeformedArrayDim::Fixed)
+        }
+    }
+}
+
 /// Deforming(Resolving infix operators to prefix style) a TypeSynTree using current AssociativityEnv
 impl<'s: 't, 't> Deformable<'s, 't> for parser::TypeSynTree<'s>
 {
@@ -301,7 +333,7 @@ impl<'s: 't, 't> Deformable<'s, 't> for parser::TypeSynTree<'s>
             Basic(ref p, bt) => Ok(Ty::Basic(p, bt)),
             Tuple(ref p, ref v) => Ok(Ty::Tuple(p, v.deform(assoc_env)?)),
             ArrowInfix { ref op_pos, ref lhs, ref rhs } => Ok(Ty::Expressed(PrefixKind::Arrow(op_pos), vec![lhs.deform(assoc_env)?, rhs.deform(assoc_env)?])),
-            ArrayDim { ref lhs, ref num } => Ok(Ty::ArrayDim(box lhs.deform(assoc_env)?, num))
+            ArrayDim { ref lhs, ref num } => Ok(Ty::ArrayDim(box lhs.deform(assoc_env)?, num.deform(assoc_env)?))
         }
     }
 }
@@ -573,7 +605,7 @@ impl<'s: 't, 't> PrettyPrint for Ty<'s, 't>
                 Ok(())
             },
             Ty::Placeholder(_) => write!(dest, "_"),
-            Ty::Basic(_, bt) => write!(dest, "{:?}", bt),
+            Ty::Basic(_, bt) => write!(dest, "{}", bt),
             Ty::Tuple(_, ref args) =>
             {
                 write!(dest, "(")?;
@@ -584,10 +616,7 @@ impl<'s: 't, 't> PrettyPrint for Ty<'s, 't>
                 }
                 write!(dest, ")")
             },
-            Ty::ArrayDim(ref base, ref index) =>
-            {
-                base.pretty_print(dest)?; write!(dest, "[{:?}]", index)
-            },
+            Ty::ArrayDim(ref base, ref index) => dest.pretty_sink(base)?.print(b"[")?.pretty_sink(index)?.print(b"]").map(drop),
             Ty::SafetyGarbage => unreachable!()
         }
     }
@@ -782,6 +811,18 @@ impl<'s: 't, 't> PrettyPrint for SymPath<'s, 't>
     fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
     {
         write!(sink, "{}", self.base)?; for p in &self.desc { write!(sink, ".{}", p)?; } Ok(())
+    }
+}
+impl<'s: 't, 't> PrettyPrint for DeformedArrayDim<'s, 't>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        match *self
+        {
+            DeformedArrayDim::Fixed(ref x) => x.pretty_print(sink),
+            DeformedArrayDim::Inferred(_) => write!(sink, "_"),
+            DeformedArrayDim::Unsized => Ok(())
+        }
     }
 }
 

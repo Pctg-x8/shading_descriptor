@@ -74,7 +74,7 @@ impl<'s: 't, 't> ::Position for GenSource<'s, 't>
 impl<'s> ::EqNoloc for Source<'s> { fn eq_nolocation(&self, other: &Self) -> bool { self.slice == other.slice } }
 impl<'s: 't, 't> ::EqNoloc for GenSource<'s, 't> { fn eq_nolocation(&self, other: &Self) -> bool { self.text() == other.text() } }
 /// Generatd Numeric or ref to span
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GenNumeric<'s: 't, 't> { GeneratedInt(u64), Ref(&'t ::lambda::Numeric<'s>) }
 impl<'s: 't, 't> From<u64> for GenNumeric<'s, 't> { fn from(v: u64) -> Self { GenNumeric::GeneratedInt(v) } }
 impl<'s: 't, 't> From<&'t ::lambda::Numeric<'s>> for GenNumeric<'s, 't> { fn from(v: &'t ::lambda::Numeric<'s>) -> Self { GenNumeric::Ref(v) } }
