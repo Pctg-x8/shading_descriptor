@@ -310,13 +310,27 @@ pub enum SymbolDomain { ConstantName, UniformName, TypeSynonymName, TypeName, Da
 impl<'s> From<DeformationError> for ComplexDeformationError<'s> { fn from(v: DeformationError) -> Self { ComplexDeformationError::Inherit(v) } }
 
 use ::{PrettyPrintSink, PrettyPrint}; use std::io::{Write, Result as IOResult};
+impl<'t> PrettyPrint for PipelineDeformed<'t>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        sink.print(b"Bindings: \n")?.pretty_sink(&self.bindings)?;
+        sink.print(b"Types: \n")?.pretty_sink(&self.types)?;
+        if let Some(ref v) = self.vsh { sink.print(b"in Vertex Stage: \n")?.pretty_sink(v)?; }
+        if let Some(ref v) = self.hsh { sink.print(b"in Hull Stage: \n")?.pretty_sink(v)?; }
+        if let Some(ref v) = self.dsh { sink.print(b"in Domain Stage: \n")?.pretty_sink(v)?; }
+        if let Some(ref v) = self.gsh { sink.print(b"in Geometry Stage: \n")?.pretty_sink(v)?; }
+        if let Some(ref v) = self.fsh { sink.print(b"in Fragment Stage: \n")?.pretty_sink(v)?; }
+        Ok(())
+    }
+}
 impl<'t> PrettyPrint for StageDeformed<'t>
 {
     fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
     {
-        sink.print(b"IO Semantics: ")?.pretty_sink(&self.io)?.print(b"\n")?;
-        sink.print(b"Bindings: ")?.pretty_sink(&self.bindings)?.print(b"\n")?;
-        sink.print(b"Types: ")?.pretty_sink(&self.types)?.print(b"\n").map(drop)
+        sink.print(b"IO Semantics: \n")?.pretty_sink(&self.io)?;
+        sink.print(b"Bindings: \n")?.pretty_sink(&self.bindings)?;
+        sink.print(b"Types: \n")?.pretty_sink(&self.types).map(drop)
     }
 }
 impl<'t> PrettyPrint for BoundMap<'t>

@@ -20,7 +20,8 @@ fn main()
     // println!("assocs: ");
     // p.dbg_print_assoc(1);
     let pd = p.deform().expect("Failed to deforming");
-    println!("{:?}", pd);
+    pd.pretty_print(&std::io::stdout()).unwrap(); std::io::stdout().flush().unwrap();
+    // println!("{:?}", pd);
     /*let ctors = ShadingPipelineConstructorEnv::new();
     p.collect_ctors(&ctors).expect("Failure in collecting type constructors");
     ctors.borrow().print_ctor_env();*/
