@@ -200,6 +200,43 @@ pub enum BType
     FMat(u8, u8), DMat(u8, u8), IMat(u8, u8), UMat(u8, u8),
     Sampler(u8), Texture(u8)
 }
+impl Display for Semantics
+{
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult
+    {
+        use self::Semantics::*;
+        match *self
+        {
+            Position(index) => write!(fmt, "POSITION{}", index),
+            SVPosition => write!(fmt, "SV_Position"),
+            Texcoord(index) => write!(fmt, "TEXCOORD{}", index),
+            Color(index) => write!(fmt, "COLOR{}", index),
+            SVTarget => write!(fmt, "SV_Target")
+        }
+    }
+}
+impl Display for BType
+{
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult
+    {
+        use self::BType::*;
+        match *self
+        {
+            Bool => write!(fmt, "bool"), Uint => write!(fmt, "uint"), Int => write!(fmt, "int"), Float => write!(fmt, "float"), Double => write!(fmt, "double"),
+            FVec(n) => write!(fmt, "f{}", n), IVec(n) => write!(fmt, "i{}", n), UVec(n) => write!(fmt, "u{}", n), DVec(n) => write!(fmt, "d{}", n),
+            FMat(n, m) => write!(fmt, "f{}{}", n, m), DMat(n, m) => write!(fmt, "d{}{}", n, m), IMat(n, m) => write!(fmt, "i{}{}", n, m), UMat(n, m) => write!(fmt, "u{}{}", n, m),
+            Sampler(n) => write!(fmt, "sampler{}d", n), Texture(n) => write!(fmt, "texture{}d", n)
+        }
+    }
+}
+impl<'s> Display for Source<'s>
+{
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult { Display::fmt(&self.slice, fmt) }
+}
+impl<'s: 't, 't> Display for GenSource<'s, 't>
+{
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult { self.text().fmt(fmt) }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenizerState<'s> { pub src: Source<'s>, pub last_line: usize, pub cache: Vec<Token<'s>> }

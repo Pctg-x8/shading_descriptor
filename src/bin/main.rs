@@ -2,10 +2,12 @@ extern crate pureshader;
 
 use pureshader::*;
 use std::io::prelude::*;
+use std::fs::File;
+use std::env;
 
 fn main()
 {
-    let fcontent = std::fs::File::open(std::env::args().nth(1).unwrap())
+    let fcontent = File::open(env::args().nth(1).unwrap())
         .and_then(|mut fp| { let mut s = String::new(); fp.read_to_string(&mut s).map(move |_| s) }).unwrap();
     let toks = TokenizerState::from(Source::new(&fcontent)).strip_all();
     let mut cache = PreanalyzedTokenStream::from(&toks[..]);

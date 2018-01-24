@@ -527,8 +527,22 @@ pub fn extract_most_precedences<'s: 't, 't, IR: 's>(mods: &[InfixIntermediate<'s
     }))
 }
 
-use std::io::{Result as IOResult, Write}; use PrettyPrintSink;
-impl<'s: 't, 't> ::PrettyPrint for Ty<'s, 't>
+use std::io::{Result as IOResult, Write}; use {PrettyPrintSink, PrettyPrint};
+impl<'s: 't, 't> PrettyPrint for FullTy<'s, 't>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        if let Some(q1) = self.quantified.first()
+        {
+            write!(sink, "forall {}", q1)?;
+            for q in &self.quantified[1..] { write!(sink, " {}", q)?; }
+            write!(sink, ".")?;
+        }
+        for c in &self.constraints { sink.pretty_sink(c)?.print(b" => ")?; }
+        self.def.pretty_print(sink)
+    }
+}
+impl<'s: 't, 't> PrettyPrint for Ty<'s, 't>
 {
     fn pretty_print<W: Write>(&self, dest: &mut W) -> IOResult<()>
     {
@@ -578,7 +592,175 @@ impl<'s: 't, 't> ::PrettyPrint for Ty<'s, 't>
         }
     }
 }
-impl<'s: 't, 't> ::PrettyPrint for Prefix<'s, 't>
+impl<'s: 't, 't> PrettyPrint for Expr<'s, 't>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        match *self
+        {
+            Expr::Numeric(ref n) => write!(sink, "{}", n),
+            Expr::SymReference(ref s) => write!(sink, "{}", s.text()),
+            Expr::PathRef(ref x, ref ps) =>
+            {
+                let p = match x.as_ref()
+                {
+                    &Expr::Apply(_, _) | &Expr::Block(_, _) | &Expr::Conditional { .. } | &Expr::CaseOf { .. } | &Expr::Lettings { .. } => true,
+                    _ => false
+                };
+                sink.print_if(b"(", p)?.pretty_sink(x)?.print_if(b")", p)?;
+                for p in ps { write!(sink, ".{}", p)?; } Ok(())
+            },
+            Expr::Unit(_) => sink.print(b"()").map(drop),
+            Expr::Tuple1(ref t1, ref ts) =>
+            {
+                sink.print(b"(")?.pretty_sink(t1)?;
+                for x in ts { sink.print(b", ")?.pretty_sink(x)?; }
+                write!(sink, ")")
+            },
+            Expr::ArrayLiteral(_, ref xs) =>
+            {
+                sink.print(b"[")?;
+                if let Some(x1) = xs.first()
+                {
+                    x1.pretty_print(sink)?;
+                    for x in &xs[1..] { sink.print(b", ")?.pretty_sink(x)?; }
+                }
+                write!(sink, "]")
+            },
+            Expr::ArrayRef(ref x, ref n) =>
+            {
+                let pp = match x.as_ref()
+                {
+                    &Expr::Apply(_, _) | &Expr::Block(_, _) | &Expr::Conditional { .. } | &Expr::CaseOf { .. } | &Expr::Lettings { .. } => true,
+                    _ => false
+                };
+                sink.print_if(b"(", pp)?.pretty_sink(x)?.print_if(b")", pp)?.print(b"[")?.pretty_sink(n)?.print(b"]")?;
+                Ok(())
+            },
+            Expr::Conditional { ref cond, ref then, ref else_, .. } =>
+            {
+                sink.print(b"if ")?.pretty_sink(cond)?.print(b" then ")?.pretty_sink(then)?;
+                if let &Some(ref e) = else_ { sink.print(b" else ")?.pretty_sink(e)?; }
+                Ok(())
+            },
+            Expr::Lettings { ref vars, ref subexpr, .. } =>
+            {
+                sink.print(b"let ")?;
+                if let Some(v1) = vars.first()
+                {
+                    v1.pretty_print(sink)?;
+                    for v in &vars[1..] { sink.print(b"; ")?.pretty_sink(v)?; }
+                }
+                sink.print(b" in ")?.pretty_sink(subexpr).map(drop)
+            },
+            Expr::CaseOf { ref expr, ref matchers, .. } =>
+            {
+                sink.print(b"case ")?.pretty_sink(expr)?.print(b" of ")?;
+                if let Some(m1) = matchers.first()
+                {
+                    sink.pretty_sink(&m1.0)?.print(b" -> ")?.pretty_sink(&m1.1)?;
+                    for &(ref p, ref x) in &matchers[1..] { sink.print(b"; ")?.pretty_sink(p)?.print(b" -> ")?.pretty_sink(x)?; }
+                }
+                Ok(())
+            },
+            Expr::Block(_, ref xs) =>
+            {
+                sink.print(b"do ")?;
+                if let Some(x1) = xs.first()
+                {
+                    x1.pretty_print(sink)?;
+                    for x in &xs[1..] { sink.print(b"; ")?.pretty_sink(x)?; }
+                }
+                Ok(())
+            },
+            Expr::Apply(ref p, ref args) =>
+            {
+                let pp = match p.as_ref()
+                {
+                    &Expr::Block(_, _) | &Expr::Conditional { .. } | &Expr::CaseOf { .. } | &Expr::Lettings { .. } => true,
+                    _ => false
+                };
+                sink.print_if(b"(", pp)?.pretty_sink(p)?.print_if(b")", pp)?;
+                for a in args
+                {
+                    let pp = match *a { Expr::Apply(_, _) | Expr::Block(_, _) | Expr::Conditional { .. } | Expr::CaseOf { .. } | Expr::Lettings { .. } => true, _ => false };
+                    sink.print(b" ")?.print_if(b"(", pp)?.pretty_sink(a)?.print_if(b")", pp)?;
+                }
+                Ok(())
+            },
+            Expr::Garbage => unreachable!()
+        }
+    }
+}
+impl<'s: 't, 't> PrettyPrint for ExprPat<'s, 't>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        match *self
+        {
+            ExprPat::Placeholder(_) => write!(sink, "_"),
+            ExprPat::Numeric(ref n) => write!(sink, "{}", n),
+            ExprPat::SymBinding(ref s) => write!(sink, "{}", s.text()),
+            ExprPat::PathRef(ref x, ref ps) => { write!(sink, "{}", x)?; for p in ps { write!(sink, ".{}", p)?; } Ok(()) },
+            ExprPat::Unit(_) => sink.print(b"()").map(drop),
+            ExprPat::Tuple(ref t1, ref ts) =>
+            {
+                sink.print(b"(")?.pretty_sink(t1)?;
+                for x in ts { sink.print(b", ")?.pretty_sink(x)?; }
+                write!(sink, ")")
+            },
+            ExprPat::ArrayLiteral(_, ref xs) =>
+            {
+                sink.print(b"[")?;
+                if let Some(x1) = xs.first()
+                {
+                    x1.pretty_print(sink)?;
+                    for x in &xs[1..] { sink.print(b", ")?.pretty_sink(x)?; }
+                }
+                write!(sink, "]")
+            },
+            ExprPat::Apply(ref p, ref args) =>
+            {
+                p.pretty_print(sink)?;
+                for a in args
+                {
+                    let pp = match *a { ExprPat::Apply(_, _) => true, _ => false };
+                    sink.print(b" ")?.print_if(b"(", pp)?.pretty_sink(a)?.print_if(b")", pp)?;
+                }
+                Ok(())
+            },
+            ExprPat::Garbage => unreachable!()
+        }
+    }
+}
+impl<'s: 't, 't> PrettyPrint for Binding<'s, 't>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        sink.pretty_sink(&self.pat)?.print(b" = ")?.pretty_sink(&self.expr).map(drop)
+    }
+}
+impl<'s: 't, 't> PrettyPrint for BlockContent<'s, 't>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        match *self
+        {
+            BlockContent::Expr(ref x) => x.pretty_print(sink),
+            BlockContent::Vars(ref vs) =>
+            {
+                sink.print(b"let ")?;
+                if let Some(v1) = vs.first()
+                {
+                    v1.pretty_print(sink)?;
+                    for v in &vs[1..] { sink.print(b"; ")?.pretty_sink(v)?; }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+impl<'s: 't, 't> PrettyPrint for Prefix<'s, 't>
 {
     fn pretty_print<W: Write>(&self, dest: &mut W) -> IOResult<()>
     {
@@ -593,6 +775,13 @@ impl<'s: 't, 't> ::PrettyPrint for Prefix<'s, 't>
                 Ok(())
             }
         }
+    }
+}
+impl<'s: 't, 't> PrettyPrint for SymPath<'s, 't>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        write!(sink, "{}", self.base)?; for p in &self.desc { write!(sink, ".{}", p)?; } Ok(())
     }
 }
 

@@ -308,3 +308,91 @@ pub enum ComplexDeformationError<'s>
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolDomain { ConstantName, UniformName, TypeSynonymName, TypeName, DataConstructorName }
 impl<'s> From<DeformationError> for ComplexDeformationError<'s> { fn from(v: DeformationError) -> Self { ComplexDeformationError::Inherit(v) } }
+
+use ::{PrettyPrintSink, PrettyPrint}; use std::io::{Write, Result as IOResult};
+impl<'t> PrettyPrint for StageDeformed<'t>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        sink.print(b"IO Semantics: ")?.pretty_sink(&self.io)?.print(b"\n")?;
+        sink.print(b"Bindings: ")?.pretty_sink(&self.bindings)?.print(b"\n")?;
+        sink.print(b"Types: ")?.pretty_sink(&self.types)?.print(b"\n").map(drop)
+    }
+}
+impl<'t> PrettyPrint for BoundMap<'t>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        for (&name, c) in &self.constants
+        {
+            write!(sink, "- [constant] {}: ", name)?;
+            if let Some(ref th) = c.type_hint { th.pretty_print(sink)?; } else { write!(sink, "_")?; }
+            if let Some(ref x) = c.default_expr { sink.print(b" = ")?.pretty_sink(x)?; }
+            write!(sink, "\n")?;
+        }
+        for (&name, th) in &self.uniforms
+        {
+            write!(sink, "- [uniform] {}: ", name)?;
+            th.pretty_print(sink)?; write!(sink, "\n")?;
+        }
+        for (name, b) in &self.defs
+        {
+            for b1 in b
+            {
+                write!(sink, "- {}: ", name)?;
+                if let Some(ref th) = b1.type_hint { th.pretty_print(sink)?; } else { write!(sink, "_")?; }
+                sink.print(b" = ")?.pretty_sink(&b1.tree)?.print(b"\n")?;
+            }
+        }
+        Ok(())
+    }
+}
+impl<'t> PrettyPrint for IOSemanticsMap<'t>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        for (&sem, &(name, ty)) in &self.inputs { write!(sink, "- [input:{}] {}: {}\n", sem, name, ty)?; }
+        for (&sem, &(name, ref th, ref expr)) in &self.outputs
+        {
+            write!(sink, "- [output:{}] {}: ", sem, name)?;
+            if let &Some(ref th) = th { write!(sink, "{}", th)?; } else { write!(sink, "_")?; }
+            sink.print(b" = ")?.pretty_sink(expr)?.print(b"\n")?;
+        }
+        Ok(())
+    }
+}
+impl<'t> PrettyPrint for DeformedTypes<'t>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        for (name, &(ref lty, ref rty)) in &self.fns
+        {
+            if let &Some(ref rty) = rty
+            {
+                write!(sink, "- [type synonym] {}(", name)?; sink.pretty_sink(lty)?.print(b") = ")?.pretty_sink(rty)?;
+            }
+            else { write!(sink, "- [data type] {}(", name)?; sink.pretty_sink(lty)?.print(b")")?; }
+            write!(sink, "\n")?;
+        }
+        for (tyname, ctors) in &self.data
+        {
+            for (ctor_name, ctor_form) in ctors
+            {
+                write!(sink, "- [data constructor for {}] {} = ", tyname, ctor_name)?;
+                sink.pretty_sink(ctor_form)?.print(b"\n")?;
+            }
+        }
+        Ok(())
+    }
+}
+impl<'t> PrettyPrint for BindingTree<'t>
+{
+    fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
+    {
+        match *self
+        {
+            BindingTree::Expr(ref x) => x.pretty_print(sink),
+            BindingTree::WithArgument(ref p, ref c) => sink.pretty_sink(p)?.print(b" [~>] ")?.pretty_sink(c).map(drop)
+        }
+    }
+}

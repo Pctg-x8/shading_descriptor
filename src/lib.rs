@@ -65,6 +65,10 @@ impl<W: std::io::Write> PrettyPrintSink for W
     fn pretty_sink<P: ::PrettyPrint>(&mut self, target: &P) -> std::io::Result<&mut Self> { target.pretty_print(self).map(|_| self) }
     fn print(&mut self, text: &[u8]) -> std::io::Result<&mut Self> { self.write(text).map(|_| self) }
 }
+impl<T: PrettyPrint> PrettyPrint for Box<T>
+{
+    fn pretty_print<W: std::io::Write>(&self, sink: &mut W) -> std::io::Result<()> { self.as_ref().pretty_print(sink) }
+}
 
 /// Equation without position
 pub trait EqNoloc { fn eq_nolocation(&self, other: &Self) -> bool; }
