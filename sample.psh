@@ -1,5 +1,7 @@
 # PureShader Sample Script
 
+import Shader.Core
+
 !DepthTest !DepthWrite !DepthBounds
 Blend (Add SrcAlpha ~SrcAlpha) (Add ~DestAlpha 1)
 # Blend (Add SrcAlpha ~SrcAlpha) #(Add SrcAlpha ~SrcAlpha)

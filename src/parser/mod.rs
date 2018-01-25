@@ -7,6 +7,7 @@ pub use self::err::{Success, SuccessM, Failed, FailedM, NotConsumed, NotConsumed
 use self::utils::*; use self::err::*;
 use tokparse::*;
 use std::rc::Rc; use std::cell::RefCell;
+use Position;
 
 // child parsers //
 pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, InferredArrayDim};
@@ -17,11 +18,131 @@ pub use self::assoc::{Associativity, AssociativityEnv, AssociativityEnvironment}
 type RcMut<T> = Rc<RefCell<T>>;
 fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
 
+/// ident (. ident)*
+fn module_path<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Vec<&'t Source<'s>>>
+{
+	let mut idents = vec![match shift_satisfy_leftmost(stream, leftmost, true, |s| s.shift_identifier()) { Ok(v) => v, _ => return NotConsumed }];
+	let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(idents[0].position().column)).into_exclusive();
+	while shift_satisfy_leftmost(stream, leftmost, false, |s| s.shift_object_descender()).is_ok()
+	{
+		match shift_satisfy_leftmost(stream, leftmost, false, |s| s.shift_identifier())
+		{
+			Ok(ident) => { idents.push(ident); }, Err(p) => return Failed(ParseError::Expecting(ExpectingKind::Ident, p))
+		}
+	}
+	Success(idents)
+}
+/// as ident
+fn maybe_qualified<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<Option<&'t Source<'s>>, ParseError<'t>>
+{
+	if stream.shift_keyword(Keyword::As).is_ok()
+	{
+		stream.shift_identifier().map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p)).map(Some)
+	}
+	else { Ok(None) }
+}
+/// module_path [as ident / "(" [ident [as ident] (, ident [as ident])*] ")"]
+fn import1<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, SymbolImportSpec<'s>>
+{
+	let path = BreakParsing!(module_path(stream, leftmost));
+	let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(path.position().column)).into_exclusive();
+	if leftmost.satisfy(stream.current(), false)
+	{
+		match *stream.current()
+		{
+			TokenKind::Keyword(_, Keyword::As) =>
+			{
+				stream.shift();
+				stream.shift_identifier().map_err(|p| ParseError::Expecting(ExpectingKind::Ident, p))
+					.map(|a| SymbolImportSpec::Qualified(path.into_iter().cloned().collect(), a.clone())).into()
+			},
+			TokenKind::Keyword(_, Keyword::Hiding) =>
+			{
+				stream.shift();
+				let mut subimports = Vec::new();
+				if let Ok(s1) = stream.shift_identifier()
+				{
+					subimports.push(s1);
+					while stream.shift_list_delimiter().is_ok()
+					{
+						subimports.place_back() <- TMatch!(stream; TokenKind::Identifier(ref s) => s, |p| ParseError::Expecting(ExpectingKind::Ident, p));
+					}
+				}
+				TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
+				Success(if subimports.is_empty()
+				{
+					SymbolImportSpec::PathOnly(path.into_iter().cloned().collect())
+				}
+				else
+				{
+					SymbolImportSpec::HidingSubimports(path.into_iter().cloned().collect(), subimports.into_iter().cloned().collect())
+				})
+			},
+			TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese) =>
+			{
+				stream.shift();
+				let mut subimports = Vec::new();
+				if let Ok(s1) = stream.shift_identifier()
+				{
+					subimports.place_back() <- (s1.clone(), maybe_qualified(stream)?.map(Clone::clone));
+					while stream.shift_list_delimiter().is_ok()
+					{
+						let s = TMatch!(stream; TokenKind::Identifier(ref s) => s, |p| ParseError::Expecting(ExpectingKind::Ident, p));
+						subimports.place_back() <- (s.clone(), maybe_qualified(stream)?.map(Clone::clone));
+					}
+				}
+				TMatch!(stream; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p));
+				Success(if subimports.is_empty()
+				{
+					SymbolImportSpec::PathOnly(path.into_iter().cloned().collect())
+				}
+				else
+				{
+					SymbolImportSpec::WithSubimports(path.into_iter().cloned().collect(), subimports)
+				})
+			},
+			_ => Success(SymbolImportSpec::PathOnly(path.into_iter().cloned().collect()))
+		}
+	}
+	else { Success(SymbolImportSpec::PathOnly(path.into_iter().cloned().collect())) }
+}
+
+/// インポート
+#[derive(Debug, Clone)]
+pub enum SymbolImportSpec<'s>
+{
+	PathOnly(Vec<Source<'s>>), Qualified(Vec<Source<'s>>, Source<'s>),
+	WithSubimports(Vec<Source<'s>>, Vec<(Source<'s>, Option<Source<'s>>)>),
+	HidingSubimports(Vec<Source<'s>>, Vec<Source<'s>>)
+}
+#[derive(Debug, Clone)] pub struct SymbolImport<'s> { pub qualified: bool, pub spec: SymbolImportSpec<'s> }
+impl<'s> BlockParser<'s> for SymbolImport<'s>
+{
+	type ResultTy = Vec<Self>;
+	fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Vec<Self>> where 's: 't
+	{
+		TMatchFirst!(stream; TokenKind::Keyword(_, Keyword::Import));
+		let qualified = TMatch!(Optional: stream; TokenKind::Keyword(_, Keyword::Qualified));
+		let blk_start = take_current_block_begin(stream);
+		
+		let mut imports = vec![
+			import1(stream, blk_start).into_result(|| ParseError::Expecting(ExpectingKind::ModulePath, stream.current().position()))
+				.map(|spec| SymbolImport { qualified, spec })?
+		];
+		while stream.shift_list_delimiter().is_ok()
+		{
+			imports.place_back() <- import1(stream, blk_start).into_result(|| ParseError::Expecting(ExpectingKind::ModulePath, stream.current().position()))
+				.map(|spec| SymbolImport { qualified, spec })?;
+		}
+		Success(imports)
+	}
+}
+
 /// シェーディングパイプライン(コンパイル単位)
 #[derive(Debug, Clone)]
 pub struct ShadingPipeline<'s>
 {
-	state: ShadingStates,
+	state: ShadingStates, pub imports: Vec<SymbolImport<'s>>,
 	pub vsh: Option<ShaderStageDefinition<'s>>,
 	pub hsh: Option<ShaderStageDefinition<'s>>, pub dsh: Option<ShaderStageDefinition<'s>>,
 	pub gsh: Option<ShaderStageDefinition<'s>>, pub fsh: Option<ShaderStageDefinition<'s>>,
@@ -32,7 +153,7 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 {
 	let mut sp = ShadingPipeline
 	{
-		state: Default::default(), vsh: None, hsh: None, dsh: None, gsh: None, fsh: None,
+		state: Default::default(), imports: Vec::new(), vsh: None, hsh: None, dsh: None, gsh: None, fsh: None,
 		values: Vec::new(), types: Vec::new(), typefns: Vec::new(), assoc: new_rcmut(AssociativityEnv::new(None))
 	};
 	let mut errors = Vec::new();
@@ -69,6 +190,10 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 				TokenKind::Keyword(_, Keyword::Data) => match TypeDeclaration::parse(stream.restore(inst))
 				{
 					Failed(e) => { errors_t.push(e); true }, Success(td) => { sp.types.push(td); continue; }, _ => unreachable!()
+				},
+				TokenKind::Keyword(_, Keyword::Import) => match SymbolImport::parse(stream.restore(inst))
+				{
+					Failed(e) => { errors_t.push(e); true }, Success(mut sis) => { sp.imports.append(&mut sis); continue; }, _ => unreachable!()
 				},
 				_ => false
 			};

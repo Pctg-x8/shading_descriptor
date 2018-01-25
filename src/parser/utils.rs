@@ -168,3 +168,8 @@ pub fn shift_prefix_declarator<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut 
 		_ => NotConsumed
 	}
 }
+pub fn shift_satisfy_leftmost<'s: 't, 't, S, F, T>(stream: &mut S, leftmost: Leftmost, satisfy_on_nothing: bool, shifter: F) -> Result<T, &'t Location>
+    where S: TokenStream<'s, 't>, F: FnOnce(&mut S) -> Result<T, &'t Location>
+{
+    if leftmost.satisfy(stream.current(), satisfy_on_nothing) { shifter(stream) } else { Err(stream.current().position()) }
+}

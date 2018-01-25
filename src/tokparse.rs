@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std;
 use std::mem::discriminant;
 use std::cmp::min;
+use {Position, EqNoloc};
 
 use regex::Regex;
 
@@ -39,6 +40,7 @@ impl<'s> Source<'s>
 {
     pub fn new(s: &'s str) -> Self { Source { pos: Location::default(), slice: s } }
 }
+impl<'s> Position for Source<'s> { fn position(&self) -> &Location { &self.pos } }
 /// Generated Text or ref to span
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GenSource<'s: 't, 't> { Generated(String), GeneratedSlice(Source<'s>), Sliced(&'t Source<'s>) }
@@ -63,29 +65,28 @@ impl<'s: 't, 't> GenSource<'s, 't>
 }
 impl<'s: 't, 't> From<&'t Source<'s>> for GenSource<'s, 't> { fn from(s: &'t Source<'s>) -> Self { GenSource::Sliced(s) } }
 impl<'s: 't, 't> From<String> for GenSource<'s, 't> { fn from(s: String) -> Self { GenSource::Generated(s) } }
-impl<'s> ::Position for Source<'s> { fn position(&self) -> &Location { &self.pos } }
-impl<'s: 't, 't> ::Position for GenSource<'s, 't>
+impl<'s: 't, 't> Position for GenSource<'s, 't>
 {
     fn position(&self) -> &Location
     {
         match *self { GenSource::Generated(_) => &Location::EMPTY, GenSource::Sliced(s) => s.position(), GenSource::GeneratedSlice(ref s) => s.position() }
     }
 }
-impl<'s> ::EqNoloc for Source<'s> { fn eq_nolocation(&self, other: &Self) -> bool { self.slice == other.slice } }
-impl<'s: 't, 't> ::EqNoloc for GenSource<'s, 't> { fn eq_nolocation(&self, other: &Self) -> bool { self.text() == other.text() } }
+impl<'s> EqNoloc for Source<'s> { fn eq_nolocation(&self, other: &Self) -> bool { self.slice == other.slice } }
+impl<'s: 't, 't> EqNoloc for GenSource<'s, 't> { fn eq_nolocation(&self, other: &Self) -> bool { self.text() == other.text() } }
 /// Generatd Numeric or ref to span
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GenNumeric<'s: 't, 't> { GeneratedInt(u64), Ref(&'t ::lambda::Numeric<'s>) }
 impl<'s: 't, 't> From<u64> for GenNumeric<'s, 't> { fn from(v: u64) -> Self { GenNumeric::GeneratedInt(v) } }
 impl<'s: 't, 't> From<&'t ::lambda::Numeric<'s>> for GenNumeric<'s, 't> { fn from(v: &'t ::lambda::Numeric<'s>) -> Self { GenNumeric::Ref(v) } }
-impl<'s: 't, 't> ::Position for GenNumeric<'s, 't>
+impl<'s: 't, 't> Position for GenNumeric<'s, 't>
 {
     fn position(&self) -> &Location
     {
         match *self { GenNumeric::Ref(s) => s.position(), GenNumeric::GeneratedInt(_) => &Location::EMPTY }
     }
 }
-impl<'s: 't, 't> ::EqNoloc for GenNumeric<'s, 't>
+impl<'s: 't, 't> EqNoloc for GenNumeric<'s, 't>
 {
     fn eq_nolocation(&self, other: &Self) -> bool
     {
@@ -96,9 +97,9 @@ impl<'s: 't, 't> ::EqNoloc for GenNumeric<'s, 't>
         }
     }
 }
-impl<'s: 't, 't> ::std::fmt::Display for GenNumeric<'s, 't>
+impl<'s: 't, 't> Display for GenNumeric<'s, 't>
 {
-    fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult
     {
         match *self
         {
@@ -177,7 +178,7 @@ pub enum Keyword
 {
     Let, In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
     DepthTest, DepthWrite, DepthBounds, StencilTest, StencilOps, StencilCompare, StencilWriteMask, Blend, Type, Data,
-    If, Then, Else, Unless, Infixl, Infixr, Infix, Forall,
+    If, Then, Else, Unless, Infixl, Infixr, Infix, Forall, Import, Qualified, As, Hiding,
     // reserved but not used //
     Where, Do, Case, Of,
     // blend ops //
@@ -618,6 +619,10 @@ impl<'s> Source<'s>
                 "infixl" => Some(TokenKind::Keyword(s.pos, Keyword::Infixl)),
                 "infixr" => Some(TokenKind::Keyword(s.pos, Keyword::Infixr)),
                 "forall" => Some(TokenKind::Keyword(s.pos, Keyword::Forall)),
+                "import" => Some(TokenKind::Keyword(s.pos, Keyword::Import)),
+                "qualified" => Some(TokenKind::Keyword(s.pos, Keyword::Qualified)),
+                "as" => Some(TokenKind::Keyword(s.pos, Keyword::As)),
+                "hiding" => Some(TokenKind::Keyword(s.pos, Keyword::Hiding)),
                 "VertexShader" => Some(TokenKind::Keyword(s.pos, Keyword::VertexShader)),
                 "FragmentShader" => Some(TokenKind::Keyword(s.pos, Keyword::FragmentShader)),
                 "GeometryShader" => Some(TokenKind::Keyword(s.pos, Keyword::GeometryShader)),

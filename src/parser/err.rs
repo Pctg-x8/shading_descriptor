@@ -11,7 +11,7 @@ pub enum ExpectingKind
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl, Constructor,
 	Expression, Numeric, Operator, PrefixDeclarator, Argument, ShaderBlock,
 	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, LetIn, TypePattern, ExpressionPattern, ConditionExpr,
-	AssocPriority, Infix, Keyword(Keyword), Period, Binding, Arrow1
+	AssocPriority, Infix, Keyword(Keyword), Period, Binding, Arrow1, ModulePath
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -87,6 +87,7 @@ impl<'t> Error for ParseError<'t>
 				ExpectingKind::Period => "Expecting a `.`",
 				ExpectingKind::Binding => "Expecting a binding, maybe missing `=`",
 				ExpectingKind::Arrow1 => "Expecting a `->`",
+				ExpectingKind::ModulePath => "Expecting a path to module",
 				ExpectingKind::Keyword(kw) => match kw
 				{
 					Keyword::Blend => "Expecting a `Blend`",
