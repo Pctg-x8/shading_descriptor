@@ -42,7 +42,7 @@ pub struct Binding<'t> { pub type_hint: Option<deformer::FullTy<'t, 't>>, pub tr
 pub struct IOSemanticsMap<'t>
 {
     pub inputs: HashMap<Semantics, (&'t str, BType)>,
-    pub outputs: HashMap<Semantics, (&'t str, Option<BType>, deformer::Expr<'t, 't>)>
+    pub outputs: HashMap<Semantics, (Option<&'t str>, Option<BType>, deformer::Expr<'t, 't>)>
 }
 #[derive(Debug)]
 pub struct BoundMap<'t>
@@ -65,7 +65,7 @@ impl<'t> IOSemanticsMap<'t>
         if self.inputs.contains_key(&sem) { RegisterResult::Exists }
         else { self.inputs.insert(sem, (name, type_)); RegisterResult::Success }
     }
-    fn register_output(&mut self, sem: Semantics, name: &'t str, type_hint: Option<BType>, expr: deformer::Expr<'t, 't>) -> RegisterResult
+    fn register_output(&mut self, sem: Semantics, name: Option<&'t str>, type_hint: Option<BType>, expr: deformer::Expr<'t, 't>) -> RegisterResult
     {
         if self.outputs.contains_key(&sem) { RegisterResult::Exists }
         else { self.outputs.insert(sem, (name, type_hint, expr)); RegisterResult::Success }
@@ -131,10 +131,10 @@ impl<'s> parser::ShaderStageDefinition<'s>
                 errors.place_back() <- ComplexDeformationError::SemanticsConflict(si.semantics, si.location.clone());
             }
         }
-        for (name, so) in self.outputs.iter().filter_map(|so| so.name.map(|n| (n, so)))
+        for so in &self.outputs
         {
             let expr = CollectErrors!(so.expr.deform(&assoc) =>? errors; continue);
-            if io.register_output(so.semantics, name, so._type.clone(), expr) == RegisterResult::Exists
+            if io.register_output(so.semantics, so.name, so._type.clone(), expr) == RegisterResult::Exists
             {
                 errors.place_back() <- ComplexDeformationError::SemanticsConflict(so.semantics, so.location.clone());
             }
@@ -309,7 +309,7 @@ pub enum ComplexDeformationError<'s>
 pub enum SymbolDomain { ConstantName, UniformName, TypeSynonymName, TypeName, DataConstructorName }
 impl<'s> From<DeformationError> for ComplexDeformationError<'s> { fn from(v: DeformationError) -> Self { ComplexDeformationError::Inherit(v) } }
 
-use ::{PrettyPrintSink, PrettyPrint}; use std::io::{Write, Result as IOResult};
+use {PrettyPrintSink, PrettyPrint}; use std::io::{Write, Result as IOResult};
 impl<'t> PrettyPrint for PipelineDeformed<'t>
 {
     fn pretty_print<W: Write>(&self, sink: &mut W) -> IOResult<()>
@@ -368,7 +368,7 @@ impl<'t> PrettyPrint for IOSemanticsMap<'t>
         for (&sem, &(name, ty)) in &self.inputs { write!(sink, "- [input:{}] {}: {}\n", sem, name, ty)?; }
         for (&sem, &(name, ref th, ref expr)) in &self.outputs
         {
-            write!(sink, "- [output:{}] {}: ", sem, name)?;
+            write!(sink, "- [output:{}] {}: ", sem, name.map_or("_".to_owned(), ToString::to_string))?;
             if let &Some(ref th) = th { write!(sink, "{}", th)?; } else { write!(sink, "_")?; }
             sink.print(b" = ")?.pretty_sink(expr)?.print(b"\n")?;
         }
