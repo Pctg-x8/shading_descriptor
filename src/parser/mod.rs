@@ -32,7 +32,7 @@ fn module_path<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Lef
 	}
 	Success(idents)
 }
-/// as ident
+/// [as ident]
 fn maybe_qualified<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<Option<&'t Source<'s>>, ParseError<'t>>
 {
 	if stream.shift_keyword(Keyword::As).is_ok()
@@ -163,62 +163,59 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 		let leftmost = Leftmost::Inclusive(get_definition_leftmost(Leftmost::Inclusive(1), stream));
 		let mut errors_t = Vec::new();
 		let inst = stream.save();
-		let has_error = if stream.current().infix_assoc()
+		match *stream.current()
 		{
-			match Associativity::parse(stream).into_result(|| ParseError::Expecting(ExpectingKind::Infix, stream.current().position()))
+			TokenKind::Keyword(_, Keyword::Type) => match TypeFn::parse(stream.restore(inst))
 			{
-				Ok((v, a)) => for op in v
+				Failed(e) => { errors_t.push(e); }, Success(tf) => { sp.typefns.push(tf); continue; }, _ => unreachable!()
+			},
+			TokenKind::Keyword(_, Keyword::Data) => match TypeDeclaration::parse(stream.restore(inst))
+			{
+				Failed(e) => { errors_t.push(e); }, Success(td) => { sp.types.push(td); continue; }, _ => unreachable!()
+			},
+			TokenKind::Keyword(_, Keyword::Import) => match SymbolImport::parse(stream.restore(inst))
+			{
+				Failed(e) => { errors_t.push(e); }, Success(mut sis) => { sp.imports.append(&mut sis); continue; }, _ => unreachable!()
+			},
+			TokenKind::Keyword(_, Keyword::Infix) | TokenKind::Keyword(_, Keyword::Infixl) | TokenKind::Keyword(_, Keyword::Infixr) => match Associativity::parse(stream)
+			{
+				Success((v, a)) =>
 				{
-					match sp.assoc.borrow_mut().register(op.slice, op.pos, a)
+					for op in v
 					{
-						Some(p) => { errors.place_back() <- ParseError::DuplicatePrecedences(p.clone(), stream.current().position()); },
-						None => ()
+						if let Some(p) = sp.assoc.borrow_mut().register(op.slice, op.pos, a)
+						{
+							errors_t.place_back() <- ParseError::DuplicatePrecedences(p.clone(), stream.current().position());
+						}
 					}
+					if errors_t.is_empty() { continue; }
 				},
-				Err(e) => { errors.push(e); }
-			}
-			true
+				Failed(e) => { errors_t.push(e); }, _ => unreachable!()
+			},
+			_ => ()
 		}
-		else
+		match ShaderStageDefinition::parse(stream)
 		{
-			let mut b = match *stream.current()
-			{
-				TokenKind::Keyword(_, Keyword::Type) => match TypeFn::parse(stream.restore(inst))
-				{
-					Failed(e) => { errors_t.push(e); true }, Success(tf) => { sp.typefns.push(tf); continue; }, _ => unreachable!()
-				},
-				TokenKind::Keyword(_, Keyword::Data) => match TypeDeclaration::parse(stream.restore(inst))
-				{
-					Failed(e) => { errors_t.push(e); true }, Success(td) => { sp.types.push(td); continue; }, _ => unreachable!()
-				},
-				TokenKind::Keyword(_, Keyword::Import) => match SymbolImport::parse(stream.restore(inst))
-				{
-					Failed(e) => { errors_t.push(e); true }, Success(mut sis) => { sp.imports.append(&mut sis); continue; }, _ => unreachable!()
-				},
-				_ => false
-			};
-			b |= match ShaderStageDefinition::parse(stream)
-			{
-				SuccessM((ShaderStage::Vertex, v))   => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.vsh = Some(v); continue; }
-				SuccessM((ShaderStage::Hull, v))     => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.hsh = Some(v); continue; }
-				SuccessM((ShaderStage::Domain, v))   => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.dsh = Some(v); continue; }
-				SuccessM((ShaderStage::Geometry, v)) => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.gsh = Some(v); continue; }
-				SuccessM((ShaderStage::Fragment, v)) => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.fsh = Some(v); continue; }
-				FailedM(mut e) => { errors_t.append(&mut e); true }, _ => false
-			};
-			b |= match BlendingStateConfig::switched_parse(stream.restore(inst))
-			{
-				Success(bs) => { sp.state.blending = bs; continue; }, Failed(e) => { errors_t.push(e); true }, _ => false
-			};
-			b |= match depth_state(stream.restore(inst), &mut sp.state)
-			{
-				Failed(e) => { errors_t.push(e); true }, Success(_) => continue, _ => false
-			};
-			b | match ValueDeclaration::parse(stream.restore(inst), leftmost)
-			{
-				Failed(e) => { errors_t.push(e); true }, Success(v) => { sp.values.push(v); continue; }, _ => false
-			}
-		};
+			SuccessM((ShaderStage::Vertex, v))   => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.vsh = Some(v); continue; }
+			SuccessM((ShaderStage::Hull, v))     => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.hsh = Some(v); continue; }
+			SuccessM((ShaderStage::Domain, v))   => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.dsh = Some(v); continue; }
+			SuccessM((ShaderStage::Geometry, v)) => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.gsh = Some(v); continue; }
+			SuccessM((ShaderStage::Fragment, v)) => { v.assoc.borrow_mut().parent = Some(Rc::downgrade(&sp.assoc)); sp.fsh = Some(v); continue; }
+			FailedM(mut e) => { errors_t.append(&mut e); }, _ => ()
+		}
+		match BlendingStateConfig::switched_parse(stream.restore(inst))
+		{
+			Success(bs) => { sp.state.blending = bs; continue; }, Failed(e) => { errors_t.push(e); }, _ => ()
+		}
+		match depth_state(stream.restore(inst), &mut sp.state)
+		{
+			Failed(e) => { errors_t.push(e); }, Success(_) => continue, _ => ()
+		}
+		match ValueDeclaration::parse(stream.restore(inst), leftmost)
+		{
+			Failed(e) => { errors_t.push(e); }, Success(v) => { sp.values.push(v); continue; }, _ => ()
+		}
+		let has_error = !errors_t.is_empty();
 		errors.append(&mut errors_t);
 		if has_error
 		{
@@ -239,10 +236,7 @@ impl<T: Default> ShadingState<T>
 {
 	fn modify_part(&mut self) -> &mut T
 	{
-		if let ShadingState::Disable = *self
-		{
-			*self = ShadingState::Enable(T::default());
-		}
+		if let ShadingState::Disable = *self { *self = ShadingState::Enable(T::default()); }
 		if let ShadingState::Enable(ref mut v) = *self { v } else { unreachable!(); }
 	}
 }
