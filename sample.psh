@@ -40,3 +40,6 @@ workout2 t = case t of
 workout3 t = case t == 0 of
   True -> workout ((*) 2 $ cos 30 + 2)
   False -> Err t
+
+workout4 0 = workout $ 2 * cos 60
+workout4 t = Err t
