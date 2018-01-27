@@ -95,6 +95,7 @@ impl<'t> Error for ParseError<'t>
 				ExpectingKind::Binding => "Expecting a binding, maybe missing `=`",
 				ExpectingKind::Arrow1 => "Expecting a `->`",
 				ExpectingKind::ModulePath => "Expecting a path to module",
+				ExpectingKind::ClassDef => "Expecting a class definition",
 				ExpectingKind::Keyword(kw) => match kw
 				{
 					Keyword::Blend => "Expecting a `Blend`",
