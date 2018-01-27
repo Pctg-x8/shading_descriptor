@@ -3,6 +3,7 @@
 use {TokenStream, TokenKind, EnclosureKind, Source, Location, Keyword};
 use parser::err::*;
 
+/*
 macro_rules! CheckLayout
 {
 	($leftmost: expr => $stream: expr) =>
@@ -14,9 +15,11 @@ macro_rules! CheckLayout
 		if !$leftmost.satisfy($stream.current()) { return NotConsumed; }
 	}
 }
+*/
 /// トークンマッチングマクロ
 macro_rules! TMatch
 {
+	/*
 	($leftmost: expr => $stream: expr; $pat: pat => $extract: expr, $err: expr) =>
 	{{
 		CheckLayout!($leftmost => $stream);
@@ -27,6 +30,7 @@ macro_rules! TMatch
 		CheckLayout!($leftmost => $stream);
 		match *$stream.current() { $pat => { $stream.shift(); }, ref e => return Err($err(e.position())).into() }
 	}};
+	*/
 	($stream: expr; $pat: pat => $extract: expr, $err: expr) =>
 	{
 		match *$stream.current() { $pat => { $stream.shift(); $extract }, ref e => return Err($err(e.position())).into() }
