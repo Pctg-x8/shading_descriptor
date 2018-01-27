@@ -1,38 +1,29 @@
 # Shader Core impls
 
 class Dim1 e a where
-    x: a -> e
-    modx: e -> a -> a
+    x: e
+    r = x
 class Dim1 e a => Dim2 e a where
-    y: a -> e
-    mody: e -> a -> a
+    y: e
+    g = y
 class Dim2 e a => Dim3 e a where
-    z: a -> e
-    modz: e -> a -> a
+    z: e
+    b = z
 class Dim3 e a => Dim4 e a where
-    w: a -> e
-    modw: e -> a -> a
+    w: e
+    a = w
 
 instance Dim1 e e where
-    x = id
-    modx = const
+    v.x = v
 instance Dim1 float f2 where
-    x (f2 v _) = v
-    modx x (f2 _ y) = f2 x y
+    v.x = v.x
 instance Dim1 float f3 where
-    x (f3 v _ _) = v
-    modx x (f3 _ y z) = f3 x y z
+    v.x = v.x
 instance Dim1 float f4 where
-    x (f4 v _ _ _) = v
-    modx x (f4 _ y z w) = f4 x y z w
+    v.x = v.x
 instance Dim2 float f4 where
-    y (f4 _ v _ _) = v
-    mody y (f4 x _ z w) = f4 x y z w
+    v.y = v.y
 instance Dim3 float f4 where
-    z (f4 _ _ v _) = v
-    modz z (f4 x y _ w) = f4 x y z w
+    v.z = v.z
 instance Dim4 float f4 where
-    w (f4 _ _ _ v) = v
-    modw w (f4 x y z _) = f4 x y z w
-
-
+    v.w = v.w
