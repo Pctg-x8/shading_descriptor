@@ -1,10 +1,10 @@
 //! Syntax Parser
 
 #[macro_use] pub mod utils;
-pub mod err;
+pub mod err; mod block;
 mod assoc; mod expr; mod types; mod decls; mod class;
 pub use self::err::{Success, SuccessM, Failed, FailedM, NotConsumed, NotConsumedM};
-use self::utils::*; use self::err::*;
+use self::utils::*; use self::err::*; use self::block::*;
 use tokparse::*;
 use std::rc::Rc; use std::cell::RefCell;
 use Position;
