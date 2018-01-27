@@ -190,7 +190,7 @@ impl<'s: 't, 't> OptionalSpan<'s, 't>
 fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &AssociativityEnv<'s>, bindings: &mut BoundMap<'t>) -> Vec<ComplexDeformationError<'t>>
 {
     let mut errors = Vec::new();
-    let (lhs, rhs_opt, type_hint) = (v.pattern().deform(assoc), v.value().deform(assoc), v.type_hint().deform(assoc));
+    let (lhs, rhs_opt, type_hint) = (v.pattern().deform(assoc), ::reverse_opt_res(v.value().map(|x| x.deform(assoc))), ::reverse_opt_res(v.type_hint().map(|x| x.deform(assoc))));
     if let Err(ref e) = lhs { errors.place_back() <- e.clone().into(); }
     if let Err(ref e) = rhs_opt { errors.place_back() <- e.clone().into(); }
     if let Err(ref e) = type_hint { errors.place_back() <- e.clone().into(); }
