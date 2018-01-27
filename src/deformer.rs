@@ -22,11 +22,23 @@ impl<'s: 't, 't, T: Deformable<'s, 't>> Deformable<'s, 't> for [T]
     type Deformed = Vec<<T as Deformable<'s, 't>>::Deformed>;
     fn deform(&'t self, assoc: &AssociativityEnv<'s>) -> Result<Self::Deformed> { self.iter().map(|x| x.deform(assoc)).collect() }
 }
-/// Pair deformation with same associatiivty environment
+/// Pair deformation with same associativity environment
 impl<'s: 't, 't, A: Deformable<'s, 't>, B: Deformable<'s, 't>> Deformable<'s, 't> for (A, B)
 {
     type Deformed = (<A as Deformable<'s, 't>>::Deformed, <B as Deformable<'s, 't>>::Deformed);
     fn deform(&'t self, assoc: &AssociativityEnv<'s>) -> Result<Self::Deformed> { Ok((self.0.deform(assoc)?, self.1.deform(assoc)?)) }
+}
+/// Optional deformation: Deform if value is presented
+impl<'s: 't, 't, A: Deformable<'s, 't>> Deformable<'s, 't> for Option<A>
+{
+    type Deformed = Option<<A as Deformable<'s, 't>>::Deformed>;
+    fn deform(&'t self, assoc: &AssociativityEnv<'s>) -> Result<Self::Deformed> { ::reverse_opt_res(self.as_ref().map(|x| x.deform(assoc))) }
+}
+/// Optional deformation contains Reference: Deform if value is presented
+impl<'s: 't, 't, A: Deformable<'s, 't>> Deformable<'s, 't> for Option<&'t A>
+{
+    type Deformed = Option<<A as Deformable<'s, 't>>::Deformed>;
+    fn deform(&'t self, assoc: &AssociativityEnv<'s>) -> Result<Self::Deformed> { ::reverse_opt_res(self.map(|x| x.deform(assoc))) }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]

@@ -190,12 +190,14 @@ impl<'s: 't, 't> OptionalSpan<'s, 't>
 fn parse_binding<'s: 't, 't>(v: &'t parser::ValueDeclaration<'s>, assoc: &AssociativityEnv<'s>, bindings: &mut BoundMap<'t>) -> Vec<ComplexDeformationError<'t>>
 {
     let mut errors = Vec::new();
-    let (lhs, rhs, type_hint) = (v.pat.deform(assoc), v.value.deform(assoc), v._type.as_ref().map(|x| x.deform(assoc)));
+    let (lhs, rhs_opt, type_hint) = (v.pattern().deform(assoc), v.value().deform(assoc), v.type_hint().deform(assoc));
     if let Err(ref e) = lhs { errors.place_back() <- e.clone().into(); }
-    if let Err(ref e) = rhs { errors.place_back() <- e.clone().into(); }
-    if let Some(Err(ref e)) = type_hint { errors.place_back() <- e.clone().into(); }
+    if let Err(ref e) = rhs_opt { errors.place_back() <- e.clone().into(); }
+    if let Err(ref e) = type_hint { errors.place_back() <- e.clone().into(); }
     if !errors.is_empty() { return errors; }
-    let (lhs, rhs, type_hint) = (lhs.unwrap(), rhs.unwrap(), match type_hint { Some(Ok(v)) => Some(v), None => None, _ => unreachable!() });
+    let (lhs, rhs, type_hint) = (lhs.unwrap(), rhs_opt.unwrap(), type_hint.unwrap());
+    if rhs.is_none() { return errors; }
+    let rhs = rhs.unwrap();
 
     fn boundable<'s: 't, 't, 'd>(t: &'d deformer::ExprPat<'s, 't>) -> Result<OptionalSpan<'s, 't>, &'d Location>
     {
