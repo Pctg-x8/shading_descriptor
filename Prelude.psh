@@ -1,0 +1,4 @@
+# prelude
+
+infixl 9 $
+f $ x = f x
