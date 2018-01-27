@@ -178,7 +178,7 @@ pub fn shift_block_begin<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, lef
 	shift_satisfy_leftmost(stream, leftmost, |s| match *s.current()
 	{
 		TokenKind::Keyword(ref p, Keyword::Where) | TokenKind::ItemDescriptorDelimiter(ref p) => { s.shift(); Ok(p) },
-		t => Err(t.position())
+		ref t => Err(t.position())
 	})
 }
 pub fn shift_satisfy_leftmost<'s: 't, 't, S, F, T>(stream: &mut S, leftmost: Leftmost, shifter: F) -> Result<T, &'t Location>
