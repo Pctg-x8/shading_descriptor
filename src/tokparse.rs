@@ -280,6 +280,11 @@ pub trait TokenStream<'s: 't, 't>
         if let &TokenKind::ObjectDescender(_) = self.current() { self.shift(); Ok(()) }
         else { Err(self.current().position()) }
     }
+    /// shift an opening enclosure token, error if the next token is not BeginEnclosure of specific kind
+    fn shift_begin_enclosure_of(&mut self, k: EnclosureKind) -> Result<(), &'t Location>
+    {
+        match self.current() { &TokenKind::EndEnclosure(_, kk) if kk == k => { self.shift(); Ok(()) }, p => Err(p.position()) }
+    }
     /// shift an closing enclosure token, error if the next token is not EndEnclosure of specific kind
     fn shift_end_enclosure_of(&mut self, k: EnclosureKind) -> Result<(), &'t Location>
     {
