@@ -178,7 +178,7 @@ pub enum Keyword
 {
     Let, In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
     DepthTest, DepthWrite, DepthBounds, StencilTest, StencilOps, StencilCompare, StencilWriteMask, Blend, Type, Data,
-    If, Then, Else, Unless, Infixl, Infixr, Infix, Forall, Import, Qualified, As, Hiding,
+    If, Then, Else, Unless, Infixl, Infixr, Infix, Forall, Import, Qualified, As, Hiding, Class, Instance,
     // reserved but not used //
     Where, Do, Case, Of,
     // blend ops //
@@ -286,9 +286,14 @@ pub trait TokenStream<'s: 't, 't>
         match self.current() { &TokenKind::EndEnclosure(_, kk) if kk == k => { self.shift(); Ok(()) }, p => Err(p.position()) }
     }
     /// shift a keyword token, error if the next token is not Keyword of specific kind
-    fn shift_keyword(&mut self, k: Keyword) -> Result<(), &'t Location>
+    fn shift_keyword(&mut self, k: Keyword) -> Result<&'t Location, &'t Location>
     {
-        match self.current() { &TokenKind::Keyword(_, kk) if kk == k => { self.shift(); Ok(()) }, p => Err(p.position()) }
+        match self.current() { &TokenKind::Keyword(ref p, kk) if kk == k => { self.shift(); Ok(p) }, p => Err(p.position()) }
+    }
+    /// shift an equal token, error if the next token is not Equal
+    fn shift_equal(&mut self) -> Result<&'t Location, &'t Location>
+    {
+        match self.current() { &TokenKind::Equal(ref p) => { self.shift(); Ok(p) }, p => Err(p.position()) }
     }
     /// shift an arrow token, error if the next token is not Arrow
     fn shift_arrow(&mut self) -> Result<&'t Location, &'t Location>
@@ -309,6 +314,11 @@ pub trait TokenStream<'s: 't, 't>
     fn shift_identifier(&mut self) -> Result<&'t Source<'s>, &'t Location>
     {
         match self.current() { &TokenKind::Identifier(ref s) => { self.shift(); Ok(s) }, p => Err(p.position()) }
+    }
+    /// shift a semantics, error if the next tokne is not Semantics
+    fn shift_semantics(&mut self) -> Result<Semantics, &'t Location>
+    {
+        match self.current() { &TokenKind::Semantics(_, s) => { self.shift(); Ok(s) }, p => Err(p.position()) }
     }
 
     /// drop tokens until satisfying a predicate
@@ -623,6 +633,8 @@ impl<'s> Source<'s>
                 "qualified" => Some(TokenKind::Keyword(s.pos, Keyword::Qualified)),
                 "as" => Some(TokenKind::Keyword(s.pos, Keyword::As)),
                 "hiding" => Some(TokenKind::Keyword(s.pos, Keyword::Hiding)),
+                "class" => Some(TokenKind::Keyword(s.pos, Keyword::Class)),
+                "instance" => Some(TokenKind::Keyword(s.pos, Keyword::Instance)),
                 "VertexShader" => Some(TokenKind::Keyword(s.pos, Keyword::VertexShader)),
                 "FragmentShader" => Some(TokenKind::Keyword(s.pos, Keyword::FragmentShader)),
                 "GeometryShader" => Some(TokenKind::Keyword(s.pos, Keyword::GeometryShader)),
