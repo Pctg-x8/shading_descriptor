@@ -148,14 +148,16 @@ pub struct ShadingPipeline<'s>
 	pub hsh: Option<ShaderStageDefinition<'s>>, pub dsh: Option<ShaderStageDefinition<'s>>,
 	pub gsh: Option<ShaderStageDefinition<'s>>, pub fsh: Option<ShaderStageDefinition<'s>>,
 	pub values: Vec<ValueDeclaration<'s>>, types: Vec<TypeDeclaration<'s>>, typefns: Vec<TypeFn<'s>>,
-	pub assoc: RcMut<AssociativityEnv<'s>>
+	pub assoc: RcMut<AssociativityEnv<'s>>,
+	pub classes: Vec<ClassDef<'s>>, pub instances: Vec<InstanceDef<'s>>
 }
 pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>
 {
 	let mut sp = ShadingPipeline
 	{
 		state: Default::default(), imports: Vec::new(), vsh: None, hsh: None, dsh: None, gsh: None, fsh: None,
-		values: Vec::new(), types: Vec::new(), typefns: Vec::new(), assoc: new_rcmut(AssociativityEnv::new(None))
+		values: Vec::new(), types: Vec::new(), typefns: Vec::new(), assoc: new_rcmut(AssociativityEnv::new(None)),
+		classes: Vec::new(), instances: Vec::new()
 	};
 	let mut errors = Vec::new();
 
@@ -166,17 +168,25 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 		let inst = stream.save();
 		match *stream.current()
 		{
-			TokenKind::Keyword(_, Keyword::Type) => match TypeFn::parse(stream.restore(inst))
+			TokenKind::Keyword(_, Keyword::Type) => match TypeFn::parse(stream)
 			{
 				Failed(e) => { errors_t.push(e); }, Success(tf) => { sp.typefns.push(tf); continue; }, _ => unreachable!()
 			},
-			TokenKind::Keyword(_, Keyword::Data) => match TypeDeclaration::parse(stream.restore(inst))
+			TokenKind::Keyword(_, Keyword::Data) => match TypeDeclaration::parse(stream)
 			{
 				Failed(e) => { errors_t.push(e); }, Success(td) => { sp.types.push(td); continue; }, _ => unreachable!()
 			},
-			TokenKind::Keyword(_, Keyword::Import) => match SymbolImport::parse(stream.restore(inst))
+			TokenKind::Keyword(_, Keyword::Import) => match SymbolImport::parse(stream)
 			{
 				Failed(e) => { errors_t.push(e); }, Success(mut sis) => { sp.imports.append(&mut sis); continue; }, _ => unreachable!()
+			},
+			TokenKind::Keyword(_, Keyword::Class) => match ClassDef::parse(stream)
+			{
+				FailedM(mut e) => { errors_t.append(&mut e); }, SuccessM(cd) => { sp.classes.push(cd); continue; }, _ => unreachable!()
+			},
+			TokenKind::Keyword(_, Keyword::Instance) => match InstanceDef::parse(stream)
+			{
+				FailedM(mut e) => { errors_t.append(&mut e); }, SuccessM(id) => { sp.instances.push(id); continue; }, _ => unreachable!()
 			},
 			TokenKind::Keyword(_, Keyword::Infix) | TokenKind::Keyword(_, Keyword::Infixl) | TokenKind::Keyword(_, Keyword::Infixr) => match Associativity::parse(stream)
 			{
