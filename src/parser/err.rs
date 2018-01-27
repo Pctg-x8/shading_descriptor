@@ -11,7 +11,7 @@ pub enum ExpectingKind
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl, Constructor,
 	Expression, Numeric, Operator, PrefixDeclarator, Argument, ShaderBlock,
 	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, LetIn, TypePattern, ExpressionPattern, ConditionExpr,
-	AssocPriority, Infix, Keyword(Keyword), Period, Binding, Arrow1, ModulePath, ClassDef
+	AssocPriority, Infix, Keyword(Keyword), Period, Binding, Arrow1, ModulePath, ClassDef, InstanceDef
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -28,7 +28,9 @@ impl<'t> ParseError<'t>
 	pub fn expect_close_parenthese(pos: &'t Location) -> Self { ParseError::ExpectingClose(EnclosureKind::Parenthese, pos) }
 	pub fn expect_semantics(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::Semantics, pos) }
 	pub fn expect_binding(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::Binding, pos) }
-	pub fn expecting_class_def(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::ClassDef, pos) }
+	pub fn expect_class_def(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::ClassDef, pos) }
+	pub fn expect_instance_def(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::InstanceDef, pos) }
+	pub fn failed_to_leave_block(pos: &'t Location) -> Self { ParseError::ExpectingClose(EnclosureKind::Brace, pos) }
 }
 impl<'t> Display for ParseError<'t>
 {
@@ -96,6 +98,7 @@ impl<'t> Error for ParseError<'t>
 				ExpectingKind::Arrow1 => "Expecting a `->`",
 				ExpectingKind::ModulePath => "Expecting a path to module",
 				ExpectingKind::ClassDef => "Expecting a class definition",
+				ExpectingKind::InstanceDef => "Expecting an instance definition",
 				ExpectingKind::Keyword(kw) => match kw
 				{
 					Keyword::Blend => "Expecting a `Blend`",
