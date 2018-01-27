@@ -11,7 +11,7 @@ pub enum ExpectingKind
 	ItemDelimiter, Semantics, Type, ShaderStage, OutDef, UniformDef, ConstantDef, Ident, ValueDecl, Constructor,
 	Expression, Numeric, Operator, PrefixDeclarator, Argument, ShaderBlock,
 	CompareOps, StencilOps, DepthStencilStates, BlendOps, BlendFactors, LetIn, TypePattern, ExpressionPattern, ConditionExpr,
-	AssocPriority, Infix, Keyword(Keyword), Period, Binding, Arrow1, ModulePath
+	AssocPriority, Infix, Keyword(Keyword), Period, Binding, Arrow1, ModulePath, ClassDef
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError<'t>
@@ -22,6 +22,13 @@ pub enum ParseError<'t>
 	UnexpectedClose(EnclosureKind, &'t Location), Unexpected(&'t Location), InvalidExpressionFragment(&'t Location),
 	PartialDisabling(Keyword, &'t Location), BlendFactorRestriction(&'t Location), LayoutViolation(&'t Location),
 	DuplicatePrecedences(Location, &'t Location)
+}
+impl<'t> ParseError<'t>
+{
+	pub fn expect_close_parenthese(pos: &'t Location) -> Self { ParseError::ExpectingClose(EnclosureKind::Parenthese, pos) }
+	pub fn expect_semantics(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::Semantics, pos) }
+	pub fn expect_binding(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::Binding, pos) }
+	pub fn expecting_class_def(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::ClassDef, pos) }
 }
 impl<'t> Display for ParseError<'t>
 {

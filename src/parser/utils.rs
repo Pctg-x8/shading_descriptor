@@ -37,12 +37,12 @@ macro_rules! TMatch
 	};
 	(IndentedKw; $leftmost: expr => $stream: expr; $kw: expr) =>
 	{
-		if $leftmost.satisfy($stream.current(), true) && $stream.current().keyword() == Some($kw) { $stream.shift(); }
+		if $leftmost.satisfy($stream.current()) && $stream.current().keyword() == Some($kw) { $stream.shift(); }
 		else { return Failed(ParseError::Expecting(ExpectingKind::Keyword($kw), $stream.current().position())); }
 	};
 	(IndentedKw; $leftmost: expr => $stream: expr; $kw: expr, $expecting: expr) =>
 	{
-		if $leftmost.satisfy($stream.current(), true) && $stream.current().keyword() == Some($kw) { $stream.shift(); }
+		if $leftmost.satisfy($stream.current()) && $stream.current().keyword() == Some($kw) { $stream.shift(); }
 		else { return Failed(ParseError::Expecting($expecting, $stream.current().position())); }
 	};
 	($stream: expr; $pat: pat, $err: expr) =>
@@ -75,7 +75,7 @@ macro_rules! TMatchFirst
 	};
 	($leftmost: expr => $stream: expr; $pat: pat => $extract: expr) =>
 	{{
-		if !$leftmost.satisfy($stream.current(), true) { return NotConsumed; }
+		if !$leftmost.satisfy($stream.current()) { return NotConsumed; }
 		if let $pat = *$stream.current() { $stream.shift(); $extract } else { return NotConsumed; }
 	}};
 	($stream: expr; $pat: pat) => { if let $pat = *$stream.current() { $stream.shift(); } else { return NotConsumed; } };
@@ -83,7 +83,7 @@ macro_rules! TMatchFirst
 	{
 		if let $pat = *$stream.current()
 		{
-			if $leftmost.satisfy($stream.current(), true) { $stream.shift(); } else { return NotConsumed; }
+			if $leftmost.satisfy($stream.current()) { $stream.shift(); } else { return NotConsumed; }
 		}
 		else { return NotConsumed; }
 	}
@@ -120,7 +120,7 @@ pub fn take_current_block_begin<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut
 {
 	match *stream.current()
 	{
-		TokenKind::BeginEnclosure(_, EnclosureKind::Brace) => { stream.shift(); Leftmost::Nothing },
+		TokenKind::BeginEnclosure(_, EnclosureKind::Brace) => { stream.shift(); Leftmost::NothingInc },
 		TokenKind::EOF(_) => Leftmost::Inclusive(0),
 		ref t => Leftmost::Inclusive(t.position().column)
 	}
@@ -130,11 +130,16 @@ pub fn get_definition_leftmost<'s: 't, 't, S: TokenStream<'s, 't>>(block_leftmos
 	if stream.on_linehead() { stream.current().position().column }
 	else { block_leftmost.num().unwrap_or(stream.current().position().column) }
 }
+pub fn drop_for_nextdef<'s: 't, 't, S: TokenStream<'s, 't>>(def_leftmost: Leftmost, stream: &mut S)
+{
+	stream.drop_line();
+	while def_leftmost.into_exclusive().satisfy(stream.current()) { stream.drop_line(); }
+}
 
 // minimal/useful parsers //
 pub fn name<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost, allow_placeholder: bool) -> Result<(&'t Location, Option<&'s str>), &'t Location>
 {
-	if !leftmost.satisfy(stream.current(), true) { Err(stream.current().position()) }
+	if !leftmost.satisfy(stream.current()) { Err(stream.current().position()) }
 	else
 	{
 		match *stream.current()

@@ -70,7 +70,7 @@ fn prefix_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Left
 /// ident ("." ident)* / num / _ / "(" [infix ("," infix)*] ")"
 fn factor_pat<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, ExprPatSynTree<'s>>
 {
-    if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
+    if !leftmost.satisfy(stream.current()) { return NotConsumed; }
     match stream.current()
     {
         &TokenKind::Identifier(ref s) | &TokenKind::WrappedOp(ref s) =>
@@ -151,7 +151,7 @@ pub fn term_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: L
 {
     let mut lhs = BreakParsing!(factor_expr(stream, leftmost));
     let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(lhs.position().column)).into_exclusive();
-    while leftmost.satisfy(stream.current(), false)
+    while leftmost.satisfy(stream.current())
     {
         lhs = match stream.current()
         {
@@ -179,7 +179,7 @@ pub fn term_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: L
 /// Factor <- ident / numeric / numericf / [ (FullEx (, FullEx)*)? ] / ( FullEx (, FullEx)* )
 pub fn factor_expr<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>>
 {
-    if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
+    if !leftmost.satisfy(stream.current()) { return NotConsumed; }
     match stream.current()
     {
         &TokenKind::Identifier(ref s) | &TokenKind::WrappedOp(ref s) => { stream.shift(); Success(ExpressionSynTree::SymReference(s.clone()).into()) },
@@ -279,7 +279,7 @@ impl<'s> Parser<'s> for FullExpression<'s>
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
-        if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
+        if !leftmost.satisfy(stream.current()) { return NotConsumed; }
         match *stream.current()
         {
             TokenKind::Keyword(_, Keyword::Let) => expr_lettings(stream, leftmost),
@@ -302,7 +302,7 @@ fn expr_lettings<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: L
 /// if ... then ... [else ...]
 fn expr_conditional<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, FullExpression<'s>>
 {
-    if !leftmost.satisfy(stream.current(), true) { return NotConsumed; }
+    if !leftmost.satisfy(stream.current()) { return NotConsumed; }
     let (inv, location) = match *stream.current()
     {
         TokenKind::Keyword(ref p, Keyword::If) => { stream.shift(); (false, p) },
@@ -313,7 +313,7 @@ fn expr_conditional<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost
     let cond = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::ConditionExpr, stream.current().position()))?;
     TMatch!(IndentedKw; leftmost => stream; Keyword::Then);
     let then = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
-    let else_ = if leftmost.satisfy(stream.current(), false) && stream.shift_keyword(Keyword::Else).is_ok()
+    let else_ = if leftmost.satisfy(stream.current()) && stream.shift_keyword(Keyword::Else).is_ok()
     {
         Some(FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?)
     }
@@ -326,7 +326,7 @@ fn block_content<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseRes
     let location = TMatchFirst!(stream; TokenKind::Keyword(ref p, Keyword::Do) => p);
     let block_start = take_current_block_begin(stream);
     let mut s = Vec::new();
-    while block_start.satisfy(stream.current(), true)
+    while block_start.satisfy(stream.current())
     {
         if block_start.is_explicit() && stream.shift_end_enclosure_of(EnclosureKind::Brace).is_ok() { return Success(FullExpression::Block(location.clone(), s)); }
         let defbegin = Leftmost::Inclusive(get_definition_leftmost(block_start, stream));
@@ -348,7 +348,7 @@ fn blk_vars<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmo
 {
     let (location, vals) = BreakParsing!(letting_common(stream, leftmost));
     let leftmost = leftmost.into_exclusive();
-    if leftmost.satisfy(stream.current(), false) && stream.shift_keyword(Keyword::In).is_ok()
+    if leftmost.satisfy(stream.current()) && stream.shift_keyword(Keyword::In).is_ok()
     {
         let subexpr = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(BlockContent::Expression(FullExpression::Lettings { location: location.clone(), vals, subexpr: box subexpr }))
@@ -364,7 +364,7 @@ fn case_of<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmos
     TMatch!(IndentedKw; leftmost => stream; Keyword::Of);
     let block_start = take_current_block_begin(stream);
     let mut matchers = Vec::new();
-    while block_start.satisfy(stream.current(), true)
+    while block_start.satisfy(stream.current())
     {
         // pat -> fullex
         if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
@@ -385,7 +385,7 @@ fn letting_common<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: 
     let location = TMatchFirst!(leftmost => stream; TokenKind::Keyword(ref p, Keyword::Let) => p);
     let block_start = take_current_block_begin(stream);
     let mut vals = Vec::new();
-    while block_start.satisfy(stream.current(), true)
+    while block_start.satisfy(stream.current())
     {
         if stream.current().keyword() == Some(Keyword::In) { break; }
         if block_start.is_explicit() && stream.current().is_end_enclosure_of(EnclosureKind::Brace) { break; }
@@ -412,7 +412,7 @@ impl<'s> Parser<'s> for Binding<'s>
     {
         let pat = BreakParsing!(ExprPatSynTree::parse(stream, leftmost));
         let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(pat.position().column)).into_exclusive();
-        TMatch!(leftmost => stream; TokenKind::Equal(_), |p| ParseError::Expecting(ExpectingKind::Binding, p));
+        shift_satisfy_leftmost(stream, leftmost, S::shift_equal).map_err(ParseError::expect_binding)?;
         let expr = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
         Success(Binding { pat, expr })
     }

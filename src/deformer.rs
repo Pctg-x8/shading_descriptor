@@ -835,8 +835,8 @@ impl<'s: 't, 't> PrettyPrint for DeformedArrayDim<'s, 't>
         {
             let case = TokenizerState::from(infix).strip_all();
             let case2 = TokenizerState::from(prefix).strip_all();
-            let c1 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::Nothing).expect(&format!("in case infix({})", infix));
-            let c2 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::Nothing).expect(&format!("in case prefix({})", prefix));
+            let c1 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::NothingInc).expect(&format!("in case infix({})", infix));
+            let c2 = TypeSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::NothingInc).expect(&format!("in case prefix({})", prefix));
             let assoc_env = AssociativityEnv::new(None);
             let c1d = c1.deform(&assoc_env).expect("in deforming case infix");
             let c2d = c2.deform(&assoc_env).expect("in deforming case prefix");
@@ -852,8 +852,8 @@ impl<'s: 't, 't> PrettyPrint for DeformedArrayDim<'s, 't>
         {
             let case = TokenizerState::from(infix).strip_all();
             let case2 = TokenizerState::from(prefix).strip_all();
-            let c1 = ExpressionSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::Nothing).expect(&format!("in case infix({})", infix));
-            let c2 = ExpressionSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::Nothing).expect(&format!("in case prefix({})", prefix));
+            let c1 = ExpressionSynTree::parse(&mut PreanalyzedTokenStream::from(&case[..]), Leftmost::NothingInc).expect(&format!("in case infix({})", infix));
+            let c2 = ExpressionSynTree::parse(&mut PreanalyzedTokenStream::from(&case2[..]), Leftmost::NothingInc).expect(&format!("in case prefix({})", prefix));
             let assoc_env = AssociativityEnv::new(None);
             let c1d = c1.deform(&assoc_env).expect("in deforming case infix");
             let c2d = c2.deform(&assoc_env).expect("in deforming case prefix");
