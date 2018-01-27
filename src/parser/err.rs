@@ -31,6 +31,8 @@ impl<'t> ParseError<'t>
 	pub fn expect_class_def(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::ClassDef, pos) }
 	pub fn expect_instance_def(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::InstanceDef, pos) }
 	pub fn failed_to_leave_block(pos: &'t Location) -> Self { ParseError::ExpectingClose(EnclosureKind::Brace, pos) }
+	pub fn expect_type(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::Type, pos) }
+	pub fn expect_expr(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::Expression, pos) }
 }
 impl<'t> Display for ParseError<'t>
 {

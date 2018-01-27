@@ -3,7 +3,26 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValueDeclaration<'s> { pub pat: ExprPatSynTree<'s>, pub _type: Option<FullTypeDesc<'s>>, pub value: FullExpression<'s> }
+pub enum ValueDeclaration<'s>
+{
+    Prototype(ExprPatSynTree<'s>, FullTypeDesc<'s>),
+    WithValue(ExprPatSynTree<'s>, Option<FullTypeDesc<'s>>, FullExpression<'s>)
+}
+impl<'s> ValueDeclaration<'s>
+{
+    pub fn pattern(&self) -> &ExprPatSynTree<'s>
+    {
+        match *self { ValueDeclaration::Prototype(ref p, _) | ValueDeclaration::WithValue(ref p, _, _) => p }
+    }
+    pub fn type_hint(&self) -> Option<&FullTypeDesc<'s>>
+    {
+        match *self { ValueDeclaration::Prototype(_, ref p) => Some(p), ValueDeclaration::WithValue(_, ref p, _) => p.as_ref() }
+    }
+    pub fn value(&self) -> Option<&FullExpression<'s>>
+    {
+        match *self { ValueDeclaration::Prototype(_, _) => None, ValueDeclaration::WithValue(_, _, ref p) => Some(p) }
+    }
+}
 impl<'s> Parser<'s> for ValueDeclaration<'s>
 {
     type ResultTy = Self;
@@ -13,17 +32,26 @@ impl<'s> Parser<'s> for ValueDeclaration<'s>
     /// ```
     /// # use pureshader::*;
     /// let s = TokenizerState::from("succ x: int -> _ = x + 1").strip_all();
-    /// let vd = ValueDeclaration::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::Nothing).unwrap();
-    /// assert!(vd._type.is_some());
+    /// let vd = ValueDeclaration::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::NothingIncInc).unwrap();
+    /// assert!(vd.type_hint().is_some());
+    /// 
+    /// // prototype
+    /// let s = TokenizerState::from("prec x: int -> int").strip_all();
+    /// let vd = ValueDeclaration::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::NothingIncInc).unwrap();
+    /// assert!(vd.value().is_none());
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
     {
         let pat = BreakParsing!(ExprPatSynTree::parse(stream, leftmost));
         let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(pat.position().column)).into_exclusive();
         let _type = type_hint(stream, leftmost).into_result_opt()?;
-        shift_satisfy_leftmost(stream, leftmost, S::shift_equal).map_err(ParseError::expect_binding)?;
-        let value = FullExpression::parse(stream, leftmost).into_result(|| ParseError::Expecting(ExpectingKind::Expression, stream.current().position()))?;
-        Success(ValueDeclaration { pat, _type, value })
+        if shift_satisfy_leftmost(stream, leftmost, S::shift_equal).is_ok()
+        {
+            let value = FullExpression::parse(stream, leftmost).into_result(|| ParseError::expect_expr(stream.current().position()))?;
+            Success(ValueDeclaration::WithValue(pat, _type, value))
+        }
+        else if let Some(th) = _type { Success(ValueDeclaration::Prototype(pat, th)) }
+        else { Failed(ParseError::expect_type(stream.current().position())) }
     }
 }
 
@@ -40,7 +68,7 @@ impl<'s> Parser<'s> for UniformDeclaration<'s>
     /// ```
     /// # use pureshader::*;
     /// let s = TokenizerState::from("uniform test: mf4").strip_all();
-    /// let ud = UniformDeclaration::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::Nothing).unwrap();
+    /// let ud = UniformDeclaration::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::NothingInc).unwrap();
     /// assert_eq!(ud.name, Some("test"));
     /// assert_eq!(ud._type, FullTypeDesc { tree: TypeSynTree::Basic(Location { column: 15, line: 1 }, BType::FMat(4, 4)), quantified: Vec::new(), constraints: Vec::new() });
     /// ```
@@ -62,7 +90,7 @@ impl<'s> Parser<'s> for ConstantDeclaration<'s>
     /// ```
     /// # use pureshader::*;
     /// let s = TokenizerState::from("constant psh1 = (0, 0).yx").strip_all();
-    /// let cd = ConstantDeclaration::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::Nothing).unwrap();
+    /// let cd = ConstantDeclaration::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::NothingInc).unwrap();
     /// assert_eq!(cd.name, Some("psh1")); assert!(cd._type.is_none()); assert!(cd.value.is_some());
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
@@ -92,7 +120,7 @@ impl<'s> Parser<'s> for SemanticOutput<'s>
     /// ```
     /// # use pureshader::*;
     /// let s = TokenizerState::from("out _(SV_Position) = mvp * pos").strip_all();
-    /// let so = SemanticOutput::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::Nothing).unwrap();
+    /// let so = SemanticOutput::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::NothingInc).unwrap();
     /// assert_eq!((so.name, so.semantics, so._type), (None, Semantics::SVPosition, None));
     /// ```
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
