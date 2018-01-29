@@ -605,7 +605,8 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 			TokenKind::Keyword(ref pos, Keyword::DomainShader) => (pos, ShaderStage::Domain),
 			_ => return NotConsumedM
 		}; tok.shift();
-		TMatch!(tok; TokenKind::BeginEnclosure(_, EnclosureKind::Parenthese), |p| vec![ParseError::ExpectingOpen(EnclosureKind::Parenthese, p)]);
+		let leftmost = Leftmost::Inclusive(location.column);
+		tok.shift_begin_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingOpen(EnclosureKind::Parenthese, p))?;
 		let inputs = if !tok.current().is_end_enclosure_of(EnclosureKind::Parenthese)
 		{
 			let mut inputs = vec![SemanticInput::parse(tok)?];
@@ -618,22 +619,18 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 			inputs
 		}
 		else { Vec::new() };
-		TMatch!(tok; TokenKind::EndEnclosure(_, EnclosureKind::Parenthese), |p| vec![ParseError::ExpectingClose(EnclosureKind::Parenthese, p)]);
-		let block_start_opt = match *tok.current()
-		{
-			TokenKind::ItemDescriptorDelimiter(_) | TokenKind::Keyword(_, Keyword::Where) => { Some(take_current_block_begin(tok.shift())) }
-			_ => None
-		};
+		tok.shift_end_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p))?;
 		let mut def = ShaderStageDefinition
 		{
 			location: location.clone(), inputs, outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new(),
 			assoc: new_rcmut(AssociativityEnv::new(None)), typedecls: Vec::new(), typefns: Vec::new()
 		};
-		if let Some(block_start) = block_start_opt
+		if let Ok(block_start) = intro_block(tok, leftmost)
 		{
 			let mut errors = Vec::new();
 			while block_start.satisfy(tok.current())
 			{
+				if block_start.is_explicit() && tok.shift_end_enclosure_of(EnclosureKind::Brace).is_ok() { return SuccessM((stage, def)); }
 				let defblock_begin = Leftmost::Inclusive(get_definition_leftmost(block_start, tok));
 				match *tok.current()
 				{
@@ -688,6 +685,7 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 					}
 				}
 			}
+			if let Err(p) = outro_block(tok, block_start) { errors.place_back() <- ParseError::failed_to_leave_block(p); }
 			if !errors.is_empty() { return FailedM(errors); }
 		}
 		SuccessM((stage, def))
