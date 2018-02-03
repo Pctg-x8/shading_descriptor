@@ -569,6 +569,56 @@ impl<'s> FreeParser<'s> for BlendFactor
 	}
 }
 
+/// "(" [?] (, ?)* ")"
+fn parse_parenthesed<'s: 't, 't, S: TokenStream<'s, 't>, R, F: Fn(&mut S) -> ParseResult<'t, R>>(stream: &mut S, childparser: F) -> ParseResultM<'t, Vec<R>>
+{
+	stream.shift_begin_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingOpen(EnclosureKind::Parenthese, p))?;
+	let mut err = Vec::new();
+	let r = if stream.current().is_end_enclosure_of(EnclosureKind::Parenthese) { Vec::new() }
+	else
+	{
+		let mut vs = match childparser(stream)
+		{
+			NotConsumed =>
+			{
+				err.place_back() <- ParseError::Expecting(ExpectingKind::Ident, stream.current().position());
+				stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
+				Vec::new()
+			},
+			Failed(e) =>
+			{
+				err.push(e);
+				stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
+				Vec::new()
+			}, Success(v) => vec![v]
+		};
+		while stream.shift_list_delimiter().is_ok()
+		{
+			while stream.shift_list_delimiter().is_ok() {}
+			if stream.current().is_end_enclosure_of(EnclosureKind::Parenthese) { break; }
+			match childparser(stream)
+			{
+				NotConsumed =>
+				{
+					err.place_back() <- ParseError::Expecting(ExpectingKind::Ident, stream.current().position());
+					stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
+				},
+				Failed(e) =>
+				{
+					err.push(e);
+					stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
+				}, Success(v) => { vs.push(v); }
+			}
+		}
+		vs
+	};
+	match stream.shift_end_enclosure_of(EnclosureKind::Parenthese)
+	{
+		Err(p) => { err.place_back() <- ParseError::ExpectingClose(EnclosureKind::Parenthese, p); FailedM(err) },
+		Ok(_) => if err.is_empty() { SuccessM(r) } else { FailedM(err) }
+	}
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShaderStage { Vertex, Fragment, Geometry, Hull, Domain }
 /// シェーダステージ定義
@@ -606,20 +656,7 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 			_ => return NotConsumedM
 		}; tok.shift();
 		let leftmost = Leftmost::Inclusive(location.column);
-		tok.shift_begin_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingOpen(EnclosureKind::Parenthese, p))?;
-		let inputs = if !tok.current().is_end_enclosure_of(EnclosureKind::Parenthese)
-		{
-			let mut inputs = vec![SemanticInput::parse(tok)?];
-			while tok.current().is_list_delimiter()
-			{
-				tok.shift_while(|t| t.kind.is_list_delimiter());
-				if tok.current().is_end_enclosure_of(EnclosureKind::Parenthese) { break; }
-				inputs.place_back() <- SemanticInput::parse(tok)?;
-			}
-			inputs
-		}
-		else { Vec::new() };
-		tok.shift_end_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingClose(EnclosureKind::Parenthese, p))?;
+		let inputs = parse_parenthesed(tok, SemanticInput::parse)?;
 		let mut def = ShaderStageDefinition
 		{
 			location: location.clone(), inputs, outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new(),

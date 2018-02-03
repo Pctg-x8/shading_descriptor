@@ -326,8 +326,8 @@ pub trait TokenStream<'s: 't, 't>
         match self.current() { &TokenKind::Semantics(_, s) => { self.shift(); Ok(s) }, p => Err(p.position()) }
     }
 
-    /// drop tokens until satisfying a predicate
-    fn drop_until<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
+    /// shift tokens until satisfying a predicate
+    fn shift_until<F: Fn(&'t Token<'s>) -> bool>(&mut self, predicate: F) -> &mut Self
     {
         while !predicate(self.current_token()) { self.shift(); } self
     }
@@ -340,7 +340,7 @@ pub trait TokenStream<'s: 't, 't>
     fn drop_line(&mut self) -> &mut Self
     {
         let inl = self.current().position().line;
-        self.drop_until(|t| t.kind.position().line != inl)
+        self.shift_until(|t| t.kind.position().line != inl)
     }
 
     /// Low-cost stream state
