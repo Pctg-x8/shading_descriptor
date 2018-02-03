@@ -634,7 +634,8 @@ pub struct ShaderStageDefinition<'s>
 impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 {
 	type ResultTy = (ShaderStage, ShaderStageDefinition<'s>);
-	/// Parse an shader stage definition
+	/// Parse an shader stage definition  
+	/// <ShaderStage> "(" <SemanticInput>,* ")" [:/"where" ...]
 	/// # Example
 	/// 
 	/// ```
