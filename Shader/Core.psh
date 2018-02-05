@@ -1,29 +1,29 @@
 # Shader Core impls
 
-class Dim1 e a where
+trait Dim1 e a where
     x: e
     r = x
-class Dim1 e a => Dim2 e a where
+trait Dim2 e a : Dim1 e a where
     y: e
     g = y
-class Dim2 e a => Dim3 e a where
+trait Dim3 e a : Dim2 e a where
     z: e
     b = z
-class Dim3 e a => Dim4 e a where
+trait Dim4 e a : Dim3 e a where
     w: e
     a = w
 
-instance Dim1 e e where
+impl Dim1 e e where
     v.x = v
-instance Dim1 float f2 where
+impl Dim1 float f2 where
     v.x = v.x
-instance Dim1 float f3 where
+impl Dim1 float f3 where
     v.x = v.x
-instance Dim1 float f4 where
+impl Dim1 float f4 where
     v.x = v.x
-instance Dim2 float f4 where
+impl Dim2 float f4 where
     v.y = v.y
-instance Dim3 float f4 where
+impl Dim3 float f4 where
     v.z = v.z
-instance Dim4 float f4 where
+impl Dim4 float f4 where
     v.w = v.w
