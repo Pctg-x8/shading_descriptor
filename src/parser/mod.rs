@@ -123,14 +123,14 @@ impl<'s> BlockParser<'s> for SymbolImport<'s>
 	fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResult<'t, Vec<Self>> where 's: 't
 	{
 		TMatchFirst!(stream; TokenKind::Keyword(_, Keyword::Import));
-		let qualified = TMatch!(Optional: stream; TokenKind::Keyword(_, Keyword::Qualified));
+		let qualified = stream.shift_keyword(Keyword::Qualified).is_ok();
 		let blk_start = take_current_block_begin(stream);
 		
 		let mut imports = vec![
 			import1(stream, blk_start).into_result(|| ParseError::Expecting(ExpectingKind::ModulePath, stream.current().position()))
 				.map(|spec| SymbolImport { qualified, spec })?
 		];
-		while stream.shift_list_delimiter().is_ok()
+		while stream.shift_many(TokenKind::is_list_delimiter).is_ok()
 		{
 			imports.place_back() <- import1(stream, blk_start).into_result(|| ParseError::Expecting(ExpectingKind::ModulePath, stream.current().position()))
 				.map(|spec| SymbolImport { qualified, spec })?;
@@ -228,11 +228,7 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 		}
 		let has_error = !errors_t.is_empty();
 		errors.append(&mut errors_t);
-		if has_error
-		{
-			stream.drop_line(); while leftmost.into_exclusive().satisfy(stream.current()) { stream.drop_line(); }
-		}
-		else { break; }
+		if has_error { drop_for_nextdef(leftmost, stream); } else { break; }
 	}
 	if errors.is_empty() { Ok(sp) } else { Err(errors) }
 }
