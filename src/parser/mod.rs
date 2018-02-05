@@ -628,6 +628,18 @@ pub struct ShaderStageDefinition<'s>
 	pub values: Vec<ValueDeclaration<'s>>, pub assoc: RcMut<AssociativityEnv<'s>>,
 	pub typedecls: Vec<TypeDeclaration<'s>>, pub typefns: Vec<TypeFn<'s>>
 }
+impl<'s> ShaderStageDefinition<'s>
+{
+	pub fn empty() -> Self
+	{
+		ShaderStageDefinition
+		{
+			location: Location::default(), inputs: Vec::new(), outputs: Vec::new(),
+			uniforms: Vec::new(), constants: Vec::new(), values: Vec::new(), assoc: new_rcmut(AssociativityEnv::new(None)),
+			typedecls: Vec::new(), typefns: Vec::new()
+		}
+	}
+}
 impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 {
 	type ResultTy = (ShaderStage, ShaderStageDefinition<'s>);
@@ -655,11 +667,7 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 		}; tok.shift();
 		let leftmost = Leftmost::Inclusive(location.column);
 		let inputs = parse_parenthesed_list(tok, SemanticInput::parse, ParseError::expect_ident)?;
-		let mut def = ShaderStageDefinition
-		{
-			location: location.clone(), inputs, outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new(),
-			assoc: new_rcmut(AssociativityEnv::new(None)), typedecls: Vec::new(), typefns: Vec::new()
-		};
+		let mut def = ShaderStageDefinition { location: location.clone(), inputs, .. Self::empty() };
 		if let Ok(block_start) = intro_block(tok, leftmost)
 		{
 			let mut errors = Vec::new();
