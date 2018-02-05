@@ -570,7 +570,7 @@ impl<'s> FreeParser<'s> for BlendFactor
 }
 
 /// "(" [?] (, ?)* ")"
-fn parse_parenthesed<'s: 't, 't, S: TokenStream<'s, 't>, R, F, E>(stream: &mut S, childparser: F, head_error: E) -> ParseResultM<'t, Vec<R>>
+fn parse_parenthesed_list<'s: 't, 't, S: TokenStream<'s, 't>, R, F, E>(stream: &mut S, childparser: F, head_error: E) -> ParseResultM<'t, Vec<R>>
 	where F: Fn(&mut S) -> ParseResult<'t, R>, E: Fn(&'t Location) -> ParseError<'t>
 {
 	stream.shift_begin_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingOpen(EnclosureKind::Parenthese, p))?;
@@ -613,11 +613,8 @@ fn parse_parenthesed<'s: 't, 't, S: TokenStream<'s, 't>, R, F, E>(stream: &mut S
 		}
 		vs
 	};
-	match stream.shift_end_enclosure_of(EnclosureKind::Parenthese)
-	{
-		Err(p) => { err.place_back() <- ParseError::ExpectingClose(EnclosureKind::Parenthese, p); FailedM(err) },
-		Ok(_) => if err.is_empty() { SuccessM(r) } else { FailedM(err) }
-	}
+	if let Err(p) = stream.shift_end_enclosure_of(EnclosureKind::Parenthese) { err.place_back() <- ParseError::expect_close_parenthese(p); }
+	if err.is_empty() { SuccessM(r) } else { FailedM(err) }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -658,7 +655,7 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 			_ => return NotConsumedM
 		}; tok.shift();
 		let leftmost = Leftmost::Inclusive(location.column);
-		let inputs = parse_parenthesed(tok, SemanticInput::parse, ParseError::expect_ident)?;
+		let inputs = parse_parenthesed_list(tok, SemanticInput::parse, ParseError::expect_ident)?;
 		let mut def = ShaderStageDefinition
 		{
 			location: location.clone(), inputs, outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new(),
