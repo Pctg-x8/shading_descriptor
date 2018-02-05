@@ -6,7 +6,7 @@ use {Location, Semantics, BType, GenSource, Source, GenNumeric};
 use deformer::SymPath;
 use std::collections::HashMap;
 use std::borrow::Cow;
-use parser::AssociativityEnv;
+use parser::{AssociativityEnv, AssociativityEnvironment};
 
 #[derive(Debug)]
 pub struct PipelineDeformed<'t>
@@ -122,7 +122,7 @@ impl<'s> parser::ShaderStageDefinition<'s>
     {
         let mut errors = Vec::new();
         let (mut io, mut bindings) = (IOSemanticsMap::new(), BoundMap::new());
-        let assoc = self.assoc.borrow();
+        let assoc = self.assoc_env().borrow();
         
         for (name, si) in self.inputs.iter().filter_map(|si| si.name.map(|n| (n, si)))
         {

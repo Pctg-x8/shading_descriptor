@@ -7,6 +7,22 @@ extern crate syn;
 use proc_macro::TokenStream;
 use syn::{MetaItem, Lit};
 
+#[proc_macro_derive(AssociativityEnvironment, attributes(AssocEnvRef))]
+pub fn impl_assoc_env(input: TokenStream) -> TokenStream
+{
+    let s = input.to_string();
+    let ast = syn::parse_derive_input(&s).unwrap();
+    let referer = syn::Ident::new(query_attribute(&ast.attrs, "AssocEnvRef").unwrap_or("0".to_string()));
+    let ref tyname = ast.ident;
+    let gen = quote!{
+        impl<'s> ::parser::assoc::AssociativityEnvironment<'s> for #tyname<'s>
+        {
+            fn assoc_env(&self) -> &::RcMut<::parser::assoc::AssociativityEnv<'s>> { &self.#referer }
+        }
+    };
+    gen.parse().unwrap()
+}
+
 #[proc_macro_derive(SymbolScope, attributes(SymbolMapReferer))]
 pub fn impl_symbol_scope(input: TokenStream) -> TokenStream
 {

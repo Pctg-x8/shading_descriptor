@@ -140,7 +140,7 @@ impl<'s> BlockParser<'s> for SymbolImport<'s>
 }
 
 /// シェーディングパイプライン(コンパイル単位)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, AssociativityEnvironment)] #[AssocEnvRef = "assoc"]
 pub struct ShadingPipeline<'s>
 {
 	state: ShadingStates, pub imports: Vec<SymbolImport<'s>>,
@@ -232,7 +232,6 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 	}
 	if errors.is_empty() { Ok(sp) } else { Err(errors) }
 }
-impl<'s> AssociativityEnvironment<'s> for ShadingPipeline<'s> { fn assoc_env(&self) -> &RcMut<AssociativityEnv<'s>> { &self.assoc } }
 
 /// シェーディングパイプラインステート
 #[derive(Debug, Clone, PartialEq)]
@@ -568,14 +567,14 @@ impl<'s> FreeParser<'s> for BlendFactor
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShaderStage { Vertex, Fragment, Geometry, Hull, Domain }
 /// シェーダステージ定義
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, AssociativityEnvironment)] #[AssocEnvRef = "assoc"]
 pub struct ShaderStageDefinition<'s>
 {
 	pub location: Location,
 	pub inputs: Vec<SemanticInput<'s>>, pub outputs: Vec<SemanticOutput<'s>>,
 	pub uniforms: Vec<UniformDeclaration<'s>>, pub constants: Vec<ConstantDeclaration<'s>>,
-	pub values: Vec<ValueDeclaration<'s>>, pub assoc: RcMut<AssociativityEnv<'s>>,
-	pub typedecls: Vec<TypeDeclaration<'s>>, pub typefns: Vec<TypeFn<'s>>
+	pub values: Vec<ValueDeclaration<'s>>, assoc: RcMut<AssociativityEnv<'s>>,
+	typedecls: Vec<TypeDeclaration<'s>>, typefns: Vec<TypeFn<'s>>
 }
 impl<'s> ShaderStageDefinition<'s>
 {
@@ -683,7 +682,6 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 		SuccessM((stage, def))
 	}
 }
-impl<'s> AssociativityEnvironment<'s> for ShaderStageDefinition<'s> { fn assoc_env(&self) -> &RcMut<AssociativityEnv<'s>> { &self.assoc } }
 
 pub trait TypeDeclarable<'s>
 {
