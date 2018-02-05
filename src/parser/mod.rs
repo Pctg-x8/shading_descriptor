@@ -593,9 +593,8 @@ fn parse_parenthesed_list<'s: 't, 't, S: TokenStream<'s, 't>, R, F, E>(stream: &
 				Vec::new()
 			}, Success(v) => vec![v]
 		};
-		while stream.shift_list_delimiter().is_ok()
+		while stream.shift_many(TokenKind::is_list_delimiter).is_ok()
 		{
-			while stream.shift_list_delimiter().is_ok() {}
 			if stream.current().is_end_enclosure_of(EnclosureKind::Parenthese) { break; }
 			match childparser(stream)
 			{

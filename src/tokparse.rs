@@ -336,6 +336,12 @@ pub trait TokenStream<'s: 't, 't>
     {
         while predicate(self.current_token()) { self.shift(); } self
     }
+    /// shift one or more of tokens (least one, returns error if there is no tokens that satisfies the predicate)
+    fn shift_many<P: Fn(&'t TokenKind<'s>) -> bool>(&mut self, predicate: P) -> Result<&mut Self, &'t Location>
+    {
+        if !predicate(self.current()) { return Err(self.current().position()); }
+        while predicate(self.current()) { self.shift(); } Ok(self)
+    }
     /// drop tokens on same line
     fn drop_line(&mut self) -> &mut Self
     {
