@@ -570,7 +570,8 @@ impl<'s> FreeParser<'s> for BlendFactor
 }
 
 /// "(" [?] (, ?)* ")"
-fn parse_parenthesed<'s: 't, 't, S: TokenStream<'s, 't>, R, F: Fn(&mut S) -> ParseResult<'t, R>>(stream: &mut S, childparser: F) -> ParseResultM<'t, Vec<R>>
+fn parse_parenthesed<'s: 't, 't, S: TokenStream<'s, 't>, R, F, E>(stream: &mut S, childparser: F, head_error: E) -> ParseResultM<'t, Vec<R>>
+	where F: Fn(&mut S) -> ParseResult<'t, R>, E: Fn(&'t Location) -> ParseError<'t>
 {
 	stream.shift_begin_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingOpen(EnclosureKind::Parenthese, p))?;
 	let mut err = Vec::new();
@@ -581,7 +582,7 @@ fn parse_parenthesed<'s: 't, 't, S: TokenStream<'s, 't>, R, F: Fn(&mut S) -> Par
 		{
 			NotConsumed =>
 			{
-				err.place_back() <- ParseError::Expecting(ExpectingKind::Ident, stream.current().position());
+				err.place_back() <- head_error(stream.current().position());
 				stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
 				Vec::new()
 			},
@@ -600,7 +601,7 @@ fn parse_parenthesed<'s: 't, 't, S: TokenStream<'s, 't>, R, F: Fn(&mut S) -> Par
 			{
 				NotConsumed =>
 				{
-					err.place_back() <- ParseError::Expecting(ExpectingKind::Ident, stream.current().position());
+					err.place_back() <- head_error(stream.current().position());
 					stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
 				},
 				Failed(e) =>
@@ -635,7 +636,7 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 {
 	type ResultTy = (ShaderStage, ShaderStageDefinition<'s>);
 	/// Parse an shader stage definition  
-	/// <ShaderStage> "(" <SemanticInput>,* ")" [:/"where" ...]
+	/// <ShaderStage> "(" <SemanticInput>,* ")" [":"/"where" ...]
 	/// # Example
 	/// 
 	/// ```
@@ -657,7 +658,7 @@ impl<'s> BlockParserM<'s> for ShaderStageDefinition<'s>
 			_ => return NotConsumedM
 		}; tok.shift();
 		let leftmost = Leftmost::Inclusive(location.column);
-		let inputs = parse_parenthesed(tok, SemanticInput::parse)?;
+		let inputs = parse_parenthesed(tok, SemanticInput::parse, ParseError::expect_ident)?;
 		let mut def = ShaderStageDefinition
 		{
 			location: location.clone(), inputs, outputs: Vec::new(), uniforms: Vec::new(), constants: Vec::new(), values: Vec::new(),
