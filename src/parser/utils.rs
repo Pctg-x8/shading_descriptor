@@ -186,3 +186,50 @@ pub fn shift_satisfy_leftmost<'s: 't, 't, S, F, T>(stream: &mut S, leftmost: Lef
 {
     if leftmost.satisfy(stream.current()) { shifter(stream) } else { Err(stream.current().position()) }
 }
+
+/// Parser Combinator: "(" [<child> (, <child>)*] ")"
+pub fn parse_parenthesed_list<'s: 't, 't, S: TokenStream<'s, 't>, R, F, E>(stream: &mut S, childparser: F, head_error: E) -> ParseResultM<'t, Vec<R>>
+	where F: Fn(&mut S) -> ParseResult<'t, R>, E: Fn(&'t Location) -> ParseError<'t>
+{
+	stream.shift_begin_enclosure_of(EnclosureKind::Parenthese).map_err(|p| ParseError::ExpectingOpen(EnclosureKind::Parenthese, p))?;
+	let mut err = Vec::new();
+	let r = if stream.current().is_end_enclosure_of(EnclosureKind::Parenthese) { Vec::new() }
+	else
+	{
+		let mut vs = match childparser(stream)
+		{
+			NotConsumed =>
+			{
+				err.place_back() <- head_error(stream.current().position());
+				stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
+				Vec::new()
+			},
+			Failed(e) =>
+			{
+				err.push(e);
+				stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
+				Vec::new()
+			}, Success(v) => vec![v]
+		};
+		while stream.shift_many(TokenKind::is_list_delimiter).is_ok()
+		{
+			if stream.current().is_end_enclosure_of(EnclosureKind::Parenthese) { break; }
+			match childparser(stream)
+			{
+				NotConsumed =>
+				{
+					err.place_back() <- head_error(stream.current().position());
+					stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
+				},
+				Failed(e) =>
+				{
+					err.push(e);
+					stream.shift_until(|t| t.kind.is_end_enclosure_of(EnclosureKind::Parenthese) || t.kind.is_list_delimiter());
+				}, Success(v) => { vs.push(v); }
+			}
+		}
+		vs
+	};
+	if let Err(p) = stream.shift_end_enclosure_of(EnclosureKind::Parenthese) { err.place_back() <- ParseError::expect_close_parenthese(p); }
+	if err.is_empty() { SuccessM(r) } else { FailedM(err) }
+}
