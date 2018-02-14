@@ -6,7 +6,7 @@ use {Keyword, Location};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitDef<'s>
 {
-    pub begin: Location, pub pat: FullTypeDesc<'s>, pub bindings: Vec<ValueDeclaration<'s>>
+    pub begin: Location, pub pat: FullTypeDesc<'s>, pub constraints: Vec<TypeSynTree<'s>>, pub bindings: Vec<ValueDeclaration<'s>>
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitImplementDef<'s>
@@ -24,13 +24,25 @@ impl<'s> BlockParserM<'s> for TraitDef<'s>
         let begin = match stream.shift_keyword(Keyword::Trait) { Ok(p) => p, Err(_) => return NotConsumedM };
         let leftmost = Leftmost::Inclusive(begin.column);
         let pat = FullTypeDesc::parse(stream, leftmost.into_exclusive()).into_result(|| ParseError::expect_class_def(stream.current().position()))?;
+        let constraints = if stream.shift_describer().is_ok()
+        {
+            // constraints
+            let leftmost = leftmost.into_exclusive();
+            let mut constraints = vec![TypeSynTree::parse(stream, leftmost).into_result(|| ParseError::expect_type(stream.current().position()))?];
+            while stream.shift_many(TokenKind::is_list_delimiter).is_ok()
+            {
+                constraints.place_back() <- TypeSynTree::parse(stream, leftmost).into_result(|| ParseError::expect_type(stream.current().position()))?;
+            }
+            constraints
+        }
+        else { Vec::new() };
         let mut bindings = Vec::new();
         parse_in_optblock(stream, leftmost, |stream, lmb| match ValueDeclaration::parse(stream, lmb)
         {
             Success(v) => { bindings.push(v); Ok(()) },
             Failed(e) => Err(e), NotConsumed => Err(ParseError::Expecting(ExpectingKind::ValueDecl, stream.current().position()))
         })?;
-        SuccessM(TraitDef { begin: begin.clone(), pat, bindings })
+        SuccessM(TraitDef { begin: begin.clone(), pat, constraints, bindings })
     }
 }
 impl<'s> BlockParserM<'s> for TraitImplementDef<'s>

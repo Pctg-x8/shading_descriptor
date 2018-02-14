@@ -320,10 +320,15 @@ pub trait TokenStream<'s: 't, 't>
     {
         match self.current() { &TokenKind::Identifier(ref s) => { self.shift(); Ok(s) }, p => Err(p.position()) }
     }
-    /// shift a semantics, error if the next tokne is not Semantics
+    /// shift a semantics, error if the next token is not Semantics
     fn shift_semantics(&mut self) -> Result<Semantics, &'t Location>
     {
         match self.current() { &TokenKind::Semantics(_, s) => { self.shift(); Ok(s) }, p => Err(p.position()) }
+    }
+    /// shift a describer token(:), error if the next token is not ItemDescriptorDelimiter
+    fn shift_describer(&mut self) -> Result<&'t Location, &'t Location>
+    {
+        match self.current() { &TokenKind::ItemDescriptorDelimiter(ref p) => { self.shift(); Ok(p) }, p => Err(p.position()) }
     }
 
     /// shift tokens until satisfying a predicate
