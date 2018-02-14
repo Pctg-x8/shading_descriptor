@@ -16,7 +16,7 @@ trait Dim4 e a : Dim3 e a where
 impl Dim1 e e where
     v.x = v
 impl Dim1 float f2 where
-    v.x = v.x
+    (f2 a _).x = a
 impl Dim1 float f3 where
     v.x = v.x
 impl Dim1 float f4 where

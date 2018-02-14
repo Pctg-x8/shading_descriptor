@@ -4,24 +4,24 @@ use super::*;
 use {Keyword, Location};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClassDef<'s>
+pub struct TraitDef<'s>
 {
     pub begin: Location, pub pat: FullTypeDesc<'s>, pub bindings: Vec<ValueDeclaration<'s>>
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstanceDef<'s>
+pub struct TraitImplementDef<'s>
 {
     pub begin: Location, pub pat: FullTypeDesc<'s>, pub bindings: Vec<ValueDeclaration<'s>>
 }
-impl<'s> Position for ClassDef<'s> { fn position(&self) -> &Location { &self.begin } }
-impl<'s> Position for InstanceDef<'s> { fn position(&self) -> &Location { &self.begin } }
+impl<'s> Position for TraitDef<'s> { fn position(&self) -> &Location { &self.begin } }
+impl<'s> Position for TraitImplementDef<'s> { fn position(&self) -> &Location { &self.begin } }
 
-impl<'s> BlockParserM<'s> for ClassDef<'s>
+impl<'s> BlockParserM<'s> for TraitDef<'s>
 {
     type ResultTy = Self;
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResultM<'t, Self> where 's: 't
     {
-        let begin = match stream.shift_keyword(Keyword::Class) { Ok(p) => p, Err(_) => return NotConsumedM };
+        let begin = match stream.shift_keyword(Keyword::Trait) { Ok(p) => p, Err(_) => return NotConsumedM };
         let leftmost = Leftmost::Inclusive(begin.column);
         let pat = FullTypeDesc::parse(stream, leftmost.into_exclusive()).into_result(|| ParseError::expect_class_def(stream.current().position()))?;
         let mut bindings = Vec::new();
@@ -30,15 +30,15 @@ impl<'s> BlockParserM<'s> for ClassDef<'s>
             Success(v) => { bindings.push(v); Ok(()) },
             Failed(e) => Err(e), NotConsumed => Err(ParseError::Expecting(ExpectingKind::ValueDecl, stream.current().position()))
         })?;
-        SuccessM(ClassDef { begin: begin.clone(), pat, bindings })
+        SuccessM(TraitDef { begin: begin.clone(), pat, bindings })
     }
 }
-impl<'s> BlockParserM<'s> for InstanceDef<'s>
+impl<'s> BlockParserM<'s> for TraitImplementDef<'s>
 {
     type ResultTy = Self;
     fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S) -> ParseResultM<'t, Self> where 's: 't
     {
-        let begin = match stream.shift_keyword(Keyword::Instance) { Ok(p) => p, Err(_) => return NotConsumedM };
+        let begin = match stream.shift_keyword(Keyword::Impl) { Ok(p) => p, Err(_) => return NotConsumedM };
         let leftmost = Leftmost::Inclusive(begin.column);
         let pat = FullTypeDesc::parse(stream, leftmost.into_exclusive()).into_result(|| ParseError::expect_instance_def(stream.current().position()))?;
         let mut bindings = Vec::new();
@@ -47,7 +47,7 @@ impl<'s> BlockParserM<'s> for InstanceDef<'s>
             Success(v) => { bindings.push(v); Ok(()) },
             Failed(e) => Err(e), NotConsumed => Err(ParseError::Expecting(ExpectingKind::ValueDecl, stream.current().position()))
         })?;
-        SuccessM(InstanceDef { begin: begin.clone(), pat, bindings })
+        SuccessM(TraitImplementDef { begin: begin.clone(), pat, bindings })
     }
 }
 

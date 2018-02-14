@@ -178,7 +178,7 @@ pub enum Keyword
 {
     Let, In, Out, Uniform, Constant, Set, Binding, VertexShader, FragmentShader, GeometryShader, HullShader, DomainShader,
     DepthTest, DepthWrite, DepthBounds, StencilTest, StencilOps, StencilCompare, StencilWriteMask, Blend, Type, Data,
-    If, Then, Else, Unless, Infixl, Infixr, Infix, Forall, Import, Qualified, As, Hiding, Class, Instance,
+    If, Then, Else, Unless, Infixl, Infixr, Infix, Forall, Import, Qualified, As, Hiding, Trait, Impl,
     // reserved but not used //
     Where, Do, Case, Of,
     // blend ops //
@@ -644,8 +644,8 @@ impl<'s> Source<'s>
                 "qualified" => Some(TokenKind::Keyword(s.pos, Keyword::Qualified)),
                 "as" => Some(TokenKind::Keyword(s.pos, Keyword::As)),
                 "hiding" => Some(TokenKind::Keyword(s.pos, Keyword::Hiding)),
-                "class" => Some(TokenKind::Keyword(s.pos, Keyword::Class)),
-                "instance" => Some(TokenKind::Keyword(s.pos, Keyword::Instance)),
+                "trait" => Some(TokenKind::Keyword(s.pos, Keyword::Trait)),
+                "impl" => Some(TokenKind::Keyword(s.pos, Keyword::Impl)),
                 "VertexShader" => Some(TokenKind::Keyword(s.pos, Keyword::VertexShader)),
                 "FragmentShader" => Some(TokenKind::Keyword(s.pos, Keyword::FragmentShader)),
                 "GeometryShader" => Some(TokenKind::Keyword(s.pos, Keyword::GeometryShader)),

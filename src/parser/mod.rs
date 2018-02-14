@@ -14,7 +14,7 @@ pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataCo
 pub use self::expr::{FullExpression, ExpressionSynTree, BlockContent, ExprPatSynTree, Binding};
 pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
 pub use self::assoc::{Associativity, AssociativityEnv, AssociativityEnvironment};
-pub use self::class::{ClassDef, InstanceDef};
+pub use self::class::{TraitDef, TraitImplementDef};
 
 type RcMut<T> = Rc<RefCell<T>>;
 fn new_rcmut<T>(init: T) -> RcMut<T> { Rc::new(RefCell::new(init)) }
@@ -149,7 +149,7 @@ pub struct ShadingPipeline<'s>
 	pub gsh: Option<ShaderStageDefinition<'s>>, pub fsh: Option<ShaderStageDefinition<'s>>,
 	pub values: Vec<ValueDeclaration<'s>>, types: Vec<TypeDeclaration<'s>>, typefns: Vec<TypeFn<'s>>,
 	pub assoc: RcMut<AssociativityEnv<'s>>,
-	pub classes: Vec<ClassDef<'s>>, pub instances: Vec<InstanceDef<'s>>
+	pub classes: Vec<TraitDef<'s>>, pub instances: Vec<TraitImplementDef<'s>>
 }
 pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> Result<ShadingPipeline<'s>, Vec<ParseError<'t>>>
 {
@@ -180,11 +180,11 @@ pub fn shading_pipeline<'s: 't, 't, S: TokenStream<'s, 't>>(stream: &mut S) -> R
 			{
 				Failed(e) => { errors_t.push(e); }, Success(mut sis) => { sp.imports.append(&mut sis); continue; }, _ => unreachable!()
 			},
-			TokenKind::Keyword(_, Keyword::Class) => match ClassDef::parse(stream)
+			TokenKind::Keyword(_, Keyword::Trait) => match TraitDef::parse(stream)
 			{
 				FailedM(mut e) => { errors_t.append(&mut e); }, SuccessM(cd) => { sp.classes.push(cd); continue; }, _ => unreachable!()
 			},
-			TokenKind::Keyword(_, Keyword::Instance) => match InstanceDef::parse(stream)
+			TokenKind::Keyword(_, Keyword::Impl) => match TraitImplementDef::parse(stream)
 			{
 				FailedM(mut e) => { errors_t.append(&mut e); }, SuccessM(id) => { sp.instances.push(id); continue; }, _ => unreachable!()
 			},
