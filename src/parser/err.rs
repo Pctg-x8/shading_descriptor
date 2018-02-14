@@ -33,6 +33,7 @@ impl<'t> ParseError<'t>
 	pub fn failed_to_leave_block(pos: &'t Location) -> Self { ParseError::ExpectingClose(EnclosureKind::Brace, pos) }
 	pub fn expect_type(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::Type, pos) }
 	pub fn expect_expr(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::Expression, pos) }
+	pub fn expect_pat(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::ExpressionPattern, pos) }
 	pub fn expect_ident(pos: &'t Location) -> Self { ParseError::Expecting(ExpectingKind::Ident, pos) }
 }
 impl<'t> Display for ParseError<'t>

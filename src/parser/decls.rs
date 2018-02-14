@@ -3,6 +3,12 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemberDeclaration<'s>
+{
+    Prototype(DefPattern<'s>, FullTypeDesc<'s>),
+    WithDefinition(DefPattern<'s>, Option<FullTypeDesc<'s>>, FullExpression<'s>)
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueDeclaration<'s>
 {
     Prototype(ExprPatSynTree<'s>, FullTypeDesc<'s>),
@@ -51,6 +57,31 @@ impl<'s> Parser<'s> for ValueDeclaration<'s>
             Success(ValueDeclaration::WithValue(pat, _type, value))
         }
         else if let Some(th) = _type { Success(ValueDeclaration::Prototype(pat, th)) }
+        else { Failed(ParseError::expect_type(stream.current().position())) }
+    }
+}
+impl<'s> Parser<'s> for MemberDeclaration<'s>
+{
+    type ResultTy = Self;
+    /// Parse a member declaration
+    /// # Example
+    /// 
+    /// ```
+    /// # use pureshader::*;
+    /// let s = TokenizerState::from("(f4 x y z w).sum: e -> e = x + y + z + w").strip_all();
+    /// let vd = MemberDeclaration::parse(&mut PreanalyzedTokenStream::from(&s[..]), Leftmost::NothingIncInc).unwrap();
+    /// ```
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, Self> where 's: 't
+    {
+        let pat = BreakParsing!(DefPattern::parse(stream, leftmost));
+        let leftmost = leftmost.into_nothing_as(Leftmost::Exclusive(pat.position().column)).into_exclusive();
+        let tyhint = type_hint(stream, leftmost).into_result_opt()?;
+        if shift_satisfy_leftmost(stream, leftmost, S::shift_equal).is_ok()
+        {
+            let value = FullExpression::parse(stream, leftmost).into_result(|| ParseError::expect_expr(stream.current().position()))?;
+            Success(MemberDeclaration::WithDefinition(pat, tyhint, value))
+        }
+        else if let Some(th) = tyhint { Success(MemberDeclaration::Prototype(pat, th)) }
         else { Failed(ParseError::expect_type(stream.current().position())) }
     }
 }

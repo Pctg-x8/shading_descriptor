@@ -5,6 +5,7 @@ use super::err::*;
 use parser::{ExpectingKind, Leftmost, take_current_block_begin, get_definition_leftmost, Parser};
 use parser::utils::*;
 use lambda::Numeric;
+use Position;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)] pub enum ExpressionSynTree<'s>
 {
@@ -19,9 +20,13 @@ use lambda::Numeric;
     SymPath(Source<'s>, Vec<Source<'s>>), Prefix(Box<ExprPatSynTree<'s>>, Vec<ExprPatSynTree<'s>>),
     Infix { lhs: Box<ExprPatSynTree<'s>>, mods: Vec<(Source<'s>, ExprPatSynTree<'s>)> }, Tuple(Location, Vec<ExprPatSynTree<'s>>)
 }
-impl<'s> ExpressionSynTree<'s>
+#[derive(Debug, Clone, PartialEq, Eq, Hash)] pub enum DefPattern<'s>
 {
-    pub fn position(&self) -> &Location
+    SelfPattern(ExprPatSynTree<'s>, ExprPatSynTree<'s>), GlobalPattern(ExprPatSynTree<'s>)
+}
+impl<'s> Position for ExpressionSynTree<'s>
+{
+    fn position(&self) -> &Location
     {
         match *self
         {
@@ -32,9 +37,9 @@ impl<'s> ExpressionSynTree<'s>
         }
     }
 }
-impl<'s> ExprPatSynTree<'s>
+impl<'s> Position for ExprPatSynTree<'s>
 {
-    pub fn position(&self) -> &Location
+    fn position(&self) -> &Location
     {
         match *self
         {
@@ -42,6 +47,13 @@ impl<'s> ExprPatSynTree<'s>
             ExprPatSynTree::Prefix(ref x, _) | ExprPatSynTree::Infix { lhs: ref x, .. } => x.position(),
             ExprPatSynTree::ArrayLiteral(ref p, _) | ExprPatSynTree::Tuple(ref p, _) | ExprPatSynTree::Placeholder(ref p) => p
         }
+    }
+}
+impl<'s> Position for DefPattern<'s>
+{
+    fn position(&self) -> &Location
+    {
+        match *self { DefPattern::GlobalPattern(ref p) | DefPattern::SelfPattern(ref p, _) => p.position() }
     }
 }
 
@@ -232,6 +244,29 @@ impl<'s> Parser<'s> for ExpressionSynTree<'s>
 impl<'s> Into<FullExpression<'s>> for ExpressionSynTree<'s>
 {
     fn into(self) -> FullExpression<'s> { FullExpression::Expression(self) }
+}
+impl<'s> Parser<'s> for DefPattern<'s>
+{
+    type ResultTy = DefPattern<'s>;
+    /// Parses an expression pattern with self
+    /// # Example
+    /// 
+    /// ```
+    /// # use pureshader::*;
+    /// let s = TokenizerState::from("(f4 x y z w).sum").strip_all();
+    /// let mut st = PreanalyzedTokenStream::from(&s[..]);
+    /// ExpressionSynTree::parse(&mut st, Leftmost::Nothing).unwrap();
+    /// ```
+    fn parse<'t, S: TokenStream<'s, 't>>(stream: &mut S, leftmost: Leftmost) -> ParseResult<'t, DefPattern<'s>> where 's: 't
+    {
+        let p1 = BreakParsing!(ExprPatSynTree::parse(stream, leftmost));
+        if stream.shift_object_descender().is_ok()
+        {
+            let p2 = ExprPatSynTree::parse(stream, leftmost).into_result(|| ParseError::expect_pat(stream.current().position()))?;
+            Success(DefPattern::SelfPattern(p1, p2))
+        }
+        else { Success(DefPattern::GlobalPattern(p1)) }
+    }
 }
 
 /// Let Binding(pat = expr)

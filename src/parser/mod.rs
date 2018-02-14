@@ -11,8 +11,8 @@ use Position;
 
 // child parsers //
 pub use self::types::{FullTypeDesc, TypeSynTree, TypeFn, TypeDeclaration, DataConstructor, InferredArrayDim};
-pub use self::expr::{FullExpression, ExpressionSynTree, BlockContent, ExprPatSynTree, Binding};
-pub use self::decls::{ValueDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
+pub use self::expr::{FullExpression, ExpressionSynTree, BlockContent, ExprPatSynTree, DefPattern, Binding};
+pub use self::decls::{ValueDeclaration, MemberDeclaration, UniformDeclaration, ConstantDeclaration, SemanticOutput, SemanticInput};
 pub use self::assoc::{Associativity, AssociativityEnv, AssociativityEnvironment};
 pub use self::class::{TraitDef, TraitImplementDef};
 

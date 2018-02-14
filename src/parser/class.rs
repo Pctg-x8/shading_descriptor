@@ -6,12 +6,12 @@ use {Keyword, Location};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitDef<'s>
 {
-    pub begin: Location, pub pat: FullTypeDesc<'s>, pub constraints: Vec<TypeSynTree<'s>>, pub bindings: Vec<ValueDeclaration<'s>>
+    pub begin: Location, pub pat: FullTypeDesc<'s>, pub constraints: Vec<TypeSynTree<'s>>, pub bindings: Vec<MemberDeclaration<'s>>
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitImplementDef<'s>
 {
-    pub begin: Location, pub pat: FullTypeDesc<'s>, pub bindings: Vec<ValueDeclaration<'s>>
+    pub begin: Location, pub pat: FullTypeDesc<'s>, pub bindings: Vec<MemberDeclaration<'s>>
 }
 impl<'s> Position for TraitDef<'s> { fn position(&self) -> &Location { &self.begin } }
 impl<'s> Position for TraitImplementDef<'s> { fn position(&self) -> &Location { &self.begin } }
@@ -37,7 +37,7 @@ impl<'s> BlockParserM<'s> for TraitDef<'s>
         }
         else { Vec::new() };
         let mut bindings = Vec::new();
-        parse_in_optblock(stream, leftmost, |stream, lmb| match ValueDeclaration::parse(stream, lmb)
+        parse_in_optblock(stream, leftmost, |stream, lmb| match MemberDeclaration::parse(stream, lmb)
         {
             Success(v) => { bindings.push(v); Ok(()) },
             Failed(e) => Err(e), NotConsumed => Err(ParseError::Expecting(ExpectingKind::ValueDecl, stream.current().position()))
@@ -54,7 +54,7 @@ impl<'s> BlockParserM<'s> for TraitImplementDef<'s>
         let leftmost = Leftmost::Inclusive(begin.column);
         let pat = FullTypeDesc::parse(stream, leftmost.into_exclusive()).into_result(|| ParseError::expect_instance_def(stream.current().position()))?;
         let mut bindings = Vec::new();
-        parse_in_optblock(stream, leftmost, |stream, lmb| match ValueDeclaration::parse(stream, lmb)
+        parse_in_optblock(stream, leftmost, |stream, lmb| match MemberDeclaration::parse(stream, lmb)
         {
             Success(v) => { bindings.push(v); Ok(()) },
             Failed(e) => Err(e), NotConsumed => Err(ParseError::Expecting(ExpectingKind::ValueDecl, stream.current().position()))
